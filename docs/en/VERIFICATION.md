@@ -29,3 +29,7 @@ CI uses temporary settings, synthetic credentials, and simulated control planes,
 Isolated native Mac checks passed for all four pages in all three languages, native menus, language persistence after restart, and preservation of unsaved drafts. Switching language left encrypted settings and managed process IDs unchanged. Screenshots were captured from this real renderer with a simulated tunnel, not from a real client call. Website checks cover all three static routes, localized release/download states, matching images and documentation links. ChatGPT composer screenshots show task entry in each language, not a successful tool response.
 
 The updated local suite passed 69 of 71 checks; the two Windows-native checks were skipped on Mac.
+
+The signed native Mac application also passed the complete isolated packaged-window checks in all three languages.
+
+Both [native CI jobs](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39004923858) and the [three-language Pages deployment](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39004923882) passed. The application installed on the original Mac switched among all three languages while its real Tunnel stayed ready with 26 tools. The encrypted settings fingerprint remained unchanged. These language checks do not repeat the earlier real client read/write acceptance.

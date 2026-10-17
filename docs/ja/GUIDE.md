@@ -6,7 +6,7 @@
 
 ChatToHarness は、安全なトンネルを通じて、対応クライアントからローカルのファイル、ターミナル、Git、開発ツールを利用するためのデスクトップコンソールです。ツールを実行する前に、対象プロジェクトの規約をクライアントへ渡します。
 
-[ドキュメント一覧](README.md) · [サイト・ダウンロード](https://dj-huang.github.io/ChatToHarness/) · [リリース・チェックサム](https://github.com/DJ-Huang/ChatToHarness/releases) · [クライアント接続](CLIENTS.md) · [アーキテクチャ](ARCHITECTURE.md) · [検証記録](VERIFICATION.md) · [リリース管理](RELEASING.md)
+[ドキュメント一覧](README.md) · [サイト・ダウンロード](https://dj-huang.github.io/ChatToHarness/ja/) · [リリース・チェックサム](https://github.com/DJ-Huang/ChatToHarness/releases) · [クライアント接続](CLIENTS.md) · [アーキテクチャ](ARCHITECTURE.md) · [検証記録](VERIFICATION.md) · [リリース管理](RELEASING.md)
 
 ## インストールと利用
 

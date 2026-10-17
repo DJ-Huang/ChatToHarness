@@ -6,7 +6,7 @@
 
 ChatToHarness is a desktop console that lets supported clients use local files, terminals, Git, and development tools through a secure tunnel. Applicable project instructions are delivered before tool operations.
 
-[Documentation](README.md) · [Website and downloads](https://dj-huang.github.io/ChatToHarness/) · [Releases and checksums](https://github.com/DJ-Huang/ChatToHarness/releases) · [Clients](CLIENTS.md) · [Architecture](ARCHITECTURE.md) · [Verification](VERIFICATION.md) · [Release maintenance](RELEASING.md)
+[Documentation](README.md) · [Website and downloads](https://dj-huang.github.io/ChatToHarness/en/) · [Releases and checksums](https://github.com/DJ-Huang/ChatToHarness/releases) · [Clients](CLIENTS.md) · [Architecture](ARCHITECTURE.md) · [Verification](VERIFICATION.md) · [Release maintenance](RELEASING.md)
 
 ## Installation and use
 

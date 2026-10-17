@@ -1,7 +1,7 @@
 'use strict';
 const baseURL='https://dj-huang.github.io/ChatToHarness/';
 const repositoryURL='https://github.com/DJ-Huang/ChatToHarness';
-const routes=['','en/','ja/'];
+const routes=['','en/','zh-CN/','ja/'];
 function validatePage(html,version){
   if(!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version))throw new Error('Expected a stable version.');
   const prefix=`${repositoryURL}/releases/download/v${version}/`;

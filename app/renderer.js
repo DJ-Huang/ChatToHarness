@@ -27,12 +27,21 @@
   let updatePending = false;
   let updatePreferencePending = false;
   let updateError = '';
+  let mcpPending = '';
+  let mcpEditorId = null;
+  let mcpTrustRequest = null;
+  let mcpImportDraft = null;
+  let mcpRenderKey = '';
+  let approvalRenderKey = '';
+  const mcpApprovalPending = new Set();
+  const mcpOpenTools = new Set();
   const cancelled = Symbol('cancelled');
-  const tabNames = ['overview', 'connection', 'directories', 'help'];
+  const tabNames = ['overview', 'connection', 'directories', 'mcp', 'help'];
   const pages = {
     overview: ['工作空间概览', '将 AI 对话连接到本机执行环境。'],
     connection: ['连接配置', '为这个工作空间建立一条安全通道。'],
     directories: ['工作目录', '选择协作范围，自动交付工程规范。'],
+    mcp: ['MCP Servers', '配置本应用的工具服务，再通过安全通道提供给客户端。'],
     help: ['接入与帮助', '连接客户端，开始第一次本机工具调用。'],
   };
   const stateNames = {
@@ -40,7 +49,7 @@
     starting: '连接中', ready: '通道就绪', reconnecting: '重连中', failed: '连接异常',
   };
   const descriptions = {
-    unconfigured: '选择工作目录，保存连接配置，即可开始。',
+    unconfigured: '添加工作目录或 MCP 服务，保存连接配置，即可开始。',
     stopped: '连接已停止，可以随时重新连接。',
     authorizing: '请在系统窗口授权访问已保存的凭据。',
     checking: '正在确认本机工具是否可用。',
@@ -68,6 +77,40 @@
     JSON.stringify({ directories: currentState?.settings?.directories || [], autoProjectContext: currentState?.settings?.autoProjectContext !== false });
   const safeMessage = (error) => typeof error?.message === 'string' && error.message.trim()
     ? error.message : t('操作未完成，请重试或查看日志。');
+  const mcpErrors = {
+    MCP_APPROVAL_DENIED: '已拒绝此次工具调用。', MCP_APPROVAL_EXPIRED: '此次调用的确认已过期，未获得执行授权。',
+    MCP_AUTH_REQUIRED: '服务认证失败，请检查密钥或请求头。', MCP_CANCELLED: 'MCP 操作已取消。',
+    MCP_CONNECTION_FAILED: 'MCP 服务连接失败，请检查配置或稍后重试。', MCP_CONNECT_TIMEOUT: '连接 MCP 服务超时，请检查服务是否可用。',
+    MCP_CURSOR_EXPIRED: '工具目录已更新，请刷新后重试。', MCP_DISCONNECTED: 'MCP 服务已断开；执行中的调用请先检查实际结果。',
+    MCP_INVALID_APPROVAL: '调用确认无效，请重新发起请求。', MCP_INVALID_ARGUMENTS: '工具参数无效，请检查后重试。',
+    MCP_INVALID_CONFIG: 'MCP 配置无效，请检查后重试。', MCP_INVALID_TOOL_POLICY: '工具已变更，请刷新列表后重新授权。',
+    MCP_MESSAGE_TOO_LARGE: 'MCP 消息超过允许大小，请减少请求或返回内容。', MCP_NO_TOOLS: '尚无已授权的工具，请先启用服务并设置工具权限，或添加工作目录。',
+    MCP_POLICY_CHANGED: '工具权限已变更，此次调用已停止。', MCP_PROTOCOL_INVALID: '服务返回的 MCP 消息无效，连接已停止。',
+    MCP_PROTOCOL_UNSUPPORTED: '此服务的 MCP 协议版本暂不支持，请使用兼容版本。', MCP_SECRET_MISSING: '此服务有缺失或无法解密的密钥，请编辑并重新填写。',
+    MCP_SERVER_BUSY: '此服务正在处理较多请求，请稍后重试。', MCP_STOPPED: 'MCP 连接已停止。',
+    MCP_TIMEOUT: '调用已超时。若已开始执行，请先检查实际结果。', MCP_TOOLS_CHANGED: '工具定义已变更，请重新核对并授权。',
+    MCP_TOOL_DENIED: '此工具尚未获得调用授权。', MCP_TRUST_REQUIRED: '请先核对并信任此服务，再连接或测试。',
+    MCP_START_FAILED: '无法启动服务，请检查命令、参数与工作目录。', MCP_TRANSPORT_CLOSED: 'MCP 服务连接已关闭。',
+    MCP_TRANSPORT_STARTED: '此服务已在运行，请复用现有连接。',
+    INVALID_INPUT: 'MCP 配置无效，请检查后重试。', INVALID_SERVER_ID: '服务 ID 须以小写字母开头，最多 32 位，可含数字、下划线或连字符。',
+    INVALID_COMMAND: '请填写启动命令；文件路径须为对应平台的绝对路径。', INVALID_ARGUMENTS: '启动参数必须是字符串 JSON 数组。',
+    INVALID_CWD: '启动工作目录须为对应平台的绝对路径。', INVALID_URL: '服务地址须使用 HTTPS；仅本机回环地址可使用 HTTP，且不能包含账号、密码或片段。',
+    INVALID_TRANSPORT: '此连接方式暂不支持，请选择 stdio 或 Streamable HTTP。', INVALID_PLATFORM: '平台覆盖配置无效，请仅使用 darwin 和 win32。',
+    INVALID_TIMEOUT: '调用时限须为 1 到 90 秒。', INVALID_TOOL_POLICY: '工具已变更，请刷新列表后重新授权。',
+    INVALID_SECRET_REFERENCE: '密钥引用无效，请保留原引用或重新输入密钥。', INVALID_IMPORT: '导入配置无效，请检查 JSON 格式及服务定义。',
+    IMPORT_EXPIRED: '导入预览已过期，请重新预览。', IMPORT_CONFLICT: '导入预览与当前配置冲突，请重新预览。',
+    SERVER_NOT_FOUND: '此 MCP 服务已不存在，请刷新列表。', SERVER_LIMIT: 'MCP 服务数量超过上限（100）。',
+    CONFIG_TOO_LARGE: 'MCP 配置超过允许大小，请减少服务或配置内容。', PLATFORM_UNSUPPORTED: '此启动配置不适用于当前平台，请填写平台覆盖路径。',
+    SECRET_MISSING: '此服务有缺失或无法解密的密钥，请编辑并重新填写。', ENCRYPTION_UNAVAILABLE: '系统安全存储不可用，请完成系统授权后重试。',
+    ENCRYPTION_FAILED: '密钥无法安全保存，请重试。', DECRYPTION_FAILED: '此服务有缺失或无法解密的密钥，请编辑并重新填写。',
+    UNSAFE_STORAGE: 'MCP 配置目录不安全，未读取或写入配置。', STORAGE_UNAVAILABLE: 'MCP 配置存储不可用，请检查目录权限。',
+    INVALID_CONFIG: 'MCP 配置文件无法读取，原文件已保留。', WRITE_FAILED: 'MCP 配置无法保存，请检查目录权限后重试。',
+  };
+  function mcpErrorMessage(error) {
+    const message = typeof error === 'string' ? error : safeMessage(error);
+    const code = /(?:^|: )([A-Z][A-Z_]+)$/.exec(message)?.[1];
+    return mcpErrors[code] || (code ? 'MCP 操作未完成，请检查配置后重试。' : message);
+  }
 
   function showTab(name, focus = false) {
     if (!Object.hasOwn(pages, name)) return;
@@ -184,16 +227,17 @@
     const dirty = initialized && isDirty();
     byId('save-indicator').textContent = dirty ? t('有未保存的更改') : keySaved ? t('配置已保存') : t('填写后保存');
     byId('save-indicator').className = `save-indicator${dirty ? ' dirty' : ''}`;
-    byId('workspace-save-indicator').textContent = initialized && workspaceDirty() ? t('有未保存的更改') : directories.length ? t('设置已保存') : t('请先添加目录');
+    byId('workspace-save-indicator').textContent = initialized && workspaceDirty() ? t('有未保存的更改') : directories.length ? t('设置已保存') : t('未启用文件工具');
     byId('workspace-save-indicator').className = `save-indicator${workspaceDirty() ? ' dirty' : ''}`;
     byId('save-connect').disabled = locked;
     byId('save-connect-label').textContent = pending === 'save' || state === 'starting' ? t('正在连接…') : t('保存并连接');
-    byId('save-workspace').disabled = locked || !directories.length;
-    byId('check-connection').disabled = locked || !directories.length;
+    byId('save-workspace').disabled = locked;
+    byId('check-connection').disabled = locked;
     byId('check-connection').textContent = pending === 'check' || state === 'checking' ? t('检查中…') : t('检查本机工具');
     byId('reconnect').disabled = locked || !keySaved || !currentState?.settings?.tunnelId;
     byId('reconnect-label').textContent = ['ready', 'reconnecting', 'failed'].includes(state) ? t('重新连接') : t('连接通道');
-    byId('stop').disabled = (!active && !['save', 'check', 'reconnect'].includes(pending)) || pending === 'stop';
+    const mcpActive = (currentState?.mcp?.servers || []).some(server => ['connecting', 'connected', 'ready', 'reconnecting'].includes(server.phase));
+    byId('stop').disabled = (!active && !mcpActive && !['save', 'check', 'reconnect'].includes(pending)) || pending === 'stop';
     byId('clear-credentials').disabled = locked || (!keySaved && !currentState?.settings?.tunnelId && !keyInput.value);
     byId('add-directory').disabled = Boolean(pending) || installing || !initialized;
     [tunnelInput, keyInput, autoConnectInput, autoProjectContextInput].forEach((input) => { input.disabled = installing || ['save', 'workspace', 'clear'].includes(pending); });
@@ -201,7 +245,7 @@
     byId('action-message').textContent = t(actionMessage);
     const error = actionError || (state === 'failed' ? runtime.error : '') || '';
     byId('error-banner').hidden = !error;
-    byId('error-message').textContent = t(error);
+    byId('error-message').textContent = t(mcpErrors[error] || error);
     byId('tools-summary').textContent = runtime.localReady ? t('{count} 项可用', { count: runtime.toolsCount || '—' }) : state === 'checking' ? t('正在检查') : t('等待检查');
     byId('folders-summary').textContent = directories.length ? t('{count} 个目录', { count: directories.length }) : t('尚未选择');
     byId('directory-nav-count').textContent = String(directories.length);
@@ -225,6 +269,214 @@
       ['Node', versions.node], [t('通道运行组件'), versions.tunnel], [t('工具引擎'), versions.desktopCommander],
     ].map(([name, version]) => `${name} ${version || t('未读取')}`).join(' · ');
     renderUpdates();
+    renderMcp();
+  }
+
+  const mcpServers = () => currentState?.mcp?.servers || [];
+  const mcpServer = id => mcpServers().find(server => server.id === id);
+  const make = (tag, className, content) => {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (content !== undefined) element.textContent = content;
+    return element;
+  };
+  function mcpButton(label, handler, style = 'secondary') {
+    const button = make('button', 'button compact-button ' + style, t(label));
+    button.type = 'button';
+    button.disabled = Boolean(mcpPending) || !initialized || ['downloading', 'verifying', 'installing'].includes(currentState?.updates?.phase);
+    button.addEventListener('click', handler);
+    return button;
+  }
+  function mcpTarget(server) {
+    if (server.transport === 'streamable-http') return server.url || '';
+    const override = server.platforms?.[currentState?.system?.platform] || {};
+    const command = override.command ?? server.command ?? '';
+    const args = override.args ?? server.args ?? [];
+    const cwd = override.cwd ?? server.cwd ?? '';
+    return [command, JSON.stringify(args), cwd ? t('工作目录：{directory}', { directory: cwd }) : ''].filter(Boolean).join('\n');
+  }
+  function mcpDetails(label, value) {
+    const details = make('details', 'mcp-tool-details');
+    details.append(make('summary', '', t(label)), make('pre', 'code-example', JSON.stringify(value, null, 2)));
+    return details;
+  }
+  function renderMcp() {
+    const servers = mcpServers();
+    const installing = ['downloading', 'verifying', 'installing'].includes(currentState?.updates?.phase);
+    const busy = Boolean(mcpPending) || installing || !initialized;
+    for (const id of ['mcp-add', 'mcp-save', 'mcp-cancel', 'mcp-import-preview', 'mcp-export', 'mcp-import-confirm', 'mcp-trust-confirm', 'mcp-trust-cancel']) byId(id).disabled = busy;
+    byId('mcp-import-text').disabled = busy;
+    byId('mcp-import-preview').disabled = busy || !byId('mcp-import-text').value.trim();
+    byId('mcp-id').disabled = busy || Boolean(mcpEditorId);
+    for (const id of ['mcp-name', 'mcp-transport', 'mcp-timeout', 'mcp-command', 'mcp-args', 'mcp-cwd', 'mcp-env', 'mcp-url', 'mcp-headers', 'mcp-platforms']) byId(id).disabled = busy;
+    byId('mcp-nav-count').textContent = String(servers.length);
+    byId('mcp-editor-title').textContent = t(mcpEditorId ? '编辑 MCP 服务' : '添加 MCP 服务');
+    byId('mcp-save').textContent = t(mcpPending === 'save' ? '正在保存…' : '保存服务');
+    const key = JSON.stringify([servers, locale, mcpPending, initialized, installing]);
+    if (key !== mcpRenderKey) {
+      mcpRenderKey = key;
+      const list = byId('mcp-server-list');
+      list.replaceChildren();
+      if (!servers.length) list.append(make('div', 'empty-folders', t('尚未添加 MCP 服务。添加服务或导入配置后，先测试连接再授权工具。')));
+      const phases = { disabled: '已停用', stopped: '已停止', connecting: '连接中', starting: '连接中', connected: '已连接', ready: '已连接', reconnecting: '重连中', failed: '连接异常', error: '连接异常', untrusted: '等待信任', disconnected: '未连接' };
+      for (const server of servers) {
+        const item = make('article', 'mcp-server');
+        const heading = make('div', 'mcp-server-heading');
+        const name = make('div', 'mcp-server-copy');
+        name.append(make('h3', '', server.name || server.id), make('span', 'mcp-server-id', server.id));
+        const status = make('span', 'mcp-server-status', t(phases[server.phase] || (server.enabled ? '未连接' : '已停用')));
+        status.dataset.phase = server.phase || 'disabled';
+        heading.append(name, status);
+        item.append(heading, make('pre', 'mcp-target', mcpTarget(server)));
+        const protocol = server.protocolVersion ? t('协议版本：{version}', { version: server.protocolVersion }) : t('协议版本：尚未协商');
+        item.append(make('p', 'mcp-caption', protocol));
+        if (server.error) item.append(make('p', 'mcp-server-error', t(mcpErrorMessage(server.error))));
+        if (server.missingSecrets?.length) item.append(make('p', 'mcp-server-error', t('此服务有缺失的密钥，请编辑并重新填写：{fields}', { fields: server.missingSecrets.map(entry => typeof entry === 'string' ? entry : [entry.field, entry.key].filter(Boolean).join('.')).join(', ') })));
+        const actions = make('div', 'mcp-actions');
+        actions.append(
+          mcpButton(server.enabled ? '停用' : '启用', () => server.enabled ? mcpPerform('disable', () => api.mcpSetEnabled(server.id, false)) : requestMcpConnection(server, 'enable')),
+          mcpButton('测试连接', () => requestMcpConnection(server, 'test')),
+          mcpButton('编辑', () => openMcpEditor(server)),
+          mcpButton('删除', () => {
+            const review = make('div', 'mcp-delete-review');
+            review.append(make('p', 'mcp-caption', t('删除此服务会停止连接并移除配置。')),
+              mcpButton('确认删除', () => mcpPerform('remove', async () => { const state = await api.mcpRemoveServer(server.id); if (mcpEditorId === server.id) closeMcpEditor(); return state; }), 'subtle-danger'),
+              mcpButton('取消', () => { mcpRenderKey = ''; renderMcp(); }));
+            actions.replaceChildren(review);
+          }, 'subtle-danger'),
+        );
+        item.append(actions);
+        const tools = make('details', 'mcp-tools');
+        tools.open = mcpOpenTools.has(server.id);
+        tools.addEventListener('toggle', () => { if (tools.open) mcpOpenTools.add(server.id); else mcpOpenTools.delete(server.id); });
+        tools.append(make('summary', '', t('工具与授权（{count}）', { count: server.tools?.length || 0 })));
+        if (!server.tools?.length) tools.append(make('p', 'mcp-caption', t('连接后可预览工具；工具默认禁用。')));
+        for (const tool of server.tools || []) {
+          const row = make('div', 'mcp-tool');
+          const line = make('div', 'mcp-tool-heading');
+          const title = make('div', 'mcp-server-copy');
+          title.append(make('strong', '', tool.title || tool.name), make('code', 'mcp-server-id', tool.exposedName || server.id + '__' + tool.name));
+          const label = make('label', 'mcp-policy');
+          label.append(make('span', '', t('调用权限')));
+          const select = make('select');
+          select.setAttribute('aria-label', t('{tool} 的调用权限', { tool: tool.name }));
+          for (const [value, text] of [['deny', '禁用'], ['allow', '直接调用'], ['ask', '每次本机确认']]) {
+            const option = make('option', '', t(text)); option.value = value; select.append(option);
+          }
+          select.value = tool.policy || 'deny';
+          select.disabled = busy;
+          select.addEventListener('change', event => mcpPerform('policy', () => api.mcpSetToolPolicy({ serverId: server.id, toolName: tool.name, policy: event.target.value })));
+          label.append(select); line.append(title, label); row.append(line);
+          if (tool.description) row.append(make('p', 'mcp-tool-description', tool.description));
+          row.append(mcpDetails('输入参数', tool.inputSchema || {}));
+          if (tool.outputSchema) row.append(mcpDetails('返回格式', tool.outputSchema));
+          tools.append(row);
+        }
+        item.append(tools); list.append(item);
+      }
+    }
+    const trustServer = mcpTrustRequest && mcpServer(mcpTrustRequest.id);
+    byId('mcp-trust').hidden = !trustServer;
+    if (trustServer) {
+      byId('mcp-trust-target').textContent = (trustServer.name || trustServer.id) + '\n' + mcpTarget(trustServer);
+      byId('mcp-trust-confirm').textContent = t(mcpTrustRequest.action === 'test' ? '信任并测试' : '信任并连接');
+    }
+    if (mcpImportDraft) renderMcpImport();
+    renderMcpApprovals();
+  }
+  function renderMcpApprovals() {
+    const approvals = currentState?.mcp?.approvals || [];
+    byId('mcp-approvals').hidden = !approvals.length;
+    const key = JSON.stringify([approvals, locale, [...mcpApprovalPending]]);
+    if (key === approvalRenderKey) return;
+    approvalRenderKey = key;
+    const list = byId('mcp-approval-list'); list.replaceChildren();
+    for (const approval of approvals) {
+      const row = make('article', 'mcp-approval');
+      row.append(make('h3', '', (approval.serverName || approval.serverId) + ' · ' + approval.toolName));
+      const deadline = Number(approval.expiresAt) || Date.parse(approval.expiresAt);
+      if (Number.isFinite(deadline)) row.append(make('p', 'mcp-caption', t('确认截止：{time}', { time: new Intl.DateTimeFormat(locale, { timeStyle: 'medium' }).format(deadline) })));
+      row.append(make('pre', 'code-example', JSON.stringify(approval.arguments ?? {}, null, 2)));
+      const buttons = make('div', 'mcp-actions');
+      for (const [allow, label] of [[false, '拒绝'], [true, '允许此次调用']]) {
+        const button = make('button', 'button ' + (allow ? 'primary' : 'secondary'), t(label)); button.type = 'button';
+        button.disabled = mcpApprovalPending.has(approval.id) || (Number.isFinite(deadline) && deadline <= Date.now());
+        button.addEventListener('click', async () => {
+          if (mcpApprovalPending.has(approval.id)) return;
+          mcpApprovalPending.add(approval.id); renderMcpApprovals();
+          try { const state = await api.mcpResolveApproval({ id: approval.id, allow }); if (state?.mcp || state?.runtime) applyState(state); }
+          catch (error) { actionError = mcpErrorMessage(error); }
+          finally { mcpApprovalPending.delete(approval.id); render(); }
+        });
+        buttons.append(button);
+      }
+      row.append(buttons); list.append(row);
+    }
+  }
+  async function mcpPerform(name, work) {
+    if (mcpPending) return;
+    mcpPending = name; actionError = ''; actionMessage = ''; render();
+    try {
+      const state = await work();
+      if (state?.mcp || state?.settings || state?.runtime) applyState(state);
+    } catch (error) { actionError = mcpErrorMessage(error); }
+    finally { mcpPending = ''; render(); }
+  }
+  function requestMcpConnection(server, action) {
+    if (!server.trusted) {
+      mcpTrustRequest = { id: server.id, action }; renderMcp();
+      byId('mcp-trust').scrollIntoView?.({ block: 'nearest' });
+      byId('mcp-trust-confirm').focus();
+      return;
+    }
+    mcpPerform(action, () => action === 'test' ? api.mcpTestServer(server.id) : api.mcpSetEnabled(server.id, true));
+  }
+  function openMcpEditor(server = null) {
+    mcpEditorId = server?.id || null;
+    byId('mcp-id').value = server?.id || '';
+    byId('mcp-name').value = server?.name || '';
+    byId('mcp-transport').value = server?.transport || 'stdio';
+    byId('mcp-timeout').value = String((server?.timeoutMs || 60000) / 1000);
+    byId('mcp-command').value = server?.command || '';
+    byId('mcp-args').value = JSON.stringify(server?.args || [], null, 2);
+    byId('mcp-cwd').value = server?.cwd || '';
+    byId('mcp-env').value = JSON.stringify(server?.env || {}, null, 2);
+    byId('mcp-url').value = server?.url || '';
+    byId('mcp-headers').value = JSON.stringify(server?.headers || {}, null, 2);
+    byId('mcp-platforms').value = JSON.stringify(server?.platforms || {}, null, 2);
+    byId('mcp-editor').hidden = false;
+    updateMcpTransport(); renderMcp();
+    byId('mcp-editor').scrollIntoView?.({ block: 'nearest' });
+    byId(server ? 'mcp-name' : 'mcp-id').focus();
+  }
+  function closeMcpEditor() {
+    byId('mcp-editor').hidden = true; mcpEditorId = null;
+    // Newly entered secrets must not remain in a hidden editor after save/cancel.
+    for (const id of ['mcp-env', 'mcp-headers']) byId(id).value = '{}';
+  }
+  function updateMcpTransport() {
+    const http = byId('mcp-transport').value === 'streamable-http';
+    byId('mcp-http-fields').hidden = !http;
+    byId('mcp-stdio-fields').hidden = http;
+  }
+  function parseMcpJson(id, kind) {
+    let value;
+    try { value = JSON.parse(byId(id).value.trim() || (kind === 'array' ? '[]' : '{}')); }
+    catch { byId(id).focus(); throw new Error(t('请填写有效的 JSON。')); }
+    if (kind === 'array' ? !Array.isArray(value) || value.some(item => typeof item !== 'string') : !value || typeof value !== 'object' || Array.isArray(value)) {
+      byId(id).focus(); throw new Error(t(kind === 'array' ? '启动参数必须是字符串 JSON 数组。' : '此字段必须是 JSON 对象。'));
+    }
+    return value;
+  }
+  function renderMcpImport() {
+    const list = byId('mcp-import-summary'); list.replaceChildren();
+    for (const server of mcpImportDraft?.servers || []) {
+      const item = make('div', 'mcp-import-server');
+      item.append(make('strong', '', server.name || server.id), make('pre', 'mcp-target', mcpTarget(server)));
+      list.append(item);
+    }
+    if (mcpImportDraft?.missingSecrets?.length) list.append(make('p', 'mcp-server-error', t('导入后需要重新填写引用的密钥。')));
+    list.append(make('p', 'mcp-caption', t('导入仅保存配置，不会启动服务；所有工具保持禁用。')));
   }
 
   function renderUpdates() {
@@ -328,13 +580,6 @@
       render();
       return;
     }
-    if (!directories.length) {
-      actionError = '请至少添加一个工作目录。';
-      showTab('directories');
-      byId('add-directory').focus();
-      render();
-      return;
-    }
     perform('save', async (checkpoint) => {
       const settings = values();
       if (keyInput.value.trim()) settings.apiKey = keyInput.value.trim();
@@ -407,6 +652,70 @@
     actionMessage = '已清除通道标识与密钥，工作目录设置已保留。';
   }));
   byId('open-logs').addEventListener('click', () => perform('logs', () => api.openLogs()));
+  byId('mcp-add').addEventListener('click', () => openMcpEditor());
+  byId('mcp-cancel').addEventListener('click', closeMcpEditor);
+  byId('mcp-transport').addEventListener('change', updateMcpTransport);
+  byId('mcp-save').addEventListener('click', () => mcpPerform('save', async () => {
+    const id = byId('mcp-id').value.trim();
+    const name = byId('mcp-name').value.trim();
+    if (!id || !name) throw new Error(t('请填写服务 ID 和显示名称。'));
+    const timeout = Number(byId('mcp-timeout').value);
+    if (!Number.isFinite(timeout) || timeout < 1 || timeout > 90) throw new Error(t('调用时限须为 1 到 90 秒。'));
+    const config = { id, name, transport: byId('mcp-transport').value, enabled: mcpEditorId ? mcpServer(mcpEditorId)?.enabled === true : false, timeoutMs: Math.round(timeout * 1000) };
+    if (config.transport === 'stdio') {
+      config.command = byId('mcp-command').value.trim();
+      config.args = parseMcpJson('mcp-args', 'array');
+      config.cwd = byId('mcp-cwd').value.trim();
+      config.env = parseMcpJson('mcp-env', 'object');
+      config.platforms = parseMcpJson('mcp-platforms', 'object');
+    } else {
+      config.url = byId('mcp-url').value.trim();
+      config.headers = parseMcpJson('mcp-headers', 'object');
+    }
+    const state = await api.mcpSaveServer(config);
+    closeMcpEditor(); actionMessage = 'MCP 服务配置已保存。';
+    return state;
+  }));
+  byId('mcp-trust-cancel').addEventListener('click', () => { mcpTrustRequest = null; renderMcp(); });
+  byId('mcp-trust-confirm').addEventListener('click', () => {
+    const request = mcpTrustRequest;
+    if (!request) return;
+    mcpPerform('trust', async () => {
+      const trustedState = await api.mcpTrustServer(request.id);
+      if (trustedState?.mcp) applyState(trustedState);
+      mcpTrustRequest = null;
+      return request.action === 'test' ? api.mcpTestServer(request.id) : api.mcpSetEnabled(request.id, true);
+    });
+  });
+  byId('mcp-import-text').addEventListener('input', () => {
+    mcpImportDraft = null; byId('mcp-import-preview-panel').hidden = true; renderMcp();
+  });
+  byId('mcp-import-preview').addEventListener('click', () => mcpPerform('import-preview', async () => {
+    mcpImportDraft = await api.mcpPreviewImport(byId('mcp-import-text').value);
+    byId('mcp-import-preview-panel').hidden = false;
+    renderMcpImport();
+  }));
+  byId('mcp-import-confirm').addEventListener('click', () => {
+    if (!mcpImportDraft?.draftId) return;
+    const draftId = mcpImportDraft.draftId;
+    mcpPerform('import', async () => {
+      const state = await api.mcpCommitImport(draftId);
+      mcpImportDraft = null; byId('mcp-import-preview-panel').hidden = true; byId('mcp-import-text').value = '';
+      actionMessage = 'MCP 配置已导入，请逐项确认信任与工具授权。';
+      return state;
+    });
+  });
+  byId('mcp-export').addEventListener('click', () => mcpPerform('export', async () => {
+    const exported = await api.mcpExport();
+    byId('mcp-export-text').value = typeof exported === 'string' ? exported : JSON.stringify(exported, null, 2);
+    byId('mcp-export-panel').hidden = false;
+  }));
+  byId('mcp-copy-export').addEventListener('click', () => {
+    const input = byId('mcp-export-text'); input.focus(); input.select();
+    try { if (!document.execCommand('copy')) throw new Error(); actionMessage = '已复制 MCP 配置。'; }
+    catch { actionMessage = '请复制已选中的 MCP 配置。'; }
+    render();
+  });
   byId('check-update').addEventListener('click', () => updateAction('checkUpdate'));
   byId('download-update').addEventListener('click', () => {
     if (isDirty() || pending) return;

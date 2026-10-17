@@ -69,6 +69,6 @@ async function main(){
    assert.ok(output.includes('CTH_HOME='+os.homedir()),'Shell user home changed');assert.ok(output.includes('RUNTIME_KEY_REMOVED'),'Runtime key reached Shell');assert.ok(output.includes('git version'));
    console.log(JSON.stringify({realDesktopCommander:true,tools:tools.tools.length,blockedBeforeContext:true,readsWithoutPrerequisite:true,noAgentsWrite:true,boundedSearch:true,fileRoundTrip:true,nested:true,selectedRules:true,ruleChanges:true,crossProject:true,concurrentContexts:true,shellHomePreserved:true,runtimeKeyRemoved:true}));
   }finally{clearTimeout(timeout);}
- }finally{if(child)await stopTree(child);await manager.close();fs.rmSync(home,{recursive:true,force:true});}
+ }finally{if(child)await stopTree(child);await manager.close();fs.rmSync(home,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
 }
 main().catch(error=>{console.error('真实 MCP 验收失败：'+error.message);process.exitCode=1;});

@@ -9,6 +9,7 @@ ChatToHarness 使用正式发布的 Desktop Commander npm 包，不重新实现�
 | Node.js | 24.22.0 | https://nodejs.org/ | MIT 及其随附依赖许可证 |
 | OpenAI Tunnel client runtime | 0.0.16 | https://github.com/openai/tunnel-client | 参见上游版本的许可证报告 |
 | Desktop Commander | 0.3.0 | https://github.com/wonderwhy-er/DesktopCommanderMCP | MIT 及其随附依赖许可证 |
+| MCP TypeScript SDK | 1.32.1 | https://github.com/modelcontextprotocol/typescript-sdk | MIT |
 | Electron | 44.7.2 | https://www.electronjs.org/ | MIT、Chromium 及其随附依赖许可证 |
 | electron-builder（仅构建使用） | 26.15.3 | https://github.com/electron-userland/electron-builder | MIT |
 
@@ -17,3 +18,5 @@ ChatToHarness 使用正式发布的 Desktop Commander npm 包，不重新实现�
 Desktop Commander 有一处 ChatToHarness 专用的构建时适配：`dist/config.js` 必须使用绝对路径 `LOCALHARNESS_DC_HOME`，而不是把配置写入 `~/.claude-server-commander`。构建在应用补丁前检查原始表达式是否精确匹配，实际用户 `HOME` 不变。适配代码位于仓库的 `scripts/prepare-resources.cjs`。
 
 下载的发布组件按版本和 SHA-256 固定；npm 依赖由已提交的锁文件和 npm 完整性校验固定。Tunnel 的校验值和许可证报告来自[官方版本](https://github.com/openai/tunnel-client/releases/tag/v0.0.16)，Node.js 校验值来自[官方校验清单](https://nodejs.org/dist/v24.22.0/SHASUMS256.txt)。第三方许可证原文保留，不以本说明代替。
+
+MCP SDK 是应用网关及下游客户端的直接运行依赖，原始许可证及其依赖许可证随打包的 npm 依赖保留。用户配置的 MCP 服务是独立程序或服务，不属于应用内置组件，需自行遵守其许可证与访问要求。

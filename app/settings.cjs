@@ -22,7 +22,7 @@ function failure(message, code) {
 }
 
 function directories(value) {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 100) {
+  if (!Array.isArray(value) || value.length > 100) {
     throw failure('请至少选择一个有效的本机文件夹。', 'INVALID_DIRECTORY');
   }
   const result = [];

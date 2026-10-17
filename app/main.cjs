@@ -16,12 +16,14 @@ const {translate,normalize}=require('./i18n.js');
 let preferences,locale='en';
 const t=(message,values)=>translate(locale,message,values);
 // Electron safeStorage uses the application name for its macOS keychain item.
-// Keep that private identity; every visible title and menu uses the new brand.
+// Production keeps its legacy identity. Disposable acceptance profiles own
+// separate test keys, stable across that profile's restart, so a new ad-hoc
+// build does not request access to a previous test application's keychain item.
 const testMode=process.env.LOCALHARNESS_TEST_MODE==='1'&&Boolean(process.env.LOCALHARNESS_HOME)&&path.isAbsolute(process.env.LOCALHARNESS_HOME);
-app.setName(testMode?'ChatToHarness Acceptance':platform==='darwin'?'LocalHarness':product);
 const home=storageDirectory({platform,userHome:os.homedir(),appData:process.env.APPDATA,override:process.env.LOCALHARNESS_HOME});
+app.setName(testMode?'ChatToHarness Acceptance '+require('node:crypto').createHash('sha256').update(home).digest('hex').slice(0,12):platform==='darwin'?'LocalHarness':product);
 app.setPath('userData',home);
-let window,tray,trayMenu,settings,runtime,updater,fatal='',quitting=false,installing=false,quitReady=false,queue=Promise.resolve(),actionEpoch=0;
+let window,tray,trayMenu,settings,runtime,updater,mcpSettings,mcpManager,fatal='',quitting=false,installing=false,quitReady=false,queue=Promise.resolve(),actionEpoch=0;
 const indexURL=pathToFileURL(path.join(__dirname,'index.html')).href;
 const resources=(testMode&&process.env.LOCALHARNESS_RESOURCES)|| (app.isPackaged?process.resourcesPath:(process.env.LOCALHARNESS_RESOURCES||path.join(__dirname,'..','resources')));
 const links=Object.freeze({
@@ -41,7 +43,7 @@ function log(event,detail={}){
     fs.appendFileSync(file,JSON.stringify({time:new Date().toISOString(),event,...detail})+'\n',{mode:0o600});
   }catch{}
 }
-function state(){return {settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
+function state(){return {settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
 function publish(){const value=state();if(window&&!window.isDestroyed())window.webContents.send('localharness:state',value);refreshTray();}
 function show(){if(quitting)return;if(!window||window.isDestroyed())createWindow();if(window.isMinimized())window.restore();window.show();window.focus();}
 function createWindow(){
@@ -57,7 +59,7 @@ function refreshTray(){
   if(!tray)return;const labels={unconfigured:'尚未配置',stopped:'已停止',authorizing:'等待系统授权',checking:'正在检查',starting:'正在连接',ready:'通道就绪',reconnecting:'正在重连',failed:'需要处理'};
   const current=state().runtime;tray.setToolTip(product+' · '+t(labels[current.state]||'尚未配置'));
   const active=['authorizing','checking','starting','ready','reconnecting'].includes(current.state);
-  trayMenu=Menu.buildFromTemplate([{label:product+' · '+t(labels[current.state]||'尚未配置'),enabled:false},{label:t('打开窗口'),click:show},{type:'separator'},{label:t(active?'重新连接':'连接'),enabled:Boolean(settings?.public().keySaved)&&!fatal&&!quitting&&!installing&&!['authorizing','checking','starting'].includes(current.state),click:()=>void connect().catch(()=>show())},{label:t('停止连接'),enabled:active||Boolean(runtime?.desired),click:()=>void stopConnection().catch(()=>show())},{type:'separator'},{label:t('检查更新'),enabled:Boolean(updater)&&!updater.busy&&!quitting,click:()=>{show();window?.webContents.send('localharness:show-updates');void checkUpdate();}},{label:t('查看日志'),click:()=>void openLogs().catch(()=>show())},{label:t('退出 {product}',{product}),accelerator:'CommandOrControl+Q',click:()=>app.quit()}]);
+  trayMenu=Menu.buildFromTemplate([{label:product+' · '+t(labels[current.state]||'尚未配置'),enabled:false},{label:t('打开窗口'),click:show},{type:'separator'},{label:t(active?'重新连接':'连接'),enabled:Boolean(settings?.public().keySaved)&&!fatal&&!quitting&&!installing&&!['authorizing','checking','starting'].includes(current.state),click:()=>void connect().catch(()=>show())},{label:t('停止连接'),enabled:active||Boolean(runtime?.desired)||Boolean(mcpManager&&[...mcpManager.records.values()].some(record=>['connecting','ready','reconnecting'].includes(record.phase))),click:()=>void stopConnection().catch(()=>show())},{type:'separator'},{label:t('检查更新'),enabled:Boolean(updater)&&!updater.busy&&!quitting,click:()=>{show();window?.webContents.send('localharness:show-updates');void checkUpdate();}},{label:t('查看日志'),click:()=>void openLogs().catch(()=>show())},{label:t('退出 {product}',{product}),accelerator:'CommandOrControl+Q',click:()=>app.quit()}]);
 }
 function createTray(){
   let icon;
@@ -147,6 +149,22 @@ function registerIPC(){
   bind('check',()=>action(()=>runtime.check(settings.public())));
   bind('clear-credentials',()=>action(async checkpoint=>{await runtime.disconnect();checkpoint();settings.clearCredentials();}));
   bind('choose-directories',async()=>{const result=await dialog.showOpenDialog(window,{title:t('选择允许文件工具访问的目录'),properties:['openDirectory','multiSelections']});return result.canceled?[]:result.filePaths;});
+  const mcp=handler=>async(...args)=>{
+    if(quitting||installing||!mcpManager||!mcpSettings)throw new Error('MCP_STOPPED');
+    try{return await handler(...args);}catch(error){throw new Error(typeof error.code==='string'?error.code:/^MCP_[A-Z_]+$/.test(error.message)?error.message:'MCP_ACTION_FAILED');}
+  };
+  bind('mcp-save-server',mcp(input=>action(async()=>{const server=mcpSettings.save(input);await mcpManager.syncServer(server.id);})));
+  bind('mcp-remove-server',mcp(id=>action(()=>mcpManager.remove(id))));
+  bind('mcp-set-enabled',mcp((id,enabled)=>action(()=>mcpManager.setEnabled(id,enabled))));
+  bind('mcp-trust-server',mcp(id=>action(()=>{mcpSettings.trust(id);mcpManager.changed();})));
+  bind('mcp-test-server',mcp(id=>action(()=>mcpManager.test(id))));
+  bind('mcp-set-tool-policy',mcp(input=>action(()=>mcpManager.setToolPolicy(input))));
+  bind('mcp-preview-import',mcp(text=>mcpSettings.previewImport(text)));
+  bind('mcp-commit-import',mcp(id=>action(()=>{mcpSettings.commitImport(id);mcpManager.changed();})));
+  bind('mcp-export',mcp(()=>mcpSettings.export()));
+  // Confirmations must not queue behind a connection check or another pending
+  // management action. They can only resolve an already captured request ID.
+  bind('mcp-resolve-approval',mcp(input=>{mcpManager.approve(input);return state();}));
   bind('open-logs',openLogs);
   bind('open-external',async id=>{if(typeof id!=='string'||!Object.hasOwn(links,id))throw new Error('链接无效。');await shell.openExternal(links[id]);});
 }
@@ -179,6 +197,18 @@ else{
       const tunnelScript=testMode&&process.env.LOCALHARNESS_TEST_TUNNEL_SCRIPT;
       if(tunnelScript&&(!path.isAbsolute(tunnelScript)||!fs.statSync(tunnelScript).isFile()))throw new Error();
       runtime=new RuntimeManager({home,resources,log,tunnelScript});runtime.on('state',publish);
+      const {McpSettings}=require('./mcp-settings.cjs');
+      const {McpManager}=require('./mcp-manager.cjs');
+      const {McpGateway}=require('./mcp-gateway.cjs');
+      mcpSettings=new McpSettings(home,safeStorage);
+      mcpManager=new McpManager({settings:mcpSettings,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,fetcher:(url,options)=>net.fetch(url,options),log,
+        builtinFactory:async desktopSettings=>{
+          runtime.prepare(desktopSettings);
+          return {transport:'stdio',command:runtime.paths.node,args:[runtime.launcher,runtime.paths.desktopCommander,String(process.pid)],cwd:desktopSettings.directories[0],env:runtime.childEnvironment(desktopSettings)};
+        }});
+      mcpManager.broker=new McpGateway(mcpManager);runtime.gateway=mcpManager;
+      mcpManager.on('state',()=>{const toolsCount=mcpManager.visibleTools().length;runtime.update({toolsCount,localReady:toolsCount>0});publish();});
+      mcpManager.on('approval',()=>{if(!quitting&&!installing)show();});
       if(settings.public().keySaved)runtime.update({state:'stopped'});
     }catch(error){fatal=error.name==='SettingsError'?error.message:'应用组件或配置无法读取。请重新安装应用，或通过一键启动入口重新准备组件。';log('startup-failed');}
     Menu.setApplicationMenu(applicationMenu());

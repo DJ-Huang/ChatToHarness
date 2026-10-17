@@ -22,9 +22,27 @@ Use **Interface language** in the sidebar to switch between English, Simplified 
 
 Do not send API keys in chat or commit them to the repository. The application saves only system-encrypted credentials, reports only whether a key is saved, and clears the key input after saving. Only the Tunnel receives the Runtime API Key; tool processes do not. API callers need separate credentials.
 
-Closing the window keeps the application running in the background. Left-click the system tray/menu bar icon to open the window; right-click for connection, stop, logs, and quit actions. **Stop connection** disconnects the tunnel; **Quit ChatToHarness** cleans up managed processes and exits. Launching again restores the existing window. Starting at login is disabled by default.
+Closing the window keeps the application running in the background. Left-click the system tray/menu bar icon to open the window; right-click for connection, stop, logs, and quit actions. **Stop connection** stops the tunnel and all managed MCP services; **Quit ChatToHarness** cleans up managed processes and exits. Launching again restores the existing window. Starting at login is disabled by default.
 
 **Tunnel ready** confirms the tunnel and local tools are available. It does not confirm that a client has been configured or has successfully called a tool.
+
+## MCP Servers
+
+This section describes new source functionality that is not included in the published v0.4.0 installers. Use the source development entry point or a local build.
+
+Configure services in **MCP Servers** in ChatToHarness. These are application settings shared by the Tunnel's clients; you do not attach each service to a particular Agent. Built-in file and terminal tools keep their existing names. Unity, browsers and other integrations connect as ordinary MCP services, without app-specific logic in ChatToHarness. No work directory is needed for third-party services; built-in file tools still require authorized folders.
+
+1. Add a service with a stable server ID, display name and transport. `stdio` requires a command and argument list, with optional working directory, environment values and Mac/Windows overrides. Streamable HTTP requires a URL and optional static request headers. Remote URLs require HTTPS; HTTP is limited to loopback. OAuth and legacy HTTP+SSE are not supported.
+2. Save credentials through the app's secret fields. System-encrypted values stay in local secret storage; service configurations and exports contain references. The app never returns saved secrets to the page. Configure only the environment values a service needs; it runs with your user permissions and is not confined by the file-tool directory list.
+3. Before connecting, inspect the exact command or URL and confirm trust. Changing the launch target requires trust again. **Test connection** reuses a healthy connection; it does not call discovered tools. The preview shows connection state and negotiated protocol.
+4. Set each discovered tool to disabled, direct call, or local confirmation on every call. New tools start disabled; changed definitions require authorization again. Read-only hints from a server do not grant access. A local confirmation applies only to the displayed tool, arguments and connection, and must finish within the call deadline.
+5. Enable and connect the service, then refresh the tool catalog in your client if needed. External names use `serverId__toolName`, for example `unity__get_scene`. Configuration, trust and call approvals remain in the desktop app.
+
+JSON import accepts the app's export format and common `mcpServers` configurations. Inspect the preview before importing; imported services are disabled and import never runs a command. Export omits secret values, trust decisions and tool authorizations. Re-enter missing secret values locally and authorize tools before connecting an imported service.
+
+Disabling a service stops only that service. **Stop connection** stops the Tunnel and all managed services; closing the window keeps them in the background. Transport failures reconnect independently without repeating calls. If a forwarded call loses its reply, inspect the target application's state before retrying. Authentication, configuration and protocol errors need correction. SDK `1.32.1` cannot connect to a peer that requires only protocol `2026-07-28`.
+
+Calls have a 60-second default deadline and a 90-second maximum, including confirmation, with an 8 MiB serialized message limit. Results may include structured content and images. Only tools are aggregated; resource/prompt browsing, sampling and elicitation are not provided. Diagnostic logs omit call arguments, result bodies and images. **Tunnel ready** does not establish that a newly added tool has been discovered or called by your client.
 
 ## App updates
 
@@ -56,7 +74,7 @@ Prefer `search_project` for code: supply `project_path` and `pattern`. It defaul
 
 Defaults are 100 results per page and a 2-second search budget, configurable up to 10 seconds. One search stores at most 1,000 matches and 2 MiB; a result page is at most 64 KiB, separate from the guidance budget. Timeout, count/byte limits, partial access, and no matches have distinct states. Long lines/snippets are marked when truncated. `next_cursor` reads the stored snapshot without rescanning, binds the project and query, and expires after five idle minutes. Up to four new searches run concurrently. Existing streaming search tools remain available.
 
-Proxy requests wait 60 seconds by default, up to 180 seconds with an explicit wait parameter. A timeout before forwarding reports `execution_state="not_started"`; a forwarded timeout reports `"unknown"`. Writes, appends, moves, and commands are never automatically replayed. Reads/searches can be retried after inspecting state. Stopping known processes or searches does not require refreshed rules. Handles lost on reconnection produce an explicit error.
+The gateway allows 60 seconds per call by default and at most 90 seconds including any local confirmation. The internal built-in proxy's longer explicit wait cannot extend that total deadline. A timeout before forwarding reports `execution_state="not_started"`; a forwarded timeout reports `"unknown"`. Writes, appends, moves, and commands are never automatically replayed. Reads/searches can be retried after inspecting state. Stopping known processes or searches does not require refreshed rules. Handles lost on reconnection produce an explicit error.
 
 Folder settings **do not sandbox the terminal**. Shell commands retain the user's permissions and real environment. Declare related `context_paths`, or `[]` for ordinary system diagnostics. Run long tasks in the background and read output incrementally. Stop and Quit clean up managed processes.
 

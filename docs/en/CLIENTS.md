@@ -2,7 +2,13 @@
 
 [English](../en/CLIENTS.md) | [简体中文](../zh-CN/CLIENTS.md) | [日本語](../ja/CLIENTS.md)
 
-Request path: client → Secure MCP Tunnel → local tool proxy → Desktop Commander. Open ChatToHarness, select work directories, save the tunnel configuration, and confirm **Tunnel ready** first. Keep only one active local stdio runtime for a Tunnel; do not start another runtime from a different tool.
+Request path: client → Secure MCP Tunnel → ChatToHarness MCP gateway → built-in tool proxy or authorized third-party MCP services. Open ChatToHarness, save the tunnel configuration and confirm **Tunnel ready** first. Select work directories when using built-in file tools. Keep only one active local stdio runtime for a Tunnel; do not start another runtime from a different tool.
+
+## Shared application tools
+
+Add downstream services in ChatToHarness's **MCP Servers** page, then trust the command/URL and authorize individual tools there. Do not configure Unity, browsers or other downstream services separately on a particular Agent. The app maintains the connections; all callers of this Tunnel see the same authorized catalog. Third-party tools use `serverId__toolName`; built-in names are unchanged. See the [MCP Servers guide](GUIDE.md#mcp-servers) for transports, credentials and import/export.
+
+A new connection or a list-changed notification refreshes the gateway registry, but does not guarantee that an existing conversation immediately rediscovers tools. Refresh the client's tool catalog when needed. New and changed tools remain disabled until authorized locally. Per-call local approval is separate from the client's own confirmation rules and must complete within the gateway deadline (60 seconds by default, at most 90 seconds). Calls are not replayed on reconnect; after a forwarded call loses its reply, verify the target state before retrying. Messages are limited to 8 MiB.
 
 ## ChatGPT
 

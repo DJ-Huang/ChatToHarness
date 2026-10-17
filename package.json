@@ -24,7 +24,7 @@
   "build": {
     "appId": "local.localharness.mac",
     "productName": "ChatToHarness",
-    "copyright": "Copyright \u00a9 2026 ChatToHarness contributors",
+    "copyright": "Copyright © 2026 ChatToHarness contributors",
     "asar": true,
     "npmRebuild": false,
     "directories": {
@@ -129,5 +129,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/DJ-Huang/ChatToHarness.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1"
   }
 }

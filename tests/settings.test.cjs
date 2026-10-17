@@ -102,7 +102,7 @@ test('invalid settings are rejected before writes, directories canonicalize and 
   assert.deepEqual(settings.save({ directories: [f.folder, alias, path.join(f.folder, '..', path.basename(f.folder))] }).directories, [f.folder]);
   const original = fs.readFileSync(f.file);
   for (const input of [
-    { directories: [] }, { directories: ['relative'] }, { directories: [path.join(f.root, 'missing')] },
+    { directories: ['relative'] }, { directories: [path.join(f.root, 'missing')] },
     { directories: [f.file] }, { tunnelId: 'not-tunnel' }, { tunnelId: 'tunnel_' },
     { tunnelId: 'tunnel_' + 'A'.repeat(32) }, { tunnelId: 'tunnel_' + 'a'.repeat(31) + '-' },
     { tunnelId: 'tunnel_' + 'a'.repeat(31) }, { tunnelId: 'tunnel_' + '1'.repeat(33) },
@@ -123,6 +123,14 @@ test('configuration and directory permissions are private and no temporary files
     assert.equal(fs.statSync(f.file).mode & 0o777, 0o600);
   }
   assert.deepEqual(fs.readdirSync(f.directory), ['settings.json']);
+});
+
+test('MCP-only configuration can save no file directories without changing credentials', t => {
+  const f=fixture(t),settings=f.make();
+  settings.save({tunnelId:originalTunnel,apiKey:'mcp-only-test-key'});
+  assert.deepEqual(settings.save({directories:[]}).directories,[]);
+  assert.deepEqual(f.make().public().directories,[]);
+  assert.equal(f.make().getKey(),'mcp-only-test-key');
 });
 
 test('symbolic links and hard links cannot redirect configuration reads or writes', (t) => {
@@ -193,11 +201,13 @@ test('project guidance defaults on for old settings and survives saves and crede
   assert.throws(f.make, { code: 'INVALID_CONFIG' });
 });
 
-test('new installations require a chosen work folder without hardcoded personal paths', (t) => {
+test('new installations have no hardcoded folders and permit MCP-only credentials', (t) => {
   const f = fixture(t);
   const settings = new Settings(f.directory, f.safeStorage);
   assert.deepEqual(settings.public().directories, []);
-  assert.throws(() => settings.save({ tunnelId: originalTunnel, apiKey: 'synthetic-key' }), {code:'INVALID_DIRECTORY'});
+  settings.save({ tunnelId: originalTunnel, apiKey: 'synthetic-key' });
+  assert.deepEqual(settings.public().directories, []);
+  assert.equal(settings.getKey(), 'synthetic-key');
   settings.save({directories:[f.folder]});
   assert.deepEqual(new Settings(f.directory, f.safeStorage).public().directories, [f.folder]);
 });

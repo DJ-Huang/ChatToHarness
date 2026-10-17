@@ -18,9 +18,22 @@ function fixture(t) {
     fs.writeFileSync(file, content);
     return file;
   };
-  const contexts = new ProjectContexts({ defaultDirectory: root, allowedDirectories: [root] });
+  const contexts = new ProjectContexts({ defaultDirectory: root, allowedDirectories: [temporary] });
   return { temporary, root, put, contexts };
 }
+
+test('cancelling before subscribing to a shared read observes its eventual rejection', async (t) => {
+  const f = fixture(t), file = f.put('AGENTS.md', 'Project guidance');
+  const controller = new AbortController();
+  f.contexts.readFresh = async () => {
+    controller.abort();
+    await new Promise(resolve => setImmediate(resolve));
+    throw controller.signal.reason;
+  };
+  await assert.rejects(f.contexts.readRule(file, true, controller.signal), {name:'AbortError'});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.contexts.pending.size, 0);
+});
 
 test('explicit directory wins over a parent Git root; file paths resolve their nearest Git root', async (t) => {
   const f = fixture(t);
@@ -73,7 +86,7 @@ test('first operations require context and entering a new directory refreshes ap
   await f.contexts.validate([nestedContext.project_context_token], [nestedFile]);
 });
 
-test('changed instructions, indexed rule contents, selected rules and newly added AGENTS invalidate old contexts', async (t) => {
+test('delivered instructions invalidate tokens while unrelated rule-index changes do not', async (t) => {
   const f = fixture(t);
   f.put('AGENTS.md', 'Root version one');
   const file = f.put('src/code.js');
@@ -82,12 +95,14 @@ test('changed instructions, indexed rule contents, selected rules and newly adde
     ['AGENTS.md', 'Root version two'],
     ['rules/selected.md', '# Selected\nVersion two'],
     ['src/AGENTS.md', 'New nested policy'],
-    ['rules/new.md', '# New rule'],
   ]) {
     const context = await f.contexts.getContext({ project_path: f.root, target_paths: [file], rule_paths: ['rules/selected.md'] });
     f.put(rule, body);
     await assert.rejects(f.contexts.validate([context.project_context_token], [file]), { code: 'PROJECT_CONTEXT_STALE' });
   }
+  const stable = await f.contexts.getContext({project_path:f.root,target_paths:[file],rule_paths:['rules/selected.md']});
+  f.put('rules/new.md', '# New rule');
+  await f.contexts.validate([stable.project_context_token],[file]);
 });
 
 test('concurrent projects cannot satisfy each other or contaminate a previous context', async (t) => {
@@ -118,7 +133,9 @@ test('missing rules work, lowercase is supported, and multiple AGENTS candidates
   // macOS volumes may be case insensitive. Skip only the impossible fixture.
   f.put('AGENTS.md', 'Uppercase instructions');
   if (fs.readdirSync(f.root).includes('agents.md') && fs.readdirSync(f.root).includes('AGENTS.md')) {
-    await assert.rejects(f.contexts.getContext({ project_path: f.root }), { code: 'AGENTS_CONFLICT' });
+    const conflict=await f.contexts.getContext({ project_path:f.root });
+    assert.ok(conflict.diagnostics.some(item=>item.code==='AGENTS_CONFLICT'&&item.blocks_writes));
+    await assert.rejects(f.contexts.validate([conflict.project_context_token],[f.root]),{code:'PROJECT_INSTRUCTIONS_UNAVAILABLE'});
   }
 });
 
@@ -133,27 +150,30 @@ test('rule bodies enforce a 64 KiB aggregate budget without truncation; large in
   await assert.rejects(f.contexts.getContext({ project_path: f.root, rule_paths: ['rules/second.md'] }), { code: 'CONTEXT_TOO_LARGE' });
 });
 
-test('references and symlink targets cannot leave the chosen project', async (t) => {
+test('shared references use authorized folders without expanding project target scope', async (t) => {
   const f = fixture(t);
   const outside = path.join(f.temporary, 'outside.md');
   fs.writeFileSync(outside, '# Outside');
   f.put('AGENTS.md', 'Follow [Outside](../outside.md).');
-  await assert.rejects(f.contexts.getContext({ project_path: f.root }), { code: 'RULE_OUTSIDE_PROJECT' });
+  assert.equal((await f.contexts.getContext({project_path:f.root})).rules_index[0].path,outside);
   f.put('AGENTS.md', 'Local only');
-  await assert.rejects(f.contexts.getContext({ project_path: f.root, rule_paths: [outside] }), { code: 'RULE_OUTSIDE_PROJECT' });
+  assert.equal((await f.contexts.getContext({project_path:f.root,rule_paths:[outside]})).loaded_rules[0].content,'# Outside');
   fs.symlinkSync(outside, path.join(f.root, 'linked.md'));
-  await assert.rejects(f.contexts.getContext({ project_path: f.root, rule_paths: ['linked.md'] }), { code: 'RULE_OUTSIDE_PROJECT' });
+  assert.equal((await f.contexts.getContext({project_path:f.root,rule_paths:['linked.md']})).loaded_rules[0].path,outside);
   await assert.rejects(f.contexts.getContext({ project_path: f.root, target_paths: ['linked.md'] }), { code: 'TARGET_OUTSIDE_PROJECT' });
 });
 
-test('missing explicit references and invalid UTF-8 are visible errors, and tokens are local to a launcher', async (t) => {
+test('reference errors are soft, invalid AGENTS blocks only writes, and tokens remain local', async (t) => {
   const f = fixture(t);
   f.put('AGENTS.md', 'See `rules/missing.md`.');
-  await assert.rejects(f.contexts.getContext({ project_path: f.root }), ContextError);
+  const missing=await f.contexts.getContext({project_path:f.root});
+  assert.ok(missing.diagnostics.some(item=>item.code==='CONTEXT_PATH_MISSING'&&!item.blocks_writes));
+  await assert.rejects(f.contexts.getContext({project_path:f.root,rule_paths:['rules/missing.md']}),ContextError);
   f.put('AGENTS.md', Buffer.from([0xff, 0xfe]));
-  await assert.rejects(f.contexts.getContext({ project_path: f.root }), { code: 'RULE_UNREADABLE' });
+  assert.ok((await f.contexts.getContext({project_path:f.root})).diagnostics.some(item=>item.code==='RULE_UNREADABLE'&&item.blocks_writes));
   f.put('AGENTS.md', 'Invalid\0text');
-  await assert.rejects(f.contexts.getContext({ project_path: f.root }), { code: 'RULE_UNREADABLE' });
+  assert.ok((await f.contexts.prepare([], [f.root])).contexts[0].diagnostics.some(item=>item.blocks_writes));
+  await assert.rejects(f.contexts.prepare([], [f.root],{writing:true}),{code:'PROJECT_INSTRUCTIONS_UNAVAILABLE'});
   f.put('AGENTS.md', 'Valid');
   const context = await f.contexts.getContext({ project_path: f.root });
   const independent = new ProjectContexts({ defaultDirectory: f.root });
@@ -178,7 +198,7 @@ test('explicit local text rules work without adopting editor rule directories au
   const outside = path.join(f.temporary, 'outside.txt');
   fs.writeFileSync(outside, 'Outside rule');
   f.put('AGENTS.md', 'Follow `../outside.txt`.');
-  await assert.rejects(f.contexts.getContext({ project_path: f.root }), { code: 'RULE_OUTSIDE_PROJECT' });
+  assert.equal((await f.contexts.getContext({project_path:f.root})).rules_index[0].path,outside);
 });
 
 test('nonexistent write paths retain realpath confinement and new child directories require refreshed context', async (t) => {
@@ -194,4 +214,51 @@ test('nonexistent write paths retain realpath confinement and new child director
   fs.mkdirSync(outside);
   fs.symlinkSync(outside, path.join(f.root, 'escape'));
   await assert.rejects(f.contexts.getContext({ project_path: f.root, target_paths: ['escape/new-file.txt'] }), { code: 'TARGET_OUTSIDE_PROJECT' });
+});
+
+test('no instructions allow first writes and warm reads reuse cached bodies', async t => {
+  const f=fixture(t), file=f.put('source.txt','text');
+  assert.equal((await f.contexts.prepare([], [file], {projectPath:f.root,writing:true})).needsDelivery,false);
+  f.put('AGENTS.md','Root policy. See `docs/{en,zh-CN,ja}/GUIDE.md` and `Design/project-spec.json`.');
+  const first=await f.contexts.prepare([], [file], {projectPath:f.root,writing:true});
+  assert.equal(first.needsDelivery,true);
+  assert.ok(first.contexts[0].diagnostics.some(item=>item.code==='RULE_REFERENCE_PATTERN'));
+  assert.ok(first.contexts[0].diagnostics.every(item=>!item.blocks_writes));
+  const token=first.contexts[0].project_context_token, reads=f.contexts.cacheStats.bodyReads;
+  const next=await f.contexts.prepare([token],[file],{projectPath:f.root});
+  assert.equal(next.contexts[0].reused,true);
+  assert.equal(next.contexts[0].agents.length,0);
+  await f.contexts.prepare([token],[file],{projectPath:f.root,writing:true});
+  assert.equal(f.contexts.cacheStats.bodyReads,reads);
+});
+
+test('context and file authorization reject folders outside app settings, including symlinks', async t => {
+  const f=fixture(t), shared=f.put('../shared.md','# Shared');
+  const narrow=new ProjectContexts({defaultDirectory:f.root,allowedDirectories:[f.root]});
+  f.put('AGENTS.md','Shared rule: [Shared](../shared.md).');
+  const context=await narrow.getContext({project_path:f.root});
+  assert.ok(context.diagnostics.some(item=>item.code==='PATH_NOT_ALLOWED'&&!item.blocks_writes));
+  await assert.rejects(narrow.getContext({project_path:f.temporary}),{code:'PATH_NOT_ALLOWED'});
+  await assert.rejects(narrow.getContext({project_path:f.root,rule_paths:[shared]}),{code:'PATH_NOT_ALLOWED'});
+  fs.symlinkSync(shared,path.join(f.root,'escape.md'));
+  await assert.rejects(narrow.authorizePaths([path.join(f.root,'escape.md')]),{code:'PATH_NOT_ALLOWED'});
+});
+
+test('concurrent loads share body reads and deleted AGENTS changes are detected', async t => {
+  const f=fixture(t);f.put('AGENTS.md','Shared body');const file=f.put('source.txt');
+  const [a,b]=await Promise.all([f.contexts.getContext({project_path:f.root}),f.contexts.getContext({project_path:f.root})]);
+  assert.equal(f.contexts.cacheStats.bodyReads,1);assert.notEqual(a.project_context_token,b.project_context_token);
+  fs.unlinkSync(path.join(f.root,'AGENTS.md'));
+  await assert.rejects(f.contexts.validate([a.project_context_token],[file]),{code:'PROJECT_CONTEXT_STALE'});
+  const refreshed=await f.contexts.prepare([a.project_context_token],[file],{projectPath:f.root,writing:true});
+  assert.equal(refreshed.needsDelivery,true);
+  assert.equal((await f.contexts.prepare([refreshed.contexts[0].project_context_token],[file],{projectPath:f.root,writing:true})).needsDelivery,false);
+});
+
+test('diagnostic output stays bounded without turning reference errors into write blockers',async t=>{
+  const f=fixture(t);f.put('AGENTS.md',Array.from({length:150},(_,index)=>`See \`missing-${index}.md\`.`).join('\n'));
+  const context=await f.contexts.getContext({project_path:f.root});
+  assert.equal(context.diagnostics.length,128);assert.ok(context.diagnostics.at(-1).omitted>0);
+  assert.ok(context.diagnostics.every(item=>!item.blocks_writes));
+  await f.contexts.validate([context.project_context_token],[f.root]);
 });

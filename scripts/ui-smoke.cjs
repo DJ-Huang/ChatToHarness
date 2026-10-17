@@ -155,6 +155,25 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   // Language changes are independent of credentials, workspace drafts, and runtime.
   const configBeforeLanguages = fs.readFileSync(path.join(stateHome, 'settings.json'), 'utf8');
   const pidsBeforeLanguages = fs.readFileSync(pidFile, 'utf8');
+  // Exercise update IPC without a real network request or installer. Checking
+  // and preferences must leave both credentials and active tools unchanged.
+  await instance.evaluate(({net,app})=>{
+    net.fetch=async url=>{
+      if(url!=='https://api.github.com/repos/DJ-Huang/ChatToHarness/releases/latest')throw new Error('Unexpected update request');
+      const tag='v'+app.getVersion();
+      return new Response(JSON.stringify({tag_name:tag,draft:false,prerelease:false,published_at:'2026-10-17T00:00:00Z',html_url:'https://github.com/DJ-Huang/ChatToHarness/releases/tag/'+tag,assets:[]}),{status:200});
+    };
+  });
+  await tab(page,'help');
+  await page.locator('#check-update').click();
+  await page.waitForFunction(()=>document.getElementById('update-status').textContent.includes('当前没有可用更新'));
+  assert.equal((await getState()).updates.phase,'current');
+  await page.locator('#auto-check-updates').uncheck();
+  await page.waitForFunction(async()=>!(await window.localHarness.getState()).updates.automatic);
+  await page.locator('#auto-check-updates').check();
+  await page.waitForFunction(async()=>(await window.localHarness.getState()).updates.automatic);
+  assert.equal(fs.readFileSync(path.join(stateHome,'settings.json'),'utf8'),configBeforeLanguages);
+  assert.equal(fs.readFileSync(pidFile,'utf8'),pidsBeforeLanguages);
   for (const locale of ['en', 'ja', 'zh-CN']) {
     await page.locator('#language-select').selectOption(locale);
     await page.waitForFunction(lang => document.documentElement.lang === lang, locale);

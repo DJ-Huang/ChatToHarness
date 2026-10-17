@@ -31,7 +31,7 @@ test('catalog covers source UI messages, placeholders and locale fallbacks', () 
     assert.deepEqual([...value.matchAll(/\{\w+\}/g)].map(m=>m[0]).sort(),[...key.matchAll(/\{\w+\}/g)].map(m=>m[0]).sort(),key);
   }
   // Catch newly introduced source messages without English/Japanese entries.
-  for (const file of ['renderer.js','main.cjs','settings.cjs','runtime.cjs','platform.cjs','preload.cjs']) {
+  for (const file of ['renderer.js','main.cjs','settings.cjs','runtime.cjs','platform.cjs','preload.cjs','updater.cjs','preferences.cjs']) {
     const source=fs.readFileSync(path.join(__dirname,'../app',file),'utf8');
     for(const match of source.matchAll(/'(?:\\.|[^'\\\n])*'/g)) {
       const key=match[0].slice(1,-1);

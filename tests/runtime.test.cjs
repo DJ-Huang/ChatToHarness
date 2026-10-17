@@ -132,7 +132,7 @@ process.on('SIGTERM',()=>{fs.writeFileSync(${JSON.stringify(stopped)},'stopped')
   assert.equal(config.defaultShell, defaultShell());
   assert.deepEqual(config.allowedDirectories, [f.notes]);
   assert.equal(config.telemetryEnabled, false);
-  for(const helper of ['mcp-launch.cjs','mcp-proxy.cjs','project-context.cjs'])assert.ok(fs.existsSync(path.join(f.home,helper)));
+  for(const helper of ['mcp-launch.cjs','mcp-proxy.cjs','project-context.cjs','project-search.cjs'])assert.ok(fs.existsSync(path.join(f.home,helper)));
   assert.equal(manager.childEnvironment({autoProjectContext:false}).LOCALHARNESS_AUTO_PROJECT_CONTEXT,'0');
   assert.equal(manager.childEnvironment().LOCALHARNESS_AUTO_PROJECT_CONTEXT,'1');
   assert.equal(manager.probeChild, null);

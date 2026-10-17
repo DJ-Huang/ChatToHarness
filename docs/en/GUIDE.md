@@ -18,7 +18,7 @@ Supported targets are macOS 14+ on Apple Silicon and Windows 11 x64. Installers 
 4. Choose **Save and connect**. After local checks succeed and the status is **Tunnel ready**, follow **Connection and help** to configure the client.
 5. Start with a read-only client request, then verify writing and reading in a dedicated temporary directory.
 
-Use **Interface language** in the sidebar to switch between English, Simplified Chinese, and Japanese immediately. The first launch follows your system language (other languages fall back to English); later launches remember your choice. Native menus, tray actions, status, help, and errors change together. The separate `preferences.json` stores only the language and does not read or rewrite credentials or reconnect the tunnel. The website has its own language selector and remembers your browser choice.
+Use **Interface language** in the sidebar to switch between English, Simplified Chinese, and Japanese immediately. The first launch follows your system language (other languages fall back to English); later launches remember your choice. Native menus, tray actions, status, help, and errors change together. The separate `preferences.json` stores language and update-check preferences and does not read or rewrite credentials or reconnect the tunnel. The website has its own language selector and remembers your browser choice.
 
 Do not send API keys in chat or commit them to the repository. The application saves only system-encrypted credentials, reports only whether a key is saved, and clears the key input after saving. Only the Tunnel receives the Runtime API Key; tool processes do not. API callers need separate credentials.
 
@@ -26,17 +26,45 @@ Closing the window keeps the application running in the background. Left-click t
 
 **Tunnel ready** confirms the tunnel and local tools are available. It does not confirm that a client has been configured or has successfully called a tool.
 
+## App updates
+
+Use **App updates** in **Connection and help** to check versions and read release notes. The application and tray menus also offer **Check for updates**. An available update appears in the sidebar.
+
+Automatic checks run 10 seconds after launch and every 24 hours thereafter, and can be disabled. Checks need no tunnel or API key; failures do not interrupt tools or connections. Automatic checks only notify. Downloading and installing require your click. The preference is stored alongside language in the separate `preferences.json`, without rewriting credentials or reconnecting.
+
+**Download and install** downloads the matching installer and verifies its size and SHA-256. After verification, the app stops the connection, opens the installer, and quits. On Mac, drag the new version from the DMG into Applications; Windows uses the installer wizard. Save or discard unsaved configuration changes and finish running tool tasks first. Development mode checks versions only. Missing assets, download failures, or invalid checksums do not start installation.
+
 ## Automatic project instructions
 
-This feature is enabled by default. Give the client a task and its project directory. Before file, search, write, or terminal operations, the proxy requires project context:
+Enabled by default. Give the client the task and project directory. File, search, and terminal tools may also specify `project_path` as the instruction root.
 
-- Read `AGENTS.md` from the project root through the target directory. Lowercase `agents.md` is supported, and conflicting candidates produce an explicit error.
-- Index Markdown paths and titles under the root `rules/` directory. The client selects relevant bodies; project-local rule files referenced by AGENTS are also supported.
-- Carry a context token on every operation. Reload after instructions change, when entering a new scope, or for another project. Chats do not share a global “current project.”
+- AGENTS and rules are optional. Reads, directory listings, and searches execute directly with guidance or diagnostics. Valid `project_context_tokens` reuse previously delivered bodies.
+- Root-to-target `AGENTS.md` / `agents.md` apply within their scopes. If a first write needs undelivered guidance, it returns the bodies and retry tokens without execution. The client reads them and retries. Projects without instructions allow direct writes.
+- Ordinary references, missing files, and documentation patterns such as `{en,zh-CN,ja}` are diagnostics, not execution prerequisites. Relative references use the containing AGENTS directory. Shared rules outside the project may be read within authorized folders, without expanding target scope or write permissions.
+- Conflicting, unreadable, or oversized applicable AGENTS block writes only; reads remain available. `get_project_context` explicitly loads projects, target paths, and selected `rule_paths`; failure to read a requested rule affects that call only.
+- Delivered bodies total at most 64 KiB and are never silently truncated. Changes to delivered guidance require rereading; unrelated index changes do not block writes. File and directory metadata invalidate caches and detect added, removed, and nested instructions.
 
-Returned rule bodies have a combined 64 KiB limit per context request. Out-of-project references, unreadable files, and oversized bodies are reported instead of silently skipped. Projects without rule files work normally. The program enforces delivery; the model remains responsible for understanding and following the instructions. Other products' dedicated rule directories are not inherited automatically.
+Both file and rule access enforce the app's authorized folders after resolving symbolic links. Change folders in the desktop app; `set_config_value` cannot change `allowedDirectories`. Project text cannot override user or platform instructions. Delivery does not prove model compliance.
 
-Folder settings **do not sandbox the terminal**. Commands run with the current user's permissions and real user environment. Start long builds, Unity commands, and similar tasks in the background and read their output incrementally. Reconnecting does not replay tool operations.
+## Search and recovery
+
+Prefer `search_project` for code: supply `project_path` and `pattern`. It defaults to literal content matching; `regex` enables regular expressions, `ignore_case` ignores case, and `search_type="files"` searches filenames/globs. Use `include_globs` and `exclude_globs` to narrow the scope. Ignore rules and binary-file skipping apply by default. Results contain absolute paths, 1-based line numbers, and two surrounding lines on each side. `read_file` offsets remain 0-based: line N uses offset N−1.
+
+Defaults are 100 results per page and a 2-second search budget, configurable up to 10 seconds. One search stores at most 1,000 matches and 2 MiB; a result page is at most 64 KiB, separate from the guidance budget. Timeout, count/byte limits, partial access, and no matches have distinct states. Long lines/snippets are marked when truncated. `next_cursor` reads the stored snapshot without rescanning, binds the project and query, and expires after five idle minutes. Up to four new searches run concurrently. Existing streaming search tools remain available.
+
+Proxy requests wait 60 seconds by default, up to 180 seconds with an explicit wait parameter. A timeout before forwarding reports `execution_state="not_started"`; a forwarded timeout reports `"unknown"`. Writes, appends, moves, and commands are never automatically replayed. Reads/searches can be retried after inspecting state. Stopping known processes or searches does not require refreshed rules. Handles lost on reconnection produce an explicit error.
+
+Folder settings **do not sandbox the terminal**. Shell commands retain the user's permissions and real environment. Declare related `context_paths`, or `[]` for ordinary system diagnostics. Run long tasks in the background and read output incrementally. Stop and Quit clean up managed processes.
+
+## Run source during development
+
+Double-click `Dev.command` on Mac or `Dev.cmd` on Windows. The first run prepares pinned Node, Electron and tool components and needs network access. Later runs load current `app/` source **without packaging an app or installer**. With dependencies installed, `npm run dev` and `npm start` provide the same development entry.
+
+After editing code, launch that entry again to restart; it does not watch file saves. The old instance receives a graceful Quit request, stops its tunnel and tools, cancels reconnects and releases the single-instance lock before the new instance loads source. Existing directories, credentials and preferences retain their storage. A new executable may require first-use keychain authorization.
+
+Keep the development terminal open. Ctrl+C or closing it ends that development run. Closing the app window still hides it in the background; launching the development entry again replaces it. Restarting ends active tool tasks.
+
+For the first switch from an older version without the restart protocol, select **Quit ChatToHarness** once from its menu; closing the window is insufficient. If the old instance stays alive, the launcher fails clearly after at most 15 seconds rather than starting a second service. Subsequent development restarts use the one-click entry. If Windows reports that a changed pinned dependency is in use, quit the old development instance before preparing it again.
 
 ## One-click source launcher
 

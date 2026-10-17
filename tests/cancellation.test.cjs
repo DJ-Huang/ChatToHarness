@@ -149,12 +149,12 @@ function desktopHarness(t) {
   const context = { require(name) {
     if (name === 'electron') return electron;
     if (name === './settings.cjs' || name === './runtime.cjs') return {};
-    if (['./platform.cjs','./preferences.cjs','./i18n.js'].includes(name)) return require('../app/'+name.slice(2));
+    if (['./platform.cjs','./preferences.cjs','./i18n.js','./updater.cjs','./dev-lifecycle.cjs'].includes(name)) return require('../app/'+name.slice(2));
     return require(name);
   }, __dirname: path.dirname(mainPath), process: { platform: 'darwin', env: { LOCALHARNESS_HOME: home } }, Buffer, Promise, setTimeout };
   vm.runInNewContext(fs.readFileSync(mainPath, 'utf8') + `
     locale='zh-CN';
-    globalThis.harness={action,connect,stopConnection,createTray,refreshTray,state,
+    globalThis.harness={action,connect,stopConnection,createTray,refreshTray,state,checkUpdate,installUpdate,setUpdater(value){updater=value;},
       set(s,r,w){settings=s;runtime=r;window=w;},getTray(){return tray;},getMenu(){return trayMenu;}};
   `, context);
   const harness = context.harness;
@@ -171,7 +171,7 @@ function desktopHarness(t) {
     webContents: { send() {} },
   };
   harness.set(configuration, runtime, window);
-  return { harness, app, handlers, runtime, window, configuration };
+  return { harness, app, handlers, runtime, window, configuration, electron };
 }
 
 test('desktop Stop cancels queued operations before their callbacks run', async (t) => {
@@ -237,6 +237,16 @@ test('Quit closes managed processes and removes the menu bar icon', async (t) =>
   await assert.rejects(harness.action(() => {}), /正在退出/);
 });
 
+test('development replacement waits for runtime cleanup and rejects queued reconnects',async(t)=>{
+  const {harness,app,handlers,runtime}=desktopHarness(t);
+  const cleanup=deferred();runtime.close=()=>{runtime.closes++;return cleanup.promise;};
+  handlers.get('second-instance')({},[],'.',{localHarnessDevRestart:true});assert.equal(app.quitCalls,1);
+  handlers.get('before-quit')({preventDefault(){}});
+  await assert.rejects(harness.connect(),/正在退出/);assert.equal(runtime.closes,1);
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(app.quitCalls,1,'old instance remains alive during cleanup');
+  cleanup.resolve();await new Promise(resolve=>setImmediate(resolve));assert.equal(app.quitCalls,2);
+});
+
 test('menu bar Stop prevents a renderer save response from continuing into Connect', async () => {
   const saving = deferred();
   const nodes = new Map();
@@ -293,4 +303,23 @@ test('Stop during the authorization presentation cancels key lookup and connecti
   assert.equal(reads,0);
   assert.equal(runtime.connects,undefined);
   assert.equal(runtime.current,'stopped');
+});
+
+test('checking updates never reads credentials, stops tools, or reconnects', async t => {
+  const {harness,runtime,configuration}=desktopHarness(t);let checked=0;
+  configuration.getKey=()=>{throw new Error('must not read credentials');};
+  harness.setUpdater({async check(){checked++;},status(){return {phase:'current'};}});
+  const desired=runtime.desired;
+  await harness.checkUpdate();assert.equal(checked,1);assert.equal(runtime.stops,0);assert.equal(runtime.desired,desired);
+});
+
+test('installer handoff stops tools before opening and keeps failed handoffs retryable', async t => {
+  const {harness,runtime,electron,app}=desktopHarness(t),order=[];let phase='ready';
+  harness.setUpdater({status(){return {phase};},async installer(){phase='installing';return '/temporary/verified-installer';},installFailed(){phase='ready';}});
+  runtime.disconnect=async()=>{order.push('stop');runtime.current='stopped';};
+  electron.shell.openPath=async()=>{order.push('open');return 'failed to open';};
+  await harness.installUpdate();assert.deepEqual(order,['stop','open']);assert.equal(app.quitCalls,0);assert.equal(phase,'ready');assert.equal(runtime.closes,0);
+  let resumed=false;await harness.action(()=>{resumed=true;});assert.equal(resumed,true);
+  electron.shell.openPath=async()=>{order.push('open');return '';};
+  await harness.installUpdate();assert.equal(app.quitCalls,1);
 });

@@ -10,6 +10,10 @@
 
 [官方通道接入说明](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
 
+工具开关、调用确认和对可疑描述的检查是不同事项。若出现“存在可疑指令”，先查看警告指出的描述和实际工具参数。旧版 Harness 重复要求自动加载规范、传递令牌，本轮已改为客观接口说明，并保留服务端校验。任意终端仍标注为可写入和访问网络，不能因为某次命令只读就将整个工具标成只读。服务端无法关闭 ChatGPT 的安全检查，也不保证所有确认消失。
+
+更新正在运行的 Harness 后，在插件详情中刷新工具，获取新的描述、参数和服务器说明。仅修改源码不会更新已运行的进程或客户端工具目录。完成刷新后再用只读任务验证。OpenAI 官方文档还说明，记住的调用确认可能只适用于当前对话，新对话或刷新对话后可能重新确认。[工具管理与确认说明](https://developers.openai.com/api/docs/guides/custom-mcp-server)
+
 ## Codex
 
 官方列明 Codex 是支持的通道调用产品。使用当前产品版本所提供的通道支持入口／插件接入流程，并核对 Platform 组织关联和使用权限。可以复用已由 ChatToHarness 管理的 Tunnel，无需再创建 Tunnel，也不要另外启动 runtime。

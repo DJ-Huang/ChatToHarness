@@ -6,6 +6,7 @@ const path = require('node:path');
 const {spawn, execFileSync} = require('node:child_process');
 const {McpProxy,wireProtocol} = require('./mcp-proxy.cjs');
 const {ProjectContexts} = require('./project-context.cjs');
+const {ProjectSearch,resolveRipgrep}=require('./project-search.cjs');
 const {spawnManaged,stopTree}=require('./platform.cjs');
 const [entry, ownerText] = process.argv.slice(2);
 const owner = Number(ownerText);
@@ -22,7 +23,7 @@ env.LOCALHARNESS_DC_HOME = configHome;
 env.DO_NOT_TRACK = '1';
 const autoProjectContext=env.LOCALHARNESS_AUTO_PROJECT_CONTEXT !== '0';
 delete env.LOCALHARNESS_AUTO_PROJECT_CONTEXT;
-let child, closing = false, exitStatus = 0;
+let child, proxy, closing = false, exitStatus = 0;
 function descendants(pid) {
   try {
     const rows = execFileSync('/bin/ps', ['-axo', 'pid=,ppid='], {encoding:'utf8',timeout:2000}).trim().split('\n').map(line => line.trim().split(/\s+/).map(Number));
@@ -33,6 +34,7 @@ function descendants(pid) {
 }
 function stop() {
   if (closing) return; closing = true;
+  proxy?.dispose();
   clearInterval(watchdog);
   if (!child) return process.exit(exitStatus);
   if(process.platform==='win32'){void stopTree(child).finally(()=>process.exit(exitStatus));return;}
@@ -51,7 +53,9 @@ try {
   child = process.platform==='win32'
     ? spawnManaged(process.execPath,[entry],{processHost:env.LOCALHARNESS_PROCESS_HOST,env,cwd:process.cwd(),stdio:['pipe','pipe','inherit']})
     : spawn(process.execPath,[entry],{env,cwd:process.cwd(),stdio:['pipe','pipe','inherit']});
-  const proxy=new McpProxy({contexts,enabled:autoProjectContext,defaultDirectory:process.cwd()});
+  let binary;try{binary=resolveRipgrep(entry);}catch{}
+  const search=binary?new ProjectSearch({contexts,binary}):undefined;
+  proxy=new McpProxy({contexts,search,enabled:autoProjectContext,defaultDirectory:process.cwd()});
   wireProtocol({clientInput:process.stdin,clientOutput:process.stdout,serverInput:child.stdin,serverOutput:child.stdout,proxy,onFatal:stop});
   child.once('error', () => {process.stderr.write('ChatToHarness: local MCP could not start.\n');exitStatus=1;stop();});
   child.once('exit', code => {if (!closing) {clearInterval(watchdog);exitStatus=code??1;stop();}});

@@ -42,7 +42,9 @@ ChatGPT：通过 `@` 选择已连接插件，再描述任务和工程路径。�
 ## 主要能力
 
 - 通过 Desktop Commander 使用本机文件、Shell、Git 和现有开发命令。
-- 自动加载 AGENTS.md、按需读取相关 rules，每次操作校验工程上下文。
+- AGENTS.md 可选，按需读取共享规范；规范异常不阻断读取和排查。
+- 有上限的 ripgrep 搜索，支持行上下文、分页和取消。
+- 手动及自动检查更新，安装包通过完整性校验后才打开。
 - 菜单栏／托盘控制、后台运行、凭据加密保存，重连时不重放工具操作。
 
 目录设置不构成终端沙箱，命令按当前用户权限执行。密钥只填入本机应用。“通道就绪”不等于客户端调用已验证。
@@ -55,10 +57,13 @@ ChatGPT：通过 `@` 选择已连接插件，再描述任务和工程路径。�
 
 ## 开发
 
+双击 [Dev.command](Dev.command)（Mac）或 [Dev.cmd](Dev.cmd)（Windows），直接运行当前源码；再次启动会先清理旧实例，再运行新代码。已有依赖也可使用 `npm run dev` / `npm start`，无需打包。[开发说明](docs/zh-CN/GUIDE.md#开发时直接运行源码)
+
 使用 Node 24.22.0，在与目标一致的操作系统和架构上构建。
 
 ```sh
 npm ci
+npm run dev
 npm test
 npm run build
 npm run dist

@@ -1,4 +1,5 @@
 # Windows source launcher. Run installers from Releases for regular use.
+param([switch]$Dev)
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $projectRoot = $PSScriptRoot
@@ -20,7 +21,7 @@ if (-not $needsBuild) {
     if ((Test-Path -LiteralPath $source) -and (Get-ChildItem -LiteralPath $source -Recurse -File | Where-Object LastWriteTimeUtc -gt $stampTime | Select-Object -First 1)) { $needsBuild = $true; break }
   }
 }
-if (-not $needsBuild) { Start-Process -FilePath $appPath; exit 0 }
+if (-not $Dev -and -not $needsBuild) { Start-Process -FilePath $appPath; exit 0 }
 $cache = Join-Path $projectRoot '.cache'
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 $lockPath = Join-Path $cache 'windows-start.lock'
@@ -29,7 +30,17 @@ catch { Write-Host 'Another ChatToHarness launcher is preparing the application.
 try {
   $nodeRoot = Join-Path $projectRoot 'resources\node'
   $nodeExe = Join-Path $nodeRoot 'node.exe'
-  if (-not (Test-Path -LiteralPath $nodeExe) -or (& $nodeExe --version) -ne "v$nodeVersion") {
+  $nodeReceipt = Join-Path $nodeRoot '.chatharness-node.json'
+  $nodeReady = $false
+  if ((Test-Path -LiteralPath $nodeExe) -and (Test-Path -LiteralPath $nodeReceipt)) {
+    try {
+      if ((Get-Item -LiteralPath $nodeReceipt).Length -le 1024) {
+        $savedNode = Get-Content -LiteralPath $nodeReceipt -Raw | ConvertFrom-Json
+        $nodeReady = $savedNode.platform -eq 'win32-x64' -and $savedNode.archiveSha256 -eq $nodeSha -and $savedNode.binarySha256 -eq (Get-FileHash -LiteralPath $nodeExe -Algorithm SHA256).Hash.ToLowerInvariant()
+      }
+    } catch { $nodeReady = $false }
+  }
+  if (-not $nodeReady) {
     Write-Host 'First launch: preparing the verified runtime...'
     $downloadRoot = Join-Path $cache 'downloads'
     New-Item -ItemType Directory -Path $downloadRoot -Force | Out-Null
@@ -47,18 +58,31 @@ try {
     if (Test-Path -LiteralPath $nodeRoot) { Remove-Item -LiteralPath $nodeRoot -Recurse -Force }
     Move-Item -LiteralPath (Join-Path $extract "node-v$nodeVersion-win-x64") -Destination $nodeRoot
     Remove-Item -LiteralPath $extract -Recurse -Force
+    # prepareNode must recognize this verified bootstrap, rather than trying
+    # to replace the node.exe that is running preparation on Windows.
+    $installedNode = @{ platform = 'win32-x64'; archiveSha256 = $nodeSha; binarySha256 = (Get-FileHash -LiteralPath $nodeExe -Algorithm SHA256).Hash.ToLowerInvariant() }
+    [IO.File]::WriteAllText($nodeReceipt, ($installedNode | ConvertTo-Json -Compress))
   }
   $env:PATH = "$nodeRoot;$env:PATH"
   $npmCli = Join-Path $nodeRoot 'node_modules\npm\bin\npm-cli.js'
   $dependencyStamp = Join-Path $projectRoot 'node_modules\.chatharness-lock'
   $lockHash = (Get-FileHash -LiteralPath (Join-Path $projectRoot 'package-lock.json') -Algorithm SHA256).Hash
   $stampedHash = if (Test-Path -LiteralPath $dependencyStamp) { (Get-Content -LiteralPath $dependencyStamp -Raw).Trim() } else { '' }
-  if ($stampedHash -ne $lockHash) {
+  if ($stampedHash -ne $lockHash -or -not (Test-Path -LiteralPath (Join-Path $projectRoot 'node_modules\electron\dist\electron.exe'))) {
     & $nodeExe $npmCli ci --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw 'Dependency setup failed.' }
     [IO.File]::WriteAllText($dependencyStamp, $lockHash)
   }
-  & $nodeExe (Join-Path $projectRoot 'scripts\build.cjs')
-  if ($LASTEXITCODE -ne 0) { throw 'Application build failed.' }
-  Start-Process -FilePath $appPath
+  if ($Dev) {
+    & $nodeExe (Join-Path $projectRoot 'scripts\dev.cjs') --prepare-only
+    if ($LASTEXITCODE -ne 0) { throw 'Development components could not be prepared.' }
+  } else {
+    & $nodeExe (Join-Path $projectRoot 'scripts\build.cjs')
+    if ($LASTEXITCODE -ne 0) { throw 'Application build failed.' }
+    Start-Process -FilePath $appPath
+  }
 } finally { $startLock.Dispose() }
+if ($Dev) {
+  & $nodeExe (Join-Path $projectRoot 'scripts\dev.cjs')
+  exit $LASTEXITCODE
+}

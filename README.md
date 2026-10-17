@@ -42,7 +42,9 @@ Application screenshots use an isolated demonstration configuration. The app, we
 ## Capabilities
 
 - Local files, shell, Git, and existing development commands through Desktop Commander.
-- Automatic AGENTS.md loading, relevant rules on demand, and project context checked on each operation.
+- Optional AGENTS.md guidance and shared rules on demand; reads stay available when guidance has problems.
+- Bounded ripgrep searches with line context, pagination and cancellation.
+- Manual and automatic update checks, with verified installer downloads.
 - Menu bar/system tray controls, background operation, encrypted credential storage, and reconnection without replaying tool operations.
 
 Folder settings do not sandbox the terminal: commands run with your current user permissions. Keep API keys in the local application. “Tunnel ready” does not mean a client call has been verified.
@@ -55,10 +57,13 @@ Folder settings do not sandbox the terminal: commands run with your current user
 
 ## Development
 
+Double-click [Dev.command](Dev.command) (Mac) or [Dev.cmd](Dev.cmd) (Windows) to run current source. Relaunching cleans up the old instance before loading new code. With dependencies ready, `npm run dev` / `npm start` do the same without packaging. [Development guide](docs/en/GUIDE.md#run-source-during-development)
+
 Use Node 24.22.0. Build on the matching target operating system and architecture.
 
 ```sh
 npm ci
+npm run dev
 npm test
 npm run build
 npm run dist

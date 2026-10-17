@@ -10,6 +10,10 @@ In a supported custom MCP settings screen, add an application, choose Tunnel as 
 
 [Official tunnel setup guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
 
+Tool enablement, call confirmation and checks for suspicious descriptions are separate concerns. For a suspicious-instructions warning, inspect the cited metadata and actual arguments. Older Harness metadata repeatedly required guidance loading and token passing; this change replaces it with factual interface descriptions while retaining server validation. Arbitrary terminal tools remain write-capable and network-capable even when a particular command is read-only. The server cannot disable ChatGPT safety checks or guarantee that all confirmations disappear.
+
+After updating the running Harness, refresh tools in the plugin details to fetch new descriptions, schemas and server instructions. Editing source alone does not update a running process or the client's tool catalog. Verify a read-only task after refreshing. OpenAI also documents that remembered confirmations may be limited to a conversation and may recur in new or refreshed conversations. [Tool management and confirmations](https://developers.openai.com/api/docs/guides/custom-mcp-server)
+
 ## Codex
 
 Official documentation lists Codex as a supported tunnel caller. Use the tunnel connection or plugin flow offered by the current product version, and check the Platform organization association and permissions. Reuse the Tunnel managed by ChatToHarness: no new Tunnel or second runtime is needed.

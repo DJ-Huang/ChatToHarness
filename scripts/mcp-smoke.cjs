@@ -32,7 +32,8 @@ async function main(){
    child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
    const tools=await rpc('tools/list',{});const names=new Set(tools.tools.map(x=>x.name));
    assert.ok(tools.tools.every(tool=>!tool._meta?.['openai/outputTemplate']&&!tool._meta?.['ui/resourceUri']&&!tool._meta?.ui?.resourceUri),'Unsupported preview template leaked');
-   for(const name of ['get_project_context','start_process','read_file','write_file'])assert.ok(names.has(name));
+   for(const name of ['get_project_context','search_project','start_process','read_file','write_file'])assert.ok(names.has(name));
+   assert.equal(tools.tools.find(tool=>tool.name==='start_process').annotations.readOnlyHint,false);
    const raw=(name,args)=>rpc('tools/call',{name,arguments:args});
    const asText=result=>(result.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n');
    const call=async(name,args)=>{const result=await raw(name,args);assert.notEqual(result.isError,true,`${name}: ${asText(result)}`);return asText(result);};
@@ -43,7 +44,15 @@ async function main(){
    a=await context(project,[file],['rules/output.md']);assert.ok(JSON.stringify(a).includes('RULE_BODY_DELIVERED'));
    const tokens=[a.project_context_token];
    await call('write_file',{path:file,content,mode:'rewrite',project_context_tokens:tokens});assert.equal(fs.readFileSync(file,'utf8'),content);
+   assert.ok((await call('read_file',{path:file})).includes(content),'reads need no prerequisite context call');
    assert.ok((await call('read_file',{path:file,project_context_tokens:tokens})).includes(content));
+   const searchResult=await raw('search_project',{project_path:project,pattern:'真实工具验收'});
+   assert.notEqual(searchResult.isError,true,asText(searchResult));
+   assert.ok(searchResult.structuredContent.results.some(match=>match.path===file&&match.line===2));
+   const emptyProject=path.join(home,'without instructions');fs.mkdirSync(emptyProject);
+   const emptyFile=path.join(emptyProject,'plain.txt');
+   await call('write_file',{path:emptyFile,content:'no AGENTS required',project_path:emptyProject});
+   assert.equal(fs.readFileSync(emptyFile,'utf8'),'no AGENTS required');
    const nestedFile=path.join(nested,'child.txt');assert.equal((await raw('write_file',{path:nestedFile,content:'nested',project_context_tokens:tokens})).isError,true);assert.equal(fs.existsSync(nestedFile),false);
    const n=await context(project,[nestedFile]);assert.ok(JSON.stringify(n).includes('NESTED_RULE'));
    await call('write_file',{path:nestedFile,content:'nested',project_context_tokens:[n.project_context_token]});
@@ -57,7 +66,7 @@ async function main(){
    const command=process.platform==='win32' ? 'Write-Output ("CTH_HOME="+$env:USERPROFILE); if (!(Test-Path Env:CONTROL_PLANE_API_KEY)) { Write-Output "RUNTIME_KEY_REMOVED" }; git --version' : 'printf "CTH_HOME=%s\\n" "$HOME"; if [ -z "${CONTROL_PLANE_API_KEY+x}" ]; then printf "RUNTIME_KEY_REMOVED\\n"; fi; git --version';
    const output=await call('start_process',{command,timeout_ms:5000,context_paths:[file],project_context_tokens:[a.project_context_token]});
    assert.ok(output.includes('CTH_HOME='+os.homedir()),'Shell user home changed');assert.ok(output.includes('RUNTIME_KEY_REMOVED'),'Runtime key reached Shell');assert.ok(output.includes('git version'));
-   console.log(JSON.stringify({realDesktopCommander:true,tools:tools.tools.length,blockedBeforeContext:true,fileRoundTrip:true,nested:true,selectedRules:true,ruleChanges:true,crossProject:true,concurrentContexts:true,shellHomePreserved:true,runtimeKeyRemoved:true}));
+   console.log(JSON.stringify({realDesktopCommander:true,tools:tools.tools.length,blockedBeforeContext:true,readsWithoutPrerequisite:true,noAgentsWrite:true,boundedSearch:true,fileRoundTrip:true,nested:true,selectedRules:true,ruleChanges:true,crossProject:true,concurrentContexts:true,shellHomePreserved:true,runtimeKeyRemoved:true}));
   }finally{clearTimeout(timeout);}
  }finally{if(child)await stopTree(child);await manager.close();fs.rmSync(home,{recursive:true,force:true});}
 }

@@ -6,5 +6,8 @@ contextBridge.exposeInMainWorld('localHarness',Object.freeze({
   chooseDirectories:()=>call('choose-directories'),connect:()=>call('connect'),disconnect:()=>call('disconnect'),
   check:()=>call('check'),clearCredentials:()=>call('clear-credentials'),openLogs:()=>call('open-logs'),
   openExternal:id=>call('open-external',id),setLanguage:locale=>call('set-language',locale),
+  checkUpdate:()=>call('update-check'),setAutoCheckUpdates:enabled=>call('update-automatic',enabled),
+  downloadUpdate:()=>call('update-download'),installUpdate:()=>call('update-install'),openRelease:()=>call('update-release'),
+  onShowUpdates:listener=>{if(typeof listener!=='function')return()=>{};const handler=()=>listener();ipcRenderer.on('localharness:show-updates',handler);return()=>ipcRenderer.removeListener('localharness:show-updates',handler);},
   onState:listener=>{if(typeof listener!=='function')return()=>{};const handler=(_event,value)=>listener(value);ipcRenderer.on('localharness:state',handler);return()=>ipcRenderer.removeListener('localharness:state',handler);},
 }));

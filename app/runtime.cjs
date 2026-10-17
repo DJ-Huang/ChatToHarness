@@ -83,7 +83,7 @@ class RuntimeManager extends EventEmitter {
       // A private copy works with standalone Node even when Electron uses asar.
       // The protocol adapter and context reader must travel with the launcher;
       // standalone Node cannot resolve helpers from Electron's asar archive.
-      for(const name of ['platform.cjs','project-context.cjs','mcp-proxy.cjs',path.basename(this.launcherSource)]){
+      for(const name of ['platform.cjs','project-context.cjs','project-search.cjs','mcp-proxy.cjs',path.basename(this.launcherSource)]){
         const source=path.join(path.dirname(this.launcherSource),name);
         const destination=name===path.basename(this.launcherSource)?this.launcher:path.join(this.home,name);
         const temporary=destination+'.'+process.pid+'.tmp';
@@ -128,7 +128,7 @@ class RuntimeManager extends EventEmitter {
         for(const tool of result.tools)if(typeof tool.name==='string')names.add(tool.name);
         count+=result.tools.length;cursor=result.nextCursor;if(!cursor)break;
       }
-      if(cursor||!count||!names.has('start_process')||!names.has('read_file')||(settings.autoProjectContext!==false&&!names.has('get_project_context')))throw new Error(ERRORS.mcp);
+      if(cursor||!count||!names.has('start_process')||!names.has('read_file')||!names.has('search_project')||(settings.autoProjectContext!==false&&!names.has('get_project_context')))throw new Error(ERRORS.mcp);
       return count;
     } finally {clearTimeout(timeout);abort();await stopTree(child);if(this.probeChild===child){this.probeChild=null;this.cancelProbe=null;}}
   }

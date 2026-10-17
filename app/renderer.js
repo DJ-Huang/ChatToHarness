@@ -24,6 +24,9 @@
   let operationSequence = 0;
   let actionEpoch = null;
   let activeTab = 'overview';
+  let updatePending = false;
+  let updatePreferencePending = false;
+  let updateError = '';
   const cancelled = Symbol('cancelled');
   const tabNames = ['overview', 'connection', 'directories', 'help'];
   const pages = {
@@ -116,7 +119,7 @@
       remove.type = 'button';
       remove.textContent = '×';
       remove.setAttribute('aria-label', t('移除目录 {directory}', { directory }));
-      remove.disabled = Boolean(pending);
+      remove.disabled = Boolean(pending) || ['downloading', 'verifying', 'installing'].includes(currentState?.updates?.phase);
       remove.addEventListener('click', () => {
         directories.splice(index, 1);
         actionMessage = '';
@@ -169,7 +172,8 @@
     const state = runtime.state || 'unconfigured';
     const transitioning = ['authorizing', 'checking', 'starting'].includes(state);
     const active = ['authorizing', 'checking', 'starting', 'ready', 'reconnecting'].includes(state);
-    const locked = Boolean(pending) || transitioning || !initialized;
+    const installing = ['downloading', 'verifying', 'installing'].includes(currentState?.updates?.phase);
+    const locked = Boolean(pending) || transitioning || installing || !initialized;
     byId('status-badge').className = `status-badge ${state === 'ready' ? 'ready' : ['authorizing', 'checking', 'starting', 'reconnecting'].includes(state) ? 'working' : state === 'failed' ? 'failed' : ''}`;
     byId('status-label').textContent = initialized ? t(stateNames[state] || '状态未知') : t('正在载入');
     byId('overview-headline').textContent = t(headlines[state] || headlines.unconfigured);
@@ -191,8 +195,9 @@
     byId('reconnect-label').textContent = ['ready', 'reconnecting', 'failed'].includes(state) ? t('重新连接') : t('连接通道');
     byId('stop').disabled = (!active && !['save', 'check', 'reconnect'].includes(pending)) || pending === 'stop';
     byId('clear-credentials').disabled = locked || (!keySaved && !currentState?.settings?.tunnelId && !keyInput.value);
-    byId('add-directory').disabled = Boolean(pending) || !initialized;
-    [tunnelInput, keyInput, autoConnectInput, autoProjectContextInput].forEach((input) => { input.disabled = ['save', 'workspace', 'clear'].includes(pending); });
+    byId('add-directory').disabled = Boolean(pending) || installing || !initialized;
+    [tunnelInput, keyInput, autoConnectInput, autoProjectContextInput].forEach((input) => { input.disabled = installing || ['save', 'workspace', 'clear'].includes(pending); });
+    document.querySelectorAll('.remove-directory').forEach(button => { button.disabled = Boolean(pending) || installing; });
     byId('action-message').textContent = t(actionMessage);
     const error = actionError || (state === 'failed' ? runtime.error : '') || '';
     byId('error-banner').hidden = !error;
@@ -219,6 +224,63 @@
     byId('versions').textContent = [
       ['Node', versions.node], [t('通道运行组件'), versions.tunnel], [t('工具引擎'), versions.desktopCommander],
     ].map(([name, version]) => `${name} ${version || t('未读取')}`).join(' · ');
+    renderUpdates();
+  }
+
+  function renderUpdates() {
+    const updates = currentState?.updates || {};
+    const phase = updates.phase || 'idle';
+    const busy = ['checking', 'downloading', 'verifying', 'installing'].includes(phase);
+    byId('check-update').disabled = !initialized || busy || updatePending;
+    byId('check-update').textContent = t(phase === 'checking' ? '正在检查…' : '检查更新');
+    byId('auto-check-updates').checked = updates.automatic !== false;
+    byId('auto-check-updates').disabled = !initialized || updatePreferencePending;
+    const current = updates.current || currentState?.versions?.app || '—';
+    byId('update-version').textContent = updates.latest
+      ? t('当前版本 v{current} · 最新版本 v{latest}', { current, latest: updates.latest })
+      : t('当前版本 v{version}', { version: current });
+    const labels = {
+      idle: '尚未检查更新。', checking: '正在检查正式发布版本…', current: '当前没有可用更新。',
+      available: '有新版本可用。', unavailable: '暂未发布可用的正式版本。',
+      development: '开发模式仅检查版本，请更新源码后重新运行。',
+      verifying: '正在校验安装包…', installing: '正在停止连接并打开安装程序…', ready: '安装包已校验，可以继续安装。',
+    };
+    const percent = updates.total ? Math.min(100, Math.floor((updates.received || 0) / updates.total * 100)) : 0;
+    const error = updateError || updates.error || '';
+    byId('update-status').textContent = error ? t(error) : phase === 'downloading'
+      ? t('正在下载更新 {percent}%', { percent }) : t(labels[phase] || '尚未检查更新。');
+    byId('update-status').className = `update-status${error ? ' update-error' : ''}`;
+    byId('update-progress').hidden = phase !== 'downloading';
+    byId('update-progress').value = percent;
+    byId('update-checked').hidden = !updates.checkedAt;
+    byId('update-checked').textContent = updates.checkedAt ? t('上次检查：{time}',{time:new Intl.DateTimeFormat(locale,{dateStyle:'short',timeStyle:'short'}).format(updates.checkedAt)}) : '';
+    const canDownload = updates.canDownload && ['available', 'error', 'ready'].includes(phase);
+    byId('download-update').hidden = !canDownload;
+    byId('download-update').disabled = Boolean(pending) || updatePending || isDirty() || ['authorizing', 'checking', 'starting'].includes(currentState?.runtime?.state);
+    byId('download-update').textContent = t(updates.canInstall ? '继续安装' : '下载并安装');
+    byId('update-release').hidden = !updates.releaseUrl;
+    byId('update-install-help').hidden = !canDownload && !['downloading', 'verifying', 'installing'].includes(phase);
+    byId('update-install-help').textContent = t(isDirty()
+      ? '请先保存或撤销未保存的配置，再安装更新。'
+      : currentState?.system?.platform === 'darwin'
+        ? '校验后会停止连接，打开 DMG 并退出应用。请将新版拖入“应用程序”。'
+        : '校验后会停止连接并打开安装向导，随后退出应用。');
+    const notice = byId('update-notice');
+    notice.hidden = !updates.latest || !['available', 'development', 'ready', 'downloading', 'verifying', 'installing'].includes(phase);
+    notice.textContent = t('发现新版本 v{version}', { version: updates.latest || '' });
+  }
+
+  async function updateAction(method) {
+    if (updatePending) return;
+    updatePending = true; updateError = ''; render();
+    try { applyState(await api[method]()); }
+    catch (error) { updateError = safeMessage(error); }
+    finally { updatePending = false; render(); }
+  }
+
+  function showUpdates() {
+    showTab('help');
+    byId('update-card').scrollIntoView?.({ block: 'nearest' });
   }
 
   async function perform(name, work) {
@@ -345,6 +407,21 @@
     actionMessage = '已清除通道标识与密钥，工作目录设置已保留。';
   }));
   byId('open-logs').addEventListener('click', () => perform('logs', () => api.openLogs()));
+  byId('check-update').addEventListener('click', () => updateAction('checkUpdate'));
+  byId('download-update').addEventListener('click', () => {
+    if (isDirty() || pending) return;
+    updateAction(currentState?.updates?.canInstall ? 'installUpdate' : 'downloadUpdate');
+  });
+  byId('update-release').addEventListener('click', () => updateAction('openRelease'));
+  byId('update-notice').addEventListener('click', showUpdates);
+  byId('auto-check-updates').addEventListener('change', async event => {
+    const enabled = event.target.checked;
+    updatePreferencePending = true; updateError = ''; render();
+    try { applyState(await api.setAutoCheckUpdates(enabled)); }
+    catch (error) { updateError = safeMessage(error); }
+    finally { updatePreferencePending = false; render(); }
+  });
+  api?.onShowUpdates?.(showUpdates);
   document.querySelectorAll('[data-external]').forEach((button) => {
     button.addEventListener('click', () => {
       Promise.resolve(api.openExternal(button.dataset.external)).catch((error) => {

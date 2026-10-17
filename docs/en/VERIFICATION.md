@@ -37,3 +37,25 @@ Both [native CI jobs](https://github.com/DJ-Huang/ChatToHarness/actions/runs/390
 ## 0.3.1 automatic tag release (2026-10-17)
 
 The [v0.3.1 tag workflow](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39006275576) passed both native installer builds, packaged-window checks, installation, and uninstallation with settings retained. It automatically published the [stable Release](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.3.1), including the Windows installer, Mac DMG, SHA256SUMS.txt, and notes in all three languages. Public attachment sizes and SHA-256 digests were verified. The same workflow then deployed Pages; the Chinese, English, and Japanese live pages were checked against the actual v0.3.1 attachment URLs. Published release assets and tags remain unchanged.
+
+## Guidance and robustness changes: source verification (2026-10-17, unreleased)
+
+These source changes follow 0.3.1; published tags and installers were not changed. AGENTS is optional and automatic reference failures are diagnostics. Files and guidance share authorized-folder checks. New work includes bounded `search_project`, metadata caches, deadlines, cancellation and handle cleanup, plus manual/automatic update checks, installer verification and OS handoff. Tool metadata describes the protocol factually and retains truthful terminal write/network annotations.
+
+- All 66 focused checks passed across contexts, real local ripgrep, proxy lifecycle, updates, main-process recovery and translation coverage. After boundary fixes, only affected search and proxy checks were rerun; both passed.
+- All 8 runtime/connection checks passed separately in an approved local execution environment after the sandbox blocked loopback listening and some process inspection. The total is 74 focused checks, not the full suite.
+- Read-only context loads succeeded for all three original project cases, with zero write-blocking diagnostics. The pet project retained its shared specification reference; missing references and VaultRAG brace shorthand remained visible diagnostics. Those project files were not modified.
+- Tests used system Node 23.11.0 and local ripgrep; filename glob checks emitted that Node version's experimental-feature warning. Packaging still pins Node 24.22.0. No full suite, dual-platform CI, new package build, visual UI acceptance or real update installation ran. The real MCP smoke script now covers the new search and projects without AGENTS; it was not run this round.
+- The running Harness and ChatGPT tool catalog were not replaced/refreshed, and real ChatGPT calls were not verified. Removing the old compulsory metadata prefix in source does not establish that ChatGPT's suspicious-instructions prompt has disappeared.
+
+## Source development launch and restart (2026-10-17, unreleased)
+
+Added `Dev.command` / `Dev.cmd`; `npm run dev` and `npm start` use the same development launcher. After first-time pinned setup it runs source directly. Components are prepared again only after fingerprint changes or failed verification; no app packaging runs. Bootstrap writes a compatible Node receipt so Windows preparation does not try to replace its running `node.exe`.
+
+Electron single-instance messages request graceful Quit. The old instance awaits `runtime.close()` before releasing its lock; only then can the replacement start. Signals and development-owner loss enter normal shutdown. Windows reuses the private Job and a matching-owner stop request. An older incompatible instance causes a clear failure within 15 seconds rather than a second service. Long-running development does not hold the component-preparation lock.
+
+All 35 focused checks passed in their relevant groups: main-process/development lifecycle 20, launcher substitutes 13, actual POSIX process cleanup 1, isolated Mac wrapper smoke 1. The native case confirmed that a temporary application and its detached service exited while an unrelated process survived. The wrapper case covered initial verified extraction, receipt reuse, preparation/launch lock boundaries and no packaging. Syntax and diff checks passed. No real Electron GUI, tunnel, personal configuration or actual component downloads were used; no full suite or native Windows execution ran. Graceful-exit evidence does not guarantee cleanup of reparented POSIX descendants after arbitrary SIGKILL or crashes.
+
+## v0.4.0 pre-release checks (2026-10-17)
+
+The complete local suite ran 131 checks: 129 passed, 2 native Windows checks skipped on this platform, no failures. Version/lock consistency, release guards and diff checks passed. Native builds, real tools, packaged windows, installer acceptance and public asset verification remain pending in the GitHub release pipeline; publication is not yet confirmed.

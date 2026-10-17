@@ -2,6 +2,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+MODE="${1:-}"
+if [[ -n "$MODE" && "$MODE" != "--dev" ]]; then
+  echo "用法：Start.sh [--dev]"
+  exit 1
+fi
 APP="$ROOT/dist/mac-arm64/ChatToHarness.app"
 STAMP="$ROOT/.cache/build-stamp"
 NODE_VERSION="24.22.0"
@@ -24,7 +29,7 @@ build_current() {
     -type f -newer "$STAMP" -print -quit)" ]]
 }
 
-if build_current; then
+if [[ "$MODE" != "--dev" ]] && build_current; then
   open "$APP"
   exit 0
 fi
@@ -51,7 +56,17 @@ trap 'rm -rf "$LOCK"' EXIT
 # The exact archive checksum is also recorded in scripts/versions.cjs.
 NODE_ROOT="$ROOT/resources/node"
 NODE="$NODE_ROOT/bin/node"
-if [[ ! -x "$NODE" ]] || [[ "$("$NODE" --version)" != "v$NODE_VERSION" ]]; then
+NODE_RECEIPT="$NODE_ROOT/.chatharness-node.json"
+node_current() {
+  [[ -x "$NODE" && -f "$NODE_RECEIPT" ]] || return 1
+  local receipt binary_sha
+  receipt="$(head -c 1024 "$NODE_RECEIPT")"
+  binary_sha="$(shasum -a 256 "$NODE" | awk '{print $1}')"
+  [[ "$receipt" == *\"platform\":\"darwin-arm64\"* &&
+     "$receipt" == *\"archiveSha256\":\"$NODE_SHA\"* &&
+     "$receipt" == *\"binarySha256\":\"$binary_sha\"* ]]
+}
+if ! node_current; then
   echo "首次启动：正在准备经过校验的 Node.js 运行组件…"
   mkdir -p "$ROOT/.cache/downloads" "$ROOT/resources"
   ARCHIVE="$ROOT/.cache/downloads/node-v$NODE_VERSION-darwin-arm64.tar.gz"
@@ -73,14 +88,25 @@ if [[ ! -x "$NODE" ]] || [[ "$("$NODE" --version)" != "v$NODE_VERSION" ]]; then
   tar -xzf "$ARCHIVE" -C "$NODE_ROOT.prepare" --strip-components=1
   rm -rf "$NODE_ROOT"
   mv "$NODE_ROOT.prepare" "$NODE_ROOT"
+  _node_binary_sha="$(shasum -a 256 "$NODE" | awk '{print $1}')"
+  printf '{"platform":"darwin-arm64","archiveSha256":"%s","binarySha256":"%s"}\n' "$NODE_SHA" "$_node_binary_sha" > "$NODE_RECEIPT"
 fi
 
 export PATH="$NODE_ROOT/bin:$PATH"
 cd "$ROOT"
 echo "正在准备 ChatToHarness 界面与工具组件，首次启动需要联网…"
-if [[ ! -f node_modules/.localharness-lock ]] || ! cmp -s package-lock.json node_modules/.localharness-lock; then
+if [[ ! -x node_modules/electron/dist/Electron.app/Contents/MacOS/Electron || ! -f node_modules/.localharness-lock ]] || ! cmp -s package-lock.json node_modules/.localharness-lock; then
   npm ci --no-audit --no-fund
   cp package-lock.json node_modules/.localharness-lock
 fi
-"$NODE" scripts/build.cjs
-open "$APP"
+if [[ "$MODE" == "--dev" ]]; then
+  "$NODE" scripts/dev.cjs --prepare-only
+  # Preparation is serialized; the running development app must not hold the
+  # preparation lock, so another click can replace it with current source.
+  rm -rf "$LOCK"
+  trap - EXIT
+  exec "$NODE" scripts/dev.cjs
+else
+  "$NODE" scripts/build.cjs
+  open "$APP"
+fi

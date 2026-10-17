@@ -32,10 +32,13 @@
     "files": [
       "app/**/*",
       "package.json",
-      "README.md",
+      "README*.md",
       "ARCHITECTURE.md",
       "LICENSE",
-      "THIRD_PARTY_NOTICES.md"
+      "THIRD_PARTY_NOTICES.md",
+      "VERIFICATION.md",
+      "docs/**/*",
+      "site/assets/console.png"
     ],
     "extraResources": [
       {

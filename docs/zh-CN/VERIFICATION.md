@@ -1,0 +1,25 @@
+# ChatToHarness 0.3.0 验证记录
+
+[English](../en/VERIFICATION.md) | [简体中文](../zh-CN/VERIFICATION.md) | [日本語](../ja/VERIFICATION.md)
+
+本记录区分自动检查、平台运行和真实客户端调用。首次实现时未完成的项目保持待验证，不以代码存在代替实际通过。
+
+## 当前轮次
+
+- 自动单元检查：68 项，66 通过，2 项 Windows Job Object 原生检查在 Mac 跳过；后续 Windows CI 已验证通过。
+- Mac 本地应用与 225 MB DMG 已生成，签名完整性检查通过。打包窗口的四页导航、26 项真实工具、目录选择、加密保存／替换／清除、重启连接、重复启动、隐藏恢复、受管三层进程停止和权限错误恢复均通过隔离验收；安装包校验、挂载、复制到中文及空格路径、运行、移除应用并保留数据均通过。最终包的完整隔离窗口验收再次通过。
+- GitHub Windows / Mac 原生 CI：均通过。Windows 68 项中 67 通过、1 项 POSIX 专属检查跳过；两项原生 Job Object 检查通过。两平台均完成真实工具引擎、Tunnel 本地控制面、打包应用及隔离窗口验收。[CI 记录](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39001994066)。
+- Pages 离线构建、仓库子路径及未发布下载入口检查通过；公开访问 HTTP 200；桌面与手机无横向溢出、资源载入正常。[部署记录](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39001761795)。
+- 双平台安装包 Release 草稿：已自动生成并完成远程大小及 SHA-256 核对。[交付流水线](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39002181642)全部通过，含 Mac DMG 挂载／复制／启动及 Windows NSIS 安装／启动／卸载保留设置。版本仍为草稿，未正式发布。
+- 既有 Mac 配置和真实 Tunnel：新版真实界面为通道就绪，26 项工具可用；升级前后配置文件 SHA-256 完全一致，密钥、目录及开关保留。
+- 当前 Codex 会话经已有 Tunnel 插件实际调用成功：自动获取工程上下文，读取 README，执行只读 Git／HOME 检查，确认 Runtime 密钥未进入 Shell，在专用验收目录写入并读回标记。ChatGPT 网页只读验收显示“无法加载此回复”，无插件的新聊天只要求回复 OK 也出现相同问题；网页显示验收受外部问题阻碍，不标记通过。Responses API／AgentKit 本版提供官方指引，未声称真实调用通过。
+
+真实本机 MCP 冒烟通过：先阻止无规范写入、根／嵌套 AGENTS、按需规则、规则更新失效、跨工程移动、并发上下文、文件读写、真实 HOME 保留、Runtime 密钥从终端环境移除。真实 Tunnel runtime 对本地模拟控制面接受当前命令参数并提供健康端点；不据此宣称外部通道已验证。
+
+## 兼容基线
+
+0.2.0 已在原 Mac 验证工程规范自动交付、根与嵌套 AGENTS、按需 rules、跨工程上下文、真实工具读写和菜单栏行为。此前验收不自动等同于 0.3.0。原用户配置不纳入公开仓库。
+
+## 验证边界
+
+CI 使用临时配置、合成凭据和模拟控制面，不使用个人 Tunnel。Windows 托管环境的安装与自动检查通过，不代替用户设备上的人工体验。通道就绪不等于客户端配置完成。长时间工具操作不因网络重连自动重放。

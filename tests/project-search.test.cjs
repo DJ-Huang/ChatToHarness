@@ -11,7 +11,7 @@ const { ProjectSearch, argumentsFor, MAX_MATCHES, PAGE_BYTES, CURSOR_TTL } = req
 const binary = (process.env.PATH || '').split(path.delimiter).map(folder => path.join(folder, process.platform === 'win32' ? 'rg.exe' : 'rg')).find(file => fs.existsSync(file));
 
 function fixture(t, options = {}) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cth-search 中文 ')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'cth-search 中文 ')));
   fs.mkdirSync(path.join(root, '.git'));
   const contexts = new ProjectContexts({ defaultDirectory: root, allowedDirectories: [root] });
   const search = new ProjectSearch({ contexts, binary, ...options });

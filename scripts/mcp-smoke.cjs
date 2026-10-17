@@ -8,7 +8,7 @@ const {spawn}=require('node:child_process');
 const {RuntimeManager,stopTree}=require('../app/runtime.cjs');
 const {spawnManaged}=require('../app/platform.cjs');
 async function main(){
- const root=path.resolve(__dirname,'..');const home=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'ChatToHarness MCP 中文 space ')));
+ const root=path.resolve(__dirname,'..');const home=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'ChatToHarness MCP 中文 space ')));
  const resources=process.argv[2]?path.resolve(process.argv[2]):path.join(root,'resources');
  const manager=new RuntimeManager({home:path.join(home,'app'),resources});let child;const waiting=new Map();let id=0,buffer='';
  const project=path.join(home,'工程 A'),other=path.join(home,'工程 B'),nested=path.join(project,'nested');
@@ -48,7 +48,8 @@ async function main(){
    assert.ok((await call('read_file',{path:file,project_context_tokens:tokens})).includes(content));
    const searchResult=await raw('search_project',{project_path:project,pattern:'真实工具验收'});
    assert.notEqual(searchResult.isError,true,asText(searchResult));
-   assert.ok(searchResult.structuredContent.results.some(match=>match.path===file&&match.line===2));
+   const canonicalFile=fs.realpathSync.native(file);
+   assert.ok(searchResult.structuredContent.results.some(match=>match.line===2&&fs.realpathSync.native(match.path)===canonicalFile),JSON.stringify({expected:canonicalFile,search:searchResult.structuredContent}));
    const emptyProject=path.join(home,'without instructions');fs.mkdirSync(emptyProject);
    const emptyFile=path.join(emptyProject,'plain.txt');
    await call('write_file',{path:emptyFile,content:'no AGENTS required',project_path:emptyProject});

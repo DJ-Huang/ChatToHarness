@@ -67,7 +67,10 @@
         </section>
       </form>
       <section id="panel-mcp" class="tab-panel" role="tabpanel" aria-labelledby="nav-mcp" hidden>
-        <section class="card mcp-card" aria-labelledby="mcp-title"><div class="card-header"><div><h2 id="mcp-title">应用级 MCP 服务</h2><p>在 ChatToHarness 中连接工具服务，所有客户端共用；无需创建 Agent。</p></div><button id="mcp-add" class="button secondary compact-button" type="button">添加服务</button></div><p class="mcp-caption">先信任服务，再逐项授权工具。新增或变更的工具默认禁用，客户端可能需要刷新工具目录。</p><div id="mcp-server-list" class="mcp-server-list"></div></section>
+        <section class="card mcp-card" aria-labelledby="mcp-title"><div class="card-header"><div><h2 id="mcp-title">应用级 MCP 服务</h2><p>在 ChatToHarness 中连接工具服务，所有客户端共用；无需创建 Agent。</p></div><button id="mcp-add" class="button secondary compact-button" type="button">添加服务</button></div>
+          <div class="setting-row mcp-access"><div><label class="checkbox-label" for="mcp-allow-all-tools"><input id="mcp-allow-all-tools" type="checkbox" aria-describedby="mcp-allow-all-tools-help mcp-client-permission-note" /><span>允许所有工具</span></label><p id="mcp-allow-all-tools-help">已启用且受信任的 MCP 服务将放行全部工具，包括以后新增的工具；关闭后恢复逐项权限。切换时，权限受影响的待确认请求或调用会被取消。</p><p id="mcp-client-permission-note">此设置仅管理本机工具权限，ChatGPT 仍可能要求授权。</p></div></div>
+          <p id="mcp-policy-summary" class="mcp-caption">先信任服务，再逐项授权工具。新增或变更的工具默认禁用，客户端可能需要刷新工具目录。</p><div id="mcp-server-list" class="mcp-server-list"></div>
+        </section>
         <section id="mcp-trust" class="card mcp-card mcp-trust" aria-labelledby="mcp-trust-title" hidden><h2 id="mcp-trust-title">确认信任此服务</h2><p class="mcp-caption">本地服务以当前用户身份运行；工作目录白名单不会限制第三方进程。仅连接你信任的服务。</p><pre id="mcp-trust-target" class="code-example"></pre><div class="mcp-actions"><button id="mcp-trust-confirm" class="button primary" type="button">信任并连接</button><button id="mcp-trust-cancel" class="button secondary" type="button">取消</button></div></section>
         <section id="mcp-editor" class="card mcp-card" aria-labelledby="mcp-editor-title" hidden>
           <div class="card-header"><div><h2 id="mcp-editor-title">添加 MCP 服务</h2><p>保存配置不会授权工具。请勿将密钥写入命令参数或服务地址。</p></div></div>

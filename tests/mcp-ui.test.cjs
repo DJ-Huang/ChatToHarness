@@ -15,6 +15,7 @@ const methods = {
   mcpSaveServer: 'mcp-save-server', mcpRemoveServer: 'mcp-remove-server',
   mcpSetEnabled: 'mcp-set-enabled', mcpTrustServer: 'mcp-trust-server',
   mcpTestServer: 'mcp-test-server', mcpSetToolPolicy: 'mcp-set-tool-policy',
+  mcpSetAllowAllTools: 'mcp-set-allow-all-tools',
   mcpPreviewImport: 'mcp-preview-import', mcpCommitImport: 'mcp-commit-import',
   mcpExport: 'mcp-export', mcpResolveApproval: 'mcp-resolve-approval',
 };
@@ -126,7 +127,7 @@ test('renderer and restricted preload agree on MCP methods and exact IPC routes'
   assert.deepEqual(referenced, Object.keys(methods).sort());
   assert.deepEqual(Object.keys(exposed).filter(name => name.startsWith('mcp')).sort(), referenced);
   for (const [method, route] of Object.entries(methods)) {
-    const args = method === 'mcpSetEnabled' ? ['server', true] : method === 'mcpExport' ? [] : [{ test: method }];
+    const args = method === 'mcpSetEnabled' ? ['server', true] : method === 'mcpSetAllowAllTools' ? [true] : method === 'mcpExport' ? [] : [{ test: method }];
     await exposed[method](...args);
     assert.deepEqual(calls.pop(), ['localharness:' + route, ...args]);
   }
@@ -148,6 +149,42 @@ test('a newly saved MCP service is disabled and saving does not connect or trust
   assert.equal(config.timeoutMs, 60000); assert.deepEqual(Array.from(config.args), []);
   assert.equal(fixture.node('mcp-editor').hidden, true);
   assert.equal(fixture.node('mcp-env').value, '{}'); assert.equal(fixture.node('mcp-headers').value, '{}');
+});
+
+test('allow all tools shows saved permissions and restores individual controls when disabled', async () => {
+  let state = initialState();
+  const tool = { name: 'write', policy: 'deny', savedPolicy: 'deny' };
+  state.mcp.servers = [{ id: 'example', name: 'Example', enabled: true, trusted: true, transport: 'stdio', command: 'server', tools: [tool] }];
+  const toggles = [];
+  const fixture = await rendererFixture(state, {
+    async mcpSetAllowAllTools(enabled) {
+      toggles.push(enabled);
+      state = { ...state, mcp: { ...state.mcp, allowAllTools: enabled,
+        servers: state.mcp.servers.map(server => ({ ...server, tools: [{ ...tool, policy: enabled ? 'allow' : 'deny' }] })) } };
+      return state;
+    },
+  });
+  const toggle = fixture.node('mcp-allow-all-tools');
+  const policySelect = () => descendants(fixture.node('mcp-server-list')).find(node => node.tagName === 'SELECT');
+  assert.equal(toggle.checked, false);
+  assert.equal(policySelect().disabled, false);
+  assert.equal(policySelect().value, 'deny');
+  toggle.checked = true;
+  await toggle.emit('change');
+  assert.deepEqual(toggles, [true]);
+  assert.equal(toggle.checked, true);
+  assert.equal(policySelect().disabled, true);
+  assert.equal(policySelect().value, 'deny', 'saved policy remains visible instead of the effective allow');
+  assert.equal(policySelect().attributes['aria-label'], '关闭后 write 的调用权限');
+  assert.match(fixture.node('mcp-policy-summary').textContent, /关闭此开关后生效/);
+  toggle.checked = false;
+  await toggle.emit('change');
+  assert.deepEqual(toggles, [true, false]);
+  assert.equal(toggle.checked, false);
+  assert.equal(policySelect().disabled, false);
+  assert.equal(policySelect().value, 'deny');
+  assert.equal(policySelect().attributes['aria-label'], 'write 的调用权限');
+  assert.equal(fixture.calls.length, 0, 'the switch does not rewrite individual tool grants');
 });
 
 test('import requires a current preview, commits only its draft ID, and never enables services', async () => {

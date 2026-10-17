@@ -307,3 +307,34 @@ test('invalid imports and failed writes expose safe errors without partial confi
   assert.equal(settings.get('imported').name, 'Unity tools');
   assert.deepEqual(fs.readdirSync(f.directory), ['mcp-settings.json']);
 });
+
+test('allow-all is off by default, persists locally and preserves grants and trust', t => {
+  const f = fixture(t), settings = f.make();
+  assert.equal(settings.getAllowAllTools(), false);
+  settings.save(config()); settings.trust('unity');
+  settings.setToolPolicy('unity', 'inspect', 'ask', 'definition');
+  const grants = settings.listToolPolicies('unity');
+  const servers = settings.list();
+  settings.setAllowAllTools(true);
+  assert.equal(f.make().getAllowAllTools(), true);
+  assert.deepEqual(settings.list(), servers);
+  assert.deepEqual(settings.listToolPolicies('unity'), grants);
+  assert.equal(settings.isTrusted('unity'), true);
+  assert.equal(settings.export().includes('allowAllTools'), false, 'imports cannot inherit this local permission');
+  for (const input of ['true', 1, null, undefined]) assert.throws(() => settings.setAllowAllTools(input), { code: 'INVALID_INPUT' });
+  const saved = fs.readFileSync(f.file);
+  const originalRename = fs.renameSync;
+  fs.renameSync = () => { throw Error('Simulated persistence failure'); };
+  try { assert.throws(() => settings.setAllowAllTools(false), { code: 'WRITE_FAILED' }); }
+  finally { fs.renameSync = originalRename; }
+  assert.equal(settings.getAllowAllTools(), true);
+  assert.deepEqual(fs.readFileSync(f.file), saved);
+  settings.setAllowAllTools(false);
+  assert.equal(f.make().getAllowAllTools(), false);
+  const legacy = JSON.parse(fs.readFileSync(f.file));
+  delete legacy.allowAllTools;
+  fs.writeFileSync(f.file, JSON.stringify(legacy));
+  assert.equal(f.make().getAllowAllTools(), false, 'older settings remain compatible');
+  fs.writeFileSync(f.file, JSON.stringify({ ...legacy, allowAllTools: 'true' }));
+  assert.throws(f.make, { code: 'INVALID_CONFIG' });
+});

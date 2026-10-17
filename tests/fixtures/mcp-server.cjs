@@ -26,21 +26,27 @@ function createFixtureServer({
   let calls = 0;
   let revision = 1;
   let changed = false;
+  let reversed = false;
+  let hangRevision = 1;
+  let hangRemoved = false;
   const server = new Server({ name, version: '1.0.0' }, { capabilities: { tools: { listChanged: true } } });
   const tool = (toolName, description, properties = {}) => ({
     name: toolName, description, inputSchema: { type: 'object', properties, additionalProperties: true }, outputSchema: resultSchema,
   });
-  const tools = () => [
-    tool('echo', `Return the supplied arguments (definition ${revision}).`),
-    tool('count', 'Read this connection\'s call count.'),
-    tool('change_tools', 'Change the tool catalog and send a list-changed notification.'),
-    tool('hang', 'Wait until this request is cancelled.'),
-    tool('exit', 'Exit this test server without responding.'),
-    tool('inspect_environment', 'Read explicitly named environment variables for isolation tests.', { names: { type: 'array', items: { type: 'string' } } }),
-    tool('protocol_error', 'Return a JSON-RPC error for error-preservation tests.'),
-    tool('tool_error', 'Return a tool error result for error-preservation tests.'),
-    ...(changed ? [tool('added_tool', 'A tool added after discovery.')] : []),
-  ];
+  const tools = () => {
+    const catalog = [
+      tool('echo', `Return the supplied arguments (definition ${revision}).`),
+      tool('count', 'Read this connection\'s call count.'),
+      tool('change_tools', 'Change the tool catalog and send a list-changed notification.'),
+      ...(hangRemoved ? [] : [tool('hang', hangRevision === 1 ? 'Wait until this request is cancelled.' : `Wait until this request is cancelled (definition ${hangRevision}).`)]),
+      tool('exit', 'Exit this test server without responding.'),
+      tool('inspect_environment', 'Read explicitly named environment variables for isolation tests.', { names: { type: 'array', items: { type: 'string' } } }),
+      tool('protocol_error', 'Return a JSON-RPC error for error-preservation tests.'),
+      tool('tool_error', 'Return a tool error result for error-preservation tests.'),
+      ...(changed ? [tool('added_tool', 'A tool added after discovery.')] : []),
+    ];
+    return reversed ? catalog.reverse() : catalog;
+  };
   const reply = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value });
 
   server.setRequestHandler(ListToolsRequestSchema, async request => {
@@ -67,8 +73,10 @@ function createFixtureServer({
     if (toolName === 'protocol_error') throw new McpError(ErrorCode.InvalidParams, 'Fixture protocol detail', { fixture: true });
     if (toolName === 'tool_error') return { isError: true, ...reply({ fixture: true, sentinel: 'fixture-tool-error' }) };
     if (toolName === 'change_tools') {
-      revision += 1;
-      changed = true;
+      if (args.action === 'reorder') reversed = !reversed;
+      else if (args.action === 'change_hang') hangRevision += 1;
+      else if (args.action === 'remove_hang') hangRemoved = true;
+      else { revision += 1; changed = true; }
       await server.sendToolListChanged();
       return reply({ revision, server: name });
     }

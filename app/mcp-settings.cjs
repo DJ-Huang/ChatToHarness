@@ -125,13 +125,14 @@ class McpSettings {
   _load() {
     let descriptor;
     try {
-      if (!this._assertFile()) return { schema: 1, servers: [], secrets: {}, trust: {}, grants: {} };
+      if (!this._assertFile()) return { schema: 1, servers: [], secrets: {}, trust: {}, grants: {}, allowAllTools: false };
       descriptor = fs.openSync(this.file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
       const info = fs.fstatSync(descriptor);
       if (!info.isFile() || info.nlink !== 1 || info.size > MAX_BYTES) throw fail('INVALID_CONFIG');
       const saved = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
       if (!object(saved) || saved.schema !== 1 || !Array.isArray(saved.servers) || saved.servers.length > 100 ||
-          !object(saved.secrets) || !object(saved.trust) || !object(saved.grants)) throw fail('INVALID_CONFIG');
+          !object(saved.secrets) || !object(saved.trust) || !object(saved.grants) ||
+          (has(saved, 'allowAllTools') && typeof saved.allowAllTools !== 'boolean')) throw fail('INVALID_CONFIG');
       const seen = new Set();
       const servers = saved.servers.map(server => {
         const normalized = this._normalize(server, { secrets: saved.secrets, existing: server, loading: true });
@@ -155,7 +156,7 @@ class McpSettings {
           if (!object(grant) || !POLICIES.has(grant.policy) || typeof grant.fingerprint !== 'string' || !grant.fingerprint || grant.fingerprint.length > 256) throw fail('INVALID_CONFIG');
         }
       }
-      return { schema: 1, servers, secrets: saved.secrets, trust: saved.trust, grants: saved.grants };
+      return { schema: 1, servers, secrets: saved.secrets, trust: saved.trust, grants: saved.grants, allowAllTools: saved.allowAllTools === true };
     } catch (error) {
       if (error instanceof McpSettingsError && error.code === 'UNSAFE_STORAGE') throw error;
       throw fail('INVALID_CONFIG', 'MCP settings cannot be read. The original file has been preserved.');
@@ -298,6 +299,17 @@ class McpSettings {
   }
 
   isTrusted(serverId) { return this._state.trust[serverId] === this.runtimeFingerprint(serverId); }
+
+  getAllowAllTools() { return this._state.allowAllTools === true; }
+
+  setAllowAllTools(enabled) {
+    if (typeof enabled !== 'boolean') throw fail('INVALID_INPUT');
+    if (enabled === this.getAllowAllTools()) return enabled;
+    const next = clone(this._state);
+    next.allowAllTools = enabled;
+    this._commit(next);
+    return enabled;
+  }
 
   setToolPolicy(serverId, name, policy, fingerprint) {
     this._server(serverId);

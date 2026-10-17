@@ -43,7 +43,7 @@ function log(event,detail={}){
     fs.appendFileSync(file,JSON.stringify({time:new Date().toISOString(),event,...detail})+'\n',{mode:0o600});
   }catch{}
 }
-function state(){return {settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
+function state(){return {settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
 function publish(){const value=state();if(window&&!window.isDestroyed())window.webContents.send('localharness:state',value);refreshTray();}
 function show(){if(quitting)return;if(!window||window.isDestroyed())createWindow();if(window.isMinimized())window.restore();window.show();window.focus();}
 function createWindow(){
@@ -159,6 +159,7 @@ function registerIPC(){
   bind('mcp-trust-server',mcp(id=>action(()=>{mcpSettings.trust(id);mcpManager.changed();})));
   bind('mcp-test-server',mcp(id=>action(()=>mcpManager.test(id))));
   bind('mcp-set-tool-policy',mcp(input=>action(()=>mcpManager.setToolPolicy(input))));
+  bind('mcp-set-allow-all-tools',mcp(enabled=>action(()=>mcpManager.setAllowAllTools(enabled))));
   bind('mcp-preview-import',mcp(text=>mcpSettings.previewImport(text)));
   bind('mcp-commit-import',mcp(id=>action(()=>{mcpSettings.commitImport(id);mcpManager.changed();})));
   bind('mcp-export',mcp(()=>mcpSettings.export()));

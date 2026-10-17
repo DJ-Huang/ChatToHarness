@@ -302,8 +302,14 @@
   }
   function renderMcp() {
     const servers = mcpServers();
+    const allowAllTools = currentState?.mcp?.allowAllTools === true;
     const installing = ['downloading', 'verifying', 'installing'].includes(currentState?.updates?.phase);
     const busy = Boolean(mcpPending) || installing || !initialized;
+    byId('mcp-allow-all-tools').checked = allowAllTools;
+    byId('mcp-allow-all-tools').disabled = busy;
+    byId('mcp-policy-summary').textContent = t(allowAllTools
+      ? '已开启允许所有工具。下方逐项权限在关闭此开关后生效。'
+      : '先信任服务，再逐项授权工具。新增或变更的工具默认禁用，客户端可能需要刷新工具目录。');
     for (const id of ['mcp-add', 'mcp-save', 'mcp-cancel', 'mcp-import-preview', 'mcp-export', 'mcp-import-confirm', 'mcp-trust-confirm', 'mcp-trust-cancel']) byId(id).disabled = busy;
     byId('mcp-import-text').disabled = busy;
     byId('mcp-import-preview').disabled = busy || !byId('mcp-import-text').value.trim();
@@ -312,7 +318,7 @@
     byId('mcp-nav-count').textContent = String(servers.length);
     byId('mcp-editor-title').textContent = t(mcpEditorId ? '编辑 MCP 服务' : '添加 MCP 服务');
     byId('mcp-save').textContent = t(mcpPending === 'save' ? '正在保存…' : '保存服务');
-    const key = JSON.stringify([servers, locale, mcpPending, initialized, installing]);
+    const key = JSON.stringify([servers, allowAllTools, locale, mcpPending, initialized, installing]);
     if (key !== mcpRenderKey) {
       mcpRenderKey = key;
       const list = byId('mcp-server-list');
@@ -350,21 +356,21 @@
         tools.open = mcpOpenTools.has(server.id);
         tools.addEventListener('toggle', () => { if (tools.open) mcpOpenTools.add(server.id); else mcpOpenTools.delete(server.id); });
         tools.append(make('summary', '', t('工具与授权（{count}）', { count: server.tools?.length || 0 })));
-        if (!server.tools?.length) tools.append(make('p', 'mcp-caption', t('连接后可预览工具；工具默认禁用。')));
+        if (!server.tools?.length) tools.append(make('p', 'mcp-caption', t(allowAllTools ? '连接后可预览工具。' : '连接后可预览工具；工具默认禁用。')));
         for (const tool of server.tools || []) {
           const row = make('div', 'mcp-tool');
           const line = make('div', 'mcp-tool-heading');
           const title = make('div', 'mcp-server-copy');
           title.append(make('strong', '', tool.title || tool.name), make('code', 'mcp-server-id', tool.exposedName || server.id + '__' + tool.name));
           const label = make('label', 'mcp-policy');
-          label.append(make('span', '', t('调用权限')));
+          label.append(make('span', '', t(allowAllTools ? '关闭后使用的权限' : '调用权限')));
           const select = make('select');
-          select.setAttribute('aria-label', t('{tool} 的调用权限', { tool: tool.name }));
+          select.setAttribute('aria-label', t(allowAllTools ? '关闭后 {tool} 的调用权限' : '{tool} 的调用权限', { tool: tool.name }));
           for (const [value, text] of [['deny', '禁用'], ['allow', '直接调用'], ['ask', '每次本机确认']]) {
             const option = make('option', '', t(text)); option.value = value; select.append(option);
           }
-          select.value = tool.policy || 'deny';
-          select.disabled = busy;
+          select.value = (allowAllTools ? tool.savedPolicy : tool.policy) || 'deny';
+          select.disabled = busy || allowAllTools;
           select.addEventListener('change', event => mcpPerform('policy', () => api.mcpSetToolPolicy({ serverId: server.id, toolName: tool.name, policy: event.target.value })));
           label.append(select); line.append(title, label); row.append(line);
           if (tool.description) row.append(make('p', 'mcp-tool-description', tool.description));
@@ -653,6 +659,10 @@
   }));
   byId('open-logs').addEventListener('click', () => perform('logs', () => api.openLogs()));
   byId('mcp-add').addEventListener('click', () => openMcpEditor());
+  byId('mcp-allow-all-tools').addEventListener('change', event => {
+    const enabled = event.target.checked;
+    return mcpPerform('allow-all-tools', () => api.mcpSetAllowAllTools(enabled));
+  });
   byId('mcp-cancel').addEventListener('click', closeMcpEditor);
   byId('mcp-transport').addEventListener('change', updateMcpTransport);
   byId('mcp-save').addEventListener('click', () => mcpPerform('save', async () => {

@@ -14,8 +14,12 @@ const {LineTransport} = require('./mcp-transport.cjs');
 // Unix socket / Windows named pipe, authenticated before any MCP bytes parse.
 class McpGateway {
   constructor(manager) {
-    this.manager=manager;this.sessions=new Set();this.initializedSessions=new WeakSet();this.sockets=new Set();this.epoch=0;
-    this.changed=()=>{for(const session of this.sessions)if(this.initializedSessions.has(session))void session.notification({method:'notifications/tools/list_changed'}).catch(()=>{});};
+    this.manager=manager;this.sessions=new Set();this.initializedSessions=new WeakSet();this.sockets=new Set();this.epoch=0;this.nextSession=0;
+    this.changed=()=>{
+      let recipients=0;
+      for(const session of this.sessions)if(this.initializedSessions.has(session)){++recipients;void session.notification({method:'notifications/tools/list_changed'}).catch(()=>{});}
+      this.manager.log?.('mcp-list-notification',{recipients,toolsVersion:this.manager.toolsVersion});
+    };
     manager.on('toolsChanged',this.changed);
   }
   async start() {
@@ -70,11 +74,20 @@ class McpGateway {
       socket.write('{"ready":true}\n');
       const transport=new LineTransport(socket,socket,{close:async()=>socket.destroy()});
       const server=new Server({name:'ChatToHarness',version:appVersion},{capabilities:{tools:{listChanged:true}},instructions:'ChatToHarness provides authorized local tools and configured MCP extensions. Tool access is managed in the desktop application. Interrupted calls are never automatically replayed.'});
+      const session=++this.nextSession;let initializations=0;
       this.sessions.add(server);
-      server.oninitialized=()=>this.initializedSessions.add(server);
-      server.onerror=()=>{};server.onclose=()=>this.sessions.delete(server);
+      this.manager.log?.('mcp-session',{session,phase:'opened'});
+      server.oninitialized=()=>{
+        this.initializedSessions.add(server);
+        this.manager.log?.('mcp-session',{session,phase:'initialized',initializations:++initializations,toolsVersion:this.manager.toolsVersion});
+      };
+      server.onerror=()=>{};server.onclose=()=>{this.sessions.delete(server);this.manager.log?.('mcp-session',{session,phase:'closed',initializations});};
       server.setRequestHandler(ListToolsRequestSchema,request=>{
-        try{return this.manager.listTools(request.params?.cursor);}catch{throw new McpError(ErrorCode.InvalidParams,'MCP_CURSOR_EXPIRED');}
+        try{
+          const result=this.manager.listTools(request.params?.cursor);
+          this.manager.log?.('mcp-session',{session,phase:'tools-listed',toolsVersion:this.manager.toolsVersion,count:result.tools.length,hasNextPage:Boolean(result.nextCursor)});
+          return result;
+        }catch{throw new McpError(ErrorCode.InvalidParams,'MCP_CURSOR_EXPIRED');}
       });
       server.setRequestHandler(CallToolRequestSchema,(request,extra)=>this.manager.call(request.params.name,request.params.arguments||{},
         {signal:extra.signal,onprogress:progress=>{

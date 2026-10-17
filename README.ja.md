@@ -1,10 +1,14 @@
-# ChatToHarness
-
-**[公式サイト・ダウンロード](https://dj-huang.github.io/ChatToHarness/ja/)** · [GitHub Releases](https://github.com/DJ-Huang/ChatToHarness/releases)
-
-[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
-
-**AI チャットをローカルの実行環境へ。**
+<p align="center">
+  <a href="https://dj-huang.github.io/ChatToHarness/ja/"><img src="site/assets/logo.png" alt="ChatToHarness ロゴ" width="160" height="160" /></a>
+</p>
+<h1 align="center">ChatToHarness</h1>
+<p align="center">
+  <a href="https://dj-huang.github.io/ChatToHarness/ja/">公式サイト・ダウンロード</a> · <a href="https://github.com/DJ-Huang/ChatToHarness/releases">GitHub Releases</a>
+</p>
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a>
+</p>
+<p align="center"><strong>AI チャットをローカルの実行環境へ。</strong></p>
 
 安全なトンネルを通じて、対応する AI クライアントからローカルのファイル、ターミナル、Git、開発ツールを利用できます。ツール操作の前に、適用されるプロジェクト規約を届けます。
 

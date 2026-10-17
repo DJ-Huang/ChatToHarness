@@ -1,10 +1,14 @@
-# ChatToHarness
-
-**[官网与下载](https://dj-huang.github.io/ChatToHarness/)** · [GitHub Releases](https://github.com/DJ-Huang/ChatToHarness/releases)
-
-[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
-
-**将 AI 对话连接到本机执行环境。**
+<p align="center">
+  <a href="https://dj-huang.github.io/ChatToHarness/"><img src="site/assets/logo.png" alt="ChatToHarness 标志" width="160" height="160" /></a>
+</p>
+<h1 align="center">ChatToHarness</h1>
+<p align="center">
+  <a href="https://dj-huang.github.io/ChatToHarness/">官网与下载</a> · <a href="https://github.com/DJ-Huang/ChatToHarness/releases">GitHub Releases</a>
+</p>
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a>
+</p>
+<p align="center"><strong>将 AI 对话连接到本机执行环境。</strong></p>
 
 通过安全通道，将支持的 AI 客户端连接到本机文件、终端、Git 和开发工具；在工具操作前自动交付适用的工程规范。
 

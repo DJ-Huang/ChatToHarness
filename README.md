@@ -1,10 +1,14 @@
-# ChatToHarness
-
-**[Website & downloads](https://dj-huang.github.io/ChatToHarness/en/)** · [GitHub Releases](https://github.com/DJ-Huang/ChatToHarness/releases)
-
-[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
-
-**Connect AI chat to your local harness.**
+<p align="center">
+  <a href="https://dj-huang.github.io/ChatToHarness/en/"><img src="site/assets/logo.png" alt="ChatToHarness logo" width="160" height="160" /></a>
+</p>
+<h1 align="center">ChatToHarness</h1>
+<p align="center">
+  <a href="https://dj-huang.github.io/ChatToHarness/en/">Website & downloads</a> · <a href="https://github.com/DJ-Huang/ChatToHarness/releases">GitHub Releases</a>
+</p>
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a>
+</p>
+<p align="center"><strong>Connect AI chat to your local harness.</strong></p>
 
 A desktop console for connecting supported AI clients to local files, terminals, Git, and development tools through a secure tunnel. Project instructions are delivered before tool operations.
 

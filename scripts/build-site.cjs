@@ -26,8 +26,9 @@ async function publishedReleases(){
   }
 }
 const siteMessages=require('../site/locales.json');
-const locales=['zh-CN','en','ja'];
-const route=locale=>'/ChatToHarness/'+(locale==='zh-CN'?'':locale+'/');
+const locales=['en','zh-CN','ja'];
+const localePath=locale=>locale==='en'?'':locale+'/';
+const route=locale=>'/ChatToHarness/'+localePath(locale);
 function siteText(locale,text){return locale==='zh-CN'?text:siteMessages[text]?.[locale==='en'?0:1]||text;}
 function localizeMarkup(html,locale){
   if(locale==='zh-CN')return html;
@@ -45,20 +46,23 @@ function build(releases,output=path.join(root,'dist/site')){
   for(const locale of locales){
     const t=text=>siteText(locale,text);
     function download(platform,label){const a=info[platform];return a?`<a class="button ${platform==='windows'?'':'secondary'}" href="${escape(a.browser_download_url)}">${escape(t(label))}<span>v${escape(info.version)} · ${(a.size/1024/1024).toFixed(0)} MB ↗</span></a>`:`<span class="button unavailable" aria-disabled="true">${escape(t(label))}<span>${escape(t('暂未发布'))}</span></span>`;}
-    const canonical=baseURL+(locale==='zh-CN'?'':locale+'/');
+    const canonical=baseURL+localePath(locale);
     const values={base:'/ChatToHarness/',localeBase:route(locale),lang:locale,docLocale:locale,
       guideAnchor:{'zh-CN':'故障处理',en:'troubleshooting',ja:'トラブルシューティング'}[locale],
-      canonical,alternates:locales.map(lang=>`<link rel="alternate" hreflang="${lang}" href="${baseURL+(lang==='zh-CN'?'':lang+'/')}">`).join(''),
+      canonical,alternates:locales.map(lang=>`<link rel="alternate" hreflang="${lang}" href="${baseURL+localePath(lang)}">`).join(''),
       languageLinks:locales.map(lang=>`<a href="${route(lang)}" lang="${lang}" hreflang="${lang}" data-language="${lang}"${lang===locale?' aria-current="page"':''}>${{'zh-CN':'中文',en:'English',ja:'日本語'}[lang]}</a>`).join(''),
       version:escape(t(info.version)),windows:download('windows','下载 Windows 版本'),macos:download('macos','下载 Mac 版本'),
       checksum:info.checksum?`<a href="${escape(info.checksum.browser_download_url)}">${escape(t('SHA-256 校验文件 ↗'))}</a>`:escape(t('安装包正式发布后显示下载链接')),repo:repoURL};
     const html=localizeMarkup(fs.readFileSync(path.join(root,'site/index.html'),'utf8'),locale)
       .replace(/\{\{(\w+)\}\}/g,(_match,key)=>{if(!(key in values))throw new Error('Missing site value '+key);return values[key];});
-    const folder=path.join(output,locale==='zh-CN'?'':locale);fs.mkdirSync(folder,{recursive:true});fs.writeFileSync(path.join(folder,'index.html'),html);pages.push(html);
+    const folder=path.join(output,localePath(locale));fs.mkdirSync(folder,{recursive:true});fs.writeFileSync(path.join(folder,'index.html'),html);pages.push(html);
   }
+  // Preserve existing /en/ links while making the root the English canonical URL.
+  fs.mkdirSync(path.join(output,'en'),{recursive:true});
+  fs.copyFileSync(path.join(output,'index.html'),path.join(output,'en/index.html'));
   fs.writeFileSync(path.join(output,'.nojekyll'),'');
   fs.writeFileSync(path.join(output,'robots.txt'),`User-agent: *\nAllow: /\nSitemap: ${baseURL}sitemap.xml\n`);
-  fs.writeFileSync(path.join(output,'sitemap.xml'),`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locales.map(locale=>`<url><loc>${baseURL+(locale==='zh-CN'?'':locale+'/')}</loc></url>`).join('')}</urlset>\n`);
+  fs.writeFileSync(path.join(output,'sitemap.xml'),`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locales.map(locale=>`<url><loc>${baseURL+localePath(locale)}</loc></url>`).join('')}</urlset>\n`);
   for(const html of pages)for(const match of html.matchAll(/(?:href|src)="(\/ChatToHarness\/[^"#?]*)"/g)){
     const name=match[1].slice('/ChatToHarness/'.length)||'index.html';if(!fs.existsSync(path.join(output,name)))throw new Error('Missing website asset: '+name);
   }

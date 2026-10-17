@@ -202,7 +202,11 @@ else{
       const {McpManager}=require('./mcp-manager.cjs');
       const {McpGateway}=require('./mcp-gateway.cjs');
       mcpSettings=new McpSettings(home,safeStorage);
-      mcpManager=new McpManager({settings:mcpSettings,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,fetcher:(url,options)=>net.fetch(url,options),log,
+      const {HarnessServices}=require('./harness-services.cjs');
+      const services=new HarnessServices({home,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,versions,
+        build:require('./build-identity.cjs').captureBuild({root:path.join(__dirname,'..'),resources,packaged:app.isPackaged}),
+        runtime:()=>runtime.status(),catalog:()=>mcpManager?.visibleTools()||[],mcp:()=>mcpManager?.status()||{}});
+      mcpManager=new McpManager({settings:mcpSettings,services,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,fetcher:(url,options)=>net.fetch(url,options),log,
         builtinFactory:async desktopSettings=>{
           runtime.prepare(desktopSettings);
           return {transport:'stdio',command:runtime.paths.node,args:[runtime.launcher,runtime.paths.desktopCommander,String(process.pid)],cwd:desktopSettings.directories[0],env:runtime.childEnvironment(desktopSettings)};

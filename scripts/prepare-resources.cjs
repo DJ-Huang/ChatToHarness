@@ -122,7 +122,7 @@ function prepareDesktopCommander(node, pin) {
   const patchedFile = path.join(installedPackage, 'dist', 'config.js');
   const fingerprint = `${sha(lockFile)}:${platformId}:isolated-config-v2`;
   if (fs.existsSync(marker) && fs.readFileSync(marker, 'utf8') === fingerprint &&
-      fs.existsSync(patchedFile) && fs.readFileSync(patchedFile, 'utf8').includes('ChatToHarness isolated configuration')) return;
+      fs.existsSync(patchedFile) && fs.readFileSync(patchedFile, 'utf8').includes('ChatToHarness isolated configuration')) { require('./engine-isolation.cjs').patchEngine(installedPackage); return; }
   // A platform-qualified fingerprint prevents copying macOS native modules into
   // Windows installers even when a restored build cache contains old resources.
   fs.rmSync(destination, { recursive: true, force: true });
@@ -142,6 +142,7 @@ function prepareDesktopCommander(node, pin) {
   if (!fs.existsSync(path.join(destination, 'node_modules', ripgrep, 'bin', isWindows ? 'rg.exe' : 'rg'))) {
     throw new Error(`Native search component missing for ${platformId}`);
   }
+  require('./engine-isolation.cjs').patchEngine(installedPackage);
   fs.writeFileSync(marker, fingerprint);
 }
 function prepareProcessHost() {
@@ -206,6 +207,9 @@ async function main() {
   const files = {};
   for (const file of [`node/${pin.node.binary}`, `tunnel/${pin.tunnel.binary}`,
     'desktop-commander/node_modules/@wonderwhy-er/desktop-commander/dist/config.js',
+    'desktop-commander/node_modules/@wonderwhy-er/desktop-commander/dist/utils/toolHistory.js',
+    'desktop-commander/node_modules/@wonderwhy-er/desktop-commander/dist/utils/fuzzySearchLogger.js',
+    'desktop-commander/node_modules/@opendocsg/pdf2md/lib/models/transformations/text-item/CalculateGlobalStats.js',
     ...(isWindows ? ['managed-process/ChatToHarness.ProcessHost.exe'] : [])]) files[file] = sha(path.join(resources, file));
   fs.writeFileSync(path.join(resources, 'bundle.json'), JSON.stringify({
     platform: platformId, node: versions.node.version, tunnel: versions.tunnel.version,

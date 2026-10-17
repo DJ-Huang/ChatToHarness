@@ -188,7 +188,11 @@ class McpProxy{
       if(object(meta.ui)){const ui={...meta.ui};delete ui.resourceUri;if(Object.keys(ui).length)meta.ui=ui;else delete meta.ui;}
       const clean={...tool};if(Object.keys(meta).length)clean._meta=meta;else delete clean._meta;tool=clean;
     }
-    if(!GATED_TOOLS.has(tool.name))return tool;
+    if(!GATED_TOOLS.has(tool.name)){
+      if(tool.name==='set_config_value')return {...tool,annotations:{...tool.annotations,readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:false}};
+      if(tool.name==='give_feedback_to_desktop_commander')return {...tool,annotations:{...tool.annotations,readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true}};
+      return tool;
+    }
     const properties={...tool.inputSchema?.properties,project_path:{type:'string',description:'Optional explicit task project directory for guidance.'},project_context_tokens:{type:'array',items:{type:'string'},maxItems:128,description:TOKEN_DESCRIPTION}};
     if(TERMINAL_TOOLS.has(tool.name))properties.context_paths={type:'array',items:{type:'string'},maxItems:128,description:'Related project paths; [] is for ordinary system diagnostics. This is guidance, not a shell sandbox.'};
     const brief={
@@ -197,7 +201,7 @@ class McpProxy{
       start_process:'Run a shell command or start an interactive terminal process on this device. Can modify files and access the network. Returns output and a process handle when available; timeout_ms limits the initial wait. context_paths describes related project paths for guidance and does not confine shell access.',
       interact_with_process:'Send input to a tracked terminal process and collect output. Input may execute commands, modify files or access the network. pid identifies the process returned by start_process.'
     };
-    const annotations={...tool.annotations,readOnlyHint:!MUTATING_TOOLS.has(tool.name)&&!['kill_process','force_terminate'].includes(tool.name),destructiveHint:(MUTATING_TOOLS.has(tool.name)&&tool.name!=='create_directory')||['kill_process','force_terminate'].includes(tool.name),openWorldHint:tool.name==='read_file'||['start_process','interact_with_process'].includes(tool.name)};
+    const annotations={...tool.annotations,idempotentHint:!MUTATING_TOOLS.has(tool.name)&&!['start_search','read_process_output'].includes(tool.name),readOnlyHint:!MUTATING_TOOLS.has(tool.name)&&!CONTROL_TOOLS.has(tool.name),destructiveHint:(MUTATING_TOOLS.has(tool.name)&&tool.name!=='create_directory')||['kill_process','force_terminate'].includes(tool.name),openWorldHint:tool.name==='read_file'||['start_process','interact_with_process'].includes(tool.name)};
     return {...tool,description:brief[tool.name]||tool.description,inputSchema:{...tool.inputSchema,type:'object',properties},annotations,
       outputSchema:{...(tool.outputSchema||{}),type:'object',properties:{...tool.outputSchema?.properties,project_contexts:{type:'array',items:{type:'object'}}}}};
   }

@@ -49,7 +49,20 @@ function errorCode(error) {
   return 'MCP_CONNECTION_FAILED';
 }
 function failed(code,started=false) {
-  const data={code,operation_executed:started?null:false,execution_state:started?'unknown':'not_started'};
+  const hints={
+    MCP_TOOL_DENIED:['This tool is disabled or unavailable.','Enable the intended tool in the desktop MCP settings.'],
+    MCP_APPROVAL_DENIED:['The local confirmation was declined or expired.','Approve a new request in the desktop app if you still want to run it.'],
+    MCP_TIMEOUT:['The service exceeded its request deadline.','Inspect the saved task or service state before retrying a mutation.'],
+    MCP_DISCONNECTED:['The MCP service disconnected.','Wait for reconnection; query existing tasks instead of restarting them.'],
+    MCP_STOPPED:['The local gateway is stopped.','Connect the desktop app before calling this tool.'],
+    MCP_TOOLS_CHANGED:['This tool definition changed during the call.','Refresh its definition and review its saved permission.'],
+    MCP_POLICY_CHANGED:['The local tool permission changed.','Review the current permission in the desktop app.'],
+    MCP_AUTH_REQUIRED:['The service requires authentication.','Check the credentials for this MCP service in the desktop app.'],
+    MCP_SERVER_BUSY:['The service has too many active calls.','Wait for an active call to finish, then retry.'],
+    MCP_CANCELLED:['The request was cancelled.','Check the original task status before retrying a mutation.']
+  };
+  const [message,next_action]=hints[code]||['The MCP request could not complete.','Check this service connection and its diagnostic code in the desktop app.'];
+  const data={code,message,next_action,operation_executed:started?null:false,execution_state:started?'unknown':'not_started'};
   return {isError:true,content:[{type:'text',text:JSON.stringify(data)}],structuredContent:data};
 }
 function alias(id,name) {
@@ -68,8 +81,8 @@ function redact(value,secrets=[]) {
 
 /** App-owned MCP clients. This class never accepts settings from model calls. */
 class McpManager extends EventEmitter {
-  constructor({settings,builtinFactory,nodePath=process.execPath,processHost,fetcher=globalThis.fetch,log=()=>{},callTimeout=60000}={}) {
-    super();Object.assign(this,{settings,builtinFactory,nodePath,processHost,fetcher,log,callTimeout});
+  constructor({settings,builtinFactory,services,nodePath=process.execPath,processHost,fetcher=globalThis.fetch,log=()=>{},callTimeout=60000}={}) {
+    super();Object.assign(this,{settings,builtinFactory,services,nodePath,processHost,fetcher,log,callTimeout});
     this.records=new Map();this.approvals=new Map();this.active=new Set();this.running=false;this.closed=false;this.epoch=0;
     this.toolsVersion=0;this.visibleFingerprint='';this.visibleDefinitions=new Map();
   }
@@ -108,7 +121,7 @@ class McpManager extends EventEmitter {
     try{return this.settings.get(record.id).enabled&&this.settings.isTrusted(record.id);}catch{return false;}
   }
   visibleTools() {
-    const result=[];
+    const result=this.services&&this.running?[...this.services.tools()]:[];
     for(const record of this.records.values())if(this.available(record))for(const item of record.tools)if(this.policy(record,item)!=='deny')result.push({...item.tool,name:item.alias});
     return result.sort((a,b)=>a.name.localeCompare(b.name));
   }
@@ -132,6 +145,7 @@ class McpManager extends EventEmitter {
     if(this.closed)throw issue('MCP_STOPPED');
     const epoch=this.epoch;this.running=true;
     this.desktopSettings=copy(desktopSettings);
+    this.services?.configure(desktopSettings);
     const jobs=[];
     if(desktopSettings.directories?.length&&this.builtinFactory)jobs.push(this.connect(BUILTIN));
     else if(this.records.has(BUILTIN))jobs.push(this.disconnect(this.records.get(BUILTIN)));
@@ -282,6 +296,7 @@ class McpManager extends EventEmitter {
       }
       if(record.client!==client||signal.aborted)throw issue('MCP_DISCONNECTED');
       const aliases=new Set(tools.map(item=>item.alias));
+      if(this.services?.tools().some(tool=>aliases.has(tool.name)))throw issue('MCP_TOOL_NAME_CONFLICT');
       for(const other of this.records.values())if(other!==record&&other.tools.some(item=>aliases.has(item.alias)))throw issue('MCP_TOOL_NAME_CONFLICT');
       // Only removed or redefined tools invalidate their captured calls.
       // List ordering and changes to unrelated tools do not affect a grant.
@@ -312,6 +327,7 @@ class McpManager extends EventEmitter {
     });
   }
   async call(name,args={}, {signal,onprogress}={}) {
+    if(this.services?.has(name))return this.running?this.services.call(name,args,{signal,onprogress}):failed('MCP_STOPPED');
     let record,item;
     for(const candidate of this.records.values()){
       const match=candidate.tools.find(value=>value.alias===name);
@@ -368,7 +384,7 @@ class McpManager extends EventEmitter {
     await Promise.allSettled([...this.records.values()].map(record=>this.disconnect(record)));
     await this.broker?.stop();this.changed();
   }
-  async close(){this.closed=true;await this.stop();await this.broker?.close();}
+  async close(){this.closed=true;await this.stop();await this.broker?.close();this.services?.dispose();}
 }
 
 module.exports={McpManager,BUILTIN,fingerprint,alias,errorCode,failed};

@@ -68,6 +68,7 @@ function main() {
   const config = signingConfig(process.platform, process.env);
   run(path.join(__dirname, 'prepare-resources.cjs'));
   verifyResources(path.join(root, 'resources'));
+  require('../app/build-identity.cjs').writeBuildInfo(root, path.join(root, 'resources'));
   const installer = process.argv.includes('--dist');
   const args = ['--config', 'electron-builder.config.cjs', process.platform === 'darwin' ? '--mac' : '--win', process.platform === 'darwin' ? '--arm64' : '--x64',
     ...(installer ? [] : ['--dir']), '--publish', 'never', ...config.overrides,

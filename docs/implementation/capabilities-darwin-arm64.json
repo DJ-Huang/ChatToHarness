@@ -1,0 +1,144 @@
+{
+  "platform": "darwin",
+  "arch": "arm64",
+  "engine_version": "0.3.0",
+  "generated_at": "2026-10-17T16:58:01.792Z",
+  "tools": {
+    "get_config": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "set_config_value": {
+      "status": "partial",
+      "detail": "Ordinary configuration works. Authorized-folder expansion through a tool is intentionally unsupported; use desktop settings."
+    },
+    "read_file": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "read_multiple_files": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "write_file": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "write_pdf": {
+      "status": "verified",
+      "detail": "Synthetic Markdown PDF creation and native readback."
+    },
+    "create_directory": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "list_directory": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "move_file": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "start_search": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "get_more_search_results": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "stop_search": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "list_searches": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "get_file_info": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "edit_block": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "start_process": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "read_process_output": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "interact_with_process": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "force_terminate": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "list_sessions": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "list_processes": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "kill_process": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "get_usage_stats": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "get_recent_tool_calls": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "give_feedback_to_desktop_commander": {
+      "status": "partial",
+      "detail": "Official definition and annotations preserved. Browser/form submission intentionally not exercised."
+    },
+    "get_harness_status": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "get_project_overview": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "git_status": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "git_diff": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "get_file_result": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    }
+  },
+  "formats": {
+    "xlsx": {
+      "status": "verified",
+      "bytes": 6454
+    },
+    "docx": {
+      "status": "verified",
+      "bytes": 1757
+    },
+    "pdf": {
+      "status": "verified",
+      "bytes": 25936
+    }
+  },
+  "failures": [],
+  "history_isolated": true
+}

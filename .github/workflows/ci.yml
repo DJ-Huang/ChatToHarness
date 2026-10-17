@@ -37,6 +37,8 @@ jobs:
         run: npm run build
       - name: Real tool engine, project rules and credential isolation
         run: node scripts/mcp-smoke.cjs
+      - name: Official capability and file-format acceptance
+        run: node scripts/capability-smoke.cjs
       - name: Shipped runtime and loopback control plane
         run: node scripts/tunnel-smoke.cjs
       - name: Packaged application and isolated channel acceptance

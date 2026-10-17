@@ -38,7 +38,7 @@
       "THIRD_PARTY_NOTICES.md",
       "VERIFICATION.md",
       "docs/**/*",
-      "site/assets/console.png"
+      "site/assets/*.png"
     ],
     "extraResources": [
       {

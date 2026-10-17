@@ -23,3 +23,9 @@ Version 0.2.0 had already verified automatic project-instruction delivery, root/
 ## Verification boundaries
 
 CI uses temporary settings, synthetic credentials, and simulated control planes, never a personal Tunnel. Hosted Windows installation and automated checks do not replace manual checks on a user's device. Tunnel ready does not mean client setup is complete. Long-running tool operations are not replayed automatically after reconnection.
+
+## Language and screenshot checks (2026-10-17)
+
+Isolated native Mac checks passed for all four pages in all three languages, native menus, language persistence after restart, and preservation of unsaved drafts. Switching language left encrypted settings and managed process IDs unchanged. Screenshots were captured from this real renderer with a simulated tunnel, not from a real client call. Website checks cover all three static routes, localized release/download states, matching images and documentation links. ChatGPT composer screenshots show task entry in each language, not a successful tool response.
+
+The updated local suite passed 69 of 71 checks; the two Windows-native checks were skipped on Mac.

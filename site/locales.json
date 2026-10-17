@@ -1,0 +1,222 @@
+{
+  "ChatToHarness 将 AI 对话连接到本机执行环境。通过安全通道，让支持的客户端使用你的文件、终端和工程规范。": [
+    "ChatToHarness connects AI chat to local tools. Let supported clients use your files, terminal, and project instructions through a secure tunnel.",
+    "ChatToHarness は AI チャットをローカル環境へつなぎます。安全なトンネルを通じて、対応クライアントからファイル、ターミナル、工程規約を利用できます。"
+  ],
+  "ChatToHarness · 将 AI 对话连接到本机执行环境": [
+    "ChatToHarness · Connect AI chat to your local harness",
+    "ChatToHarness · AI チャットをローカル実行環境へ"
+  ],
+  "主导航": [
+    "Main navigation",
+    "メインナビゲーション"
+  ],
+  "如何使用": [
+    "How it works",
+    "使い方"
+  ],
+  "客户端接入": [
+    "Clients",
+    "クライアント接続"
+  ],
+  "下载": [
+    "Downloads",
+    "ダウンロード"
+  ],
+  "从 AI 对话，": [
+    "From AI chat,",
+    "AI チャットから、"
+  ],
+  "走进你的工作空间。": [
+    "into your workspace.",
+    "あなたのワークスペースへ。"
+  ],
+  "通过安全通道，将支持的 AI 客户端连接到本机文件、终端和开发工具。工程规范自动交付，工作环境始终在你手中。": [
+    "Connect supported AI clients to local files, terminals, and development tools through a secure tunnel. Project instructions arrive automatically. You stay in control.",
+    "安全なトンネルで、対応する AI クライアントをローカルのファイル、ターミナル、開発ツールへ接続。工程規約を自動で提供し、環境を自分で管理できます。"
+  ],
+  "Windows 11 · x64 &nbsp; / &nbsp; macOS 14+ · Apple 芯片": [
+    "Windows 11 · x64 / macOS 14+ · Apple Silicon",
+    "Windows 11 · x64 / macOS 14+ · Apple Silicon"
+  ],
+  "阅读上手指南 ↗": [
+    "Read the getting started guide ↗",
+    "利用ガイドを読む ↗"
+  ],
+  "执行链路": [
+    "Request path",
+    "実行経路"
+  ],
+  "AI 对话": [
+    "AI chat",
+    "AI チャット"
+  ],
+  "安全通道": [
+    "Secure tunnel",
+    "安全なトンネル"
+  ],
+  "本机工具": [
+    "Local tools",
+    "ローカルツール"
+  ],
+  "ChatToHarness / 控制台": [
+    "ChatToHarness / Console",
+    "ChatToHarness / コンソール"
+  ],
+  "ChatToHarness 控制台：本机工具、通道状态和连接操作": [
+    "ChatToHarness console: local tools, tunnel status, and connection controls",
+    "ChatToHarness コンソール：ローカルツール、トンネル状態、接続操作"
+  ],
+  "一个窗口管理连接；关闭窗口后，仍可在系统后台图标中随时打开。": [
+    "Manage connections in one window. Close it and reopen it anytime from the background icon.",
+    "1つの画面で接続を管理。閉じた後も、バックグラウンドアイコンからいつでも開けます。"
+  ],
+  "本机环境，无需搬家": [
+    "Your environment, right here",
+    "いつもの環境を、そのまま"
+  ],
+  "直接使用已有文件、Git 和命令行工具。保留真实用户环境，让已有开发流程继续工作。": [
+    "Use your existing files, Git, and command-line tools. Preserve your real user environment and keep your development workflow.",
+    "既存のファイル、Git、コマンドラインツールを直接利用。実際のユーザー環境を保ち、開発フローを継続できます。"
+  ],
+  "工程规范，自动交付": [
+    "Project instructions, delivered",
+    "プロジェクト規約を自動提供"
+  ],
+  "按工程和目标目录加载 AGENTS.md，索引 rules，规则变化时要求刷新上下文，避免工程之间混用。": [
+    "Load AGENTS.md by project and target directory, index rules, and refresh context when instructions change. Keep projects separate.",
+    "工程と対象フォルダーに応じて AGENTS.md を読み込み、rules を一覧化。規約変更時にコンテキストを更新し、工程間の混同を防ぎます。"
+  ],
+  "连接状态，一眼看清": [
+    "Connection status at a glance",
+    "接続状態がひと目でわかる"
+  ],
+  "工具检查、重连、停止和日志集中管理。通道就绪与客户端实际调用分别验证。": [
+    "Check tools, reconnect, stop, and view logs in one place. Verify tunnel readiness and actual client calls separately.",
+    "ツール確認、再接続、停止、ログを一元管理。トンネルの準備状態と実際のクライアント呼び出しを分けて確認します。"
+  ],
+  "三步，把对话接到本机。": [
+    "Three steps from chat to local tools.",
+    "3ステップでチャットをローカルへ。"
+  ],
+  "安装并打开": [
+    "Install and open",
+    "インストールして起動"
+  ],
+  "选择对应系统安装包。运行组件已包含在应用中，无需另外安装开发环境。": [
+    "Choose the installer for your system. Runtime components are bundled; no separate development setup is needed.",
+    "OS に合うインストーラーを選択。実行コンポーネントを同梱しており、別の開発環境は不要です。"
+  ],
+  "配置安全通道": [
+    "Configure the secure tunnel",
+    "安全なトンネルを設定"
+  ],
+  "在服务控制台准备 Tunnel ID 与 Runtime API Key，填入本机应用，选择工作目录后保存并连接。": [
+    "Prepare a Tunnel ID and Runtime API Key in the service console. Enter them in the app, choose work directories, and save and connect.",
+    "サービス管理画面で Tunnel ID と Runtime API Key を用意。アプリに入力し、作業フォルダーを選んで保存・接続します。"
+  ],
+  "从客户端发起任务": [
+    "Start a task in your client",
+    "クライアントからタスクを開始"
+  ],
+  "按接入指南关联同一通道，先尝试只读操作，再在临时目录验证文件读写。": [
+    "Follow the client guide to use the same tunnel. Start with read-only operations, then test file reading and writing in a temporary directory.",
+    "ガイドに従って同じトンネルを接続。まず読み取り専用操作を試し、一時フォルダーで読み書きを確認します。"
+  ],
+  "一个通道，多种工作入口。": [
+    "One tunnel. Multiple ways to work.",
+    "1つのトンネル、多彩な入り口。"
+  ],
+  "接入范围由通道服务及账户权限决定。官方支持不等于当前账户已完成调用验证。": [
+    "Availability depends on the tunnel service and account permissions. Official support does not mean your account has verified tool calls.",
+    "利用可否はトンネルサービスとアカウント権限によります。公式対応は、そのアカウントでの呼び出し検証完了を意味しません。"
+  ],
+  "在支持 Tunnel 的自定义 MCP 设置中选择同一通道，并完成工具发现。": [
+    "Choose the same tunnel in supported custom MCP settings and complete tool discovery.",
+    "対応するカスタム MCP 設定で同じトンネルを選び、ツール検出を完了してください。"
+  ],
+  "查看官方指引 ↗": [
+    "Official guide ↗",
+    "公式ガイド ↗"
+  ],
+  "使用所支持产品入口的通道接入流程，确认组织关联与工具使用权限。": [
+    "Use the supported product's tunnel connection flow and check organization associations and tool permissions.",
+    "対応製品のトンネル接続機能を使い、組織の関連付けとツール利用権限を確認してください。"
+  ],
+  "开发者接入": [
+    "Developers",
+    "開発者向け"
+  ],
+  "API 接入使用 Tunnel ID。调用方管理自己的 API 凭据，与本机 Runtime API Key 分开。": [
+    "API connections use the Tunnel ID. Callers manage their own API credentials, separately from the local Runtime API Key.",
+    "API 接続には Tunnel ID を使用。API 認証情報は呼び出し側で管理し、ローカルの Runtime API Key とは分けます。"
+  ],
+  "阅读开发者说明 ↗": [
+    "Developer guide ↗",
+    "開発者ガイド ↗"
+  ],
+  "让本机工具，接上 AI 对话。": [
+    "Bring local tools into your AI chat.",
+    "ローカルツールを AI チャットへ。"
+  ],
+  "当前公开版本：{{version}}": [
+    "Public version: {{version}}",
+    "公開バージョン：{{version}}"
+  ],
+  "测试签名与系统安装提示请查看对应 Release 说明。": [
+    "See the Release notes for test signing status and system installation guidance.",
+    "テスト署名と OS ごとのインストール注意事項は、対応する Release をご覧ください。"
+  ],
+  "使用前了解": [
+    "Before you begin",
+    "利用前の確認"
+  ],
+  "文件目录设置不构成终端沙箱。终端以当前用户权限执行，长时间任务应后台启动并分次读取结果。应用不会把 Runtime API Key 传给工具进程。": [
+    "Directory settings do not sandbox the terminal. Commands run with your user permissions. Run long tasks in the background and read output in stages. The app never passes the Runtime API Key to tool processes.",
+    "フォルダー設定はターミナルを隔離しません。現在のユーザー権限で実行されます。長時間のタスクはバックグラウンドで動かし、出力を分けて確認してください。Runtime API Key はツールプロセスに渡しません。"
+  ],
+  "故障处理 ↗": [
+    "Troubleshooting ↗",
+    "トラブル対処 ↗"
+  ],
+  "验证记录 ↗": [
+    "Verification record ↗",
+    "検証記録 ↗"
+  ],
+  "全部版本 ↗": [
+    "All releases ↗",
+    "すべてのリリース ↗"
+  ],
+  "将 AI 对话连接到本机执行环境": [
+    "Connect AI chat to your local harness",
+    "AI チャットをローカル実行環境へ"
+  ],
+  "首个版本准备中": [
+    "First release in preparation",
+    "初回リリースを準備中"
+  ],
+  "下载 Windows 版本": [
+    "Download for Windows",
+    "Windows 版をダウンロード"
+  ],
+  "下载 Mac 版本": [
+    "Download for Mac",
+    "Mac 版をダウンロード"
+  ],
+  "暂未发布": [
+    "Not yet released",
+    "未公開"
+  ],
+  "SHA-256 校验文件 ↗": [
+    "SHA-256 checksums ↗",
+    "SHA-256 チェックサム ↗"
+  ],
+  "安装包正式发布后显示下载链接": [
+    "Download links appear when installers are published",
+    "インストーラーの正式公開後にリンクを表示します"
+  ],
+  "语言切换": [
+    "Choose language",
+    "言語を選択"
+  ]
+}

@@ -149,10 +149,11 @@ function desktopHarness(t) {
   const context = { require(name) {
     if (name === 'electron') return electron;
     if (name === './settings.cjs' || name === './runtime.cjs') return {};
-    if (name === './platform.cjs') return require('../app/platform.cjs');
+    if (['./platform.cjs','./preferences.cjs','./i18n.js'].includes(name)) return require('../app/'+name.slice(2));
     return require(name);
   }, __dirname: path.dirname(mainPath), process: { platform: 'darwin', env: { LOCALHARNESS_HOME: home } }, Buffer, Promise, setTimeout };
   vm.runInNewContext(fs.readFileSync(mainPath, 'utf8') + `
+    locale='zh-CN';
     globalThis.harness={action,connect,stopConnection,createTray,refreshTray,state,
       set(s,r,w){settings=s;runtime=r;window=w;},getTray(){return tray;},getMenu(){return trayMenu;}};
   `, context);
@@ -249,13 +250,13 @@ test('menu bar Stop prevents a renderer save response from continuing into Conne
     append(...children) { this.children.push(...children); }
     focus() {}
   }
-  const document = { getElementById(id) { if (!nodes.has(id)) nodes.set(id, new Node()); return nodes.get(id); },
+  const document = { body: {dataset:{}}, getElementById(id) { if (!nodes.has(id)) nodes.set(id, new Node()); return nodes.get(id); },
     createElement() { return new Node(); }, createElementNS() { return new Node(); }, querySelectorAll() { return []; } };
   let subscriber, connectCalls = 0;
   const state = { actionEpoch: 0, settings: { tunnelId: settings.tunnelId, keySaved: true, directories: ['/tmp/project'], autoProjectContext: true, autoConnect: true }, runtime: { state: 'stopped' } };
   const api = { getState: async () => state, onState(callback) { subscriber = callback; },
     saveSettings() { return saving.promise; }, async connect() { connectCalls++; return state; } };
-  const context = { window: { localHarness: api, addEventListener() {} }, document };
+  const context = { window: { localHarness: api, CTHI18n: {...require('../app/i18n.js'),documentTranslator:()=>()=>{}}, addEventListener() {} }, document, navigator:{language:'zh-CN'} };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'app', 'renderer.js'), 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(nodes.get('tunnel-id').value, settings.tunnelId);

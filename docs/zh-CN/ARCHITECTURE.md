@@ -29,3 +29,9 @@ Mac 保留 LocalHarness 的内部名称、应用标识和状态目录，显示�
 GitHub Actions 在原生 Windows x64、Mac arm64 构建，校验打包资源、运行隔离窗口和安装检查。只有双平台通过后生成带 SHA-256 的草稿；公开 Release 不覆盖。Pages 独立构建，首页下载只使用已公开稳定 Release，源码和页面均不保存用户配置或凭据。
 
 运行和验收边界见 [VERIFICATION.md](VERIFICATION.md)，维护流程见 [docs/RELEASING.md](RELEASING.md)。
+
+## 语言支持
+
+软件通过 `app/locales.js` 和 `app/i18n.js` 共享窗口与原生菜单的翻译，覆盖静态文字、无障碍标签、运行状态和已知错误。首次采用系统语言，用户选择单独存入 `preferences.json`，与加密配置分开。语言接口直接更新菜单和状态，不进入连接队列，也不修改 `actionEpoch`。路径、凭据和工具输出不做翻译。
+
+官网在根路径（中文）、`/en/`、`/ja/` 输出完整静态页面，分别设置元信息、文档入口、下载状态和应用截图，并提供 canonical 与其他语言链接。切换入口在浏览器中记住选择；直接访问英文或日文地址时尊重指定语言。

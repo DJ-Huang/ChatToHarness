@@ -16,4 +16,6 @@ Choose a topic below. Every document has an English, Simplified Chinese, and Jap
 
 [Repository overview](../../README.md)
 
-Keep translations aligned when updating behavior, configuration, or verification results. Documentation language does not imply a translated application interface.
+Keep translations aligned when updating behavior, configuration, or verification results. App and website language selections are independent.
+
+The app and website support the same three languages.

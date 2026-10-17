@@ -1,6 +1,6 @@
 # ChatToHarness
 
-**[Website & downloads](https://dj-huang.github.io/ChatToHarness/)** · [GitHub Releases](https://github.com/DJ-Huang/ChatToHarness/releases)
+**[Website & downloads](https://dj-huang.github.io/ChatToHarness/en/)** · [GitHub Releases](https://github.com/DJ-Huang/ChatToHarness/releases)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
@@ -12,19 +12,19 @@ A desktop console for connecting supported AI clients to local files, terminals,
 
 ### Application overview
 
-![Application overview](site/assets/console.png)
+![Application overview](site/assets/console-en.png)
 
 ### Connection settings — demonstration Tunnel ID, no real credentials.
 
-![Connection settings — demonstration Tunnel ID, no real credentials.](docs/images/console-connection.png)
+![Connection settings — demonstration Tunnel ID, no real credentials.](docs/images/console-connection-en.png)
 
 ### ChatGPT
 
-![ChatGPT — @LocalHarness](docs/images/chatgpt-plugin.png)
+![ChatGPT — @LocalHarness](docs/images/chatgpt-plugin-en.png)
 
 ChatGPT: select the connected plugin with `@`, then describe the task and project path. The existing plugin retains its original LocalHarness name. This screenshot shows task composition, not a successful tool response.
 
-The application screenshots use an isolated demonstration configuration. The interface currently uses Chinese; documentation is available in three languages.
+Application screenshots use an isolated demonstration configuration. The app, website, and documentation support English, Simplified Chinese, and Japanese. Change the app language with **Interface language** in the sidebar; the selection is remembered without restarting the connection.
 
 ## Get started
 

@@ -12,19 +12,19 @@
 
 ### 应用概览
 
-![应用概览](site/assets/console.png)
+![应用概览](site/assets/console-zh-CN.png)
 
 ### 连接配置：使用演示 Tunnel ID，不含真实凭据。
 
-![连接配置：使用演示 Tunnel ID，不含真实凭据。](docs/images/console-connection.png)
+![连接配置：使用演示 Tunnel ID，不含真实凭据。](docs/images/console-connection-zh-CN.png)
 
 ### ChatGPT
 
-![ChatGPT — @LocalHarness](docs/images/chatgpt-plugin.png)
+![ChatGPT — @LocalHarness](docs/images/chatgpt-plugin-zh-CN.png)
 
 ChatGPT：通过 `@` 选择已连接插件，再描述任务和工程路径。已有插件沿用原名 LocalHarness。此截图展示任务编写，不代表工具调用成功。
 
-应用截图使用隔离的演示配置。当前应用界面为中文，文档提供中、英、日三种语言。
+应用截图使用隔离的演示配置。软件、官网和文档均支持中文、英文、日文；在软件侧栏「界面语言」中即时切换并记住选择，无需重启连接。
 
 ## 快速开始
 

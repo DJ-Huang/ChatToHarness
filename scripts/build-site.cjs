@@ -25,18 +25,41 @@ async function publishedReleases(){
     const items=await response.json();if(!Array.isArray(items))throw new Error('Invalid release list.');all.push(...items);if(items.length<100)return all;
   }
 }
+const siteMessages=require('../site/locales.json');
+const locales=['zh-CN','en','ja'];
+const route=locale=>'/ChatToHarness/'+(locale==='zh-CN'?'':locale+'/');
+function siteText(locale,text){return locale==='zh-CN'?text:siteMessages[text]?.[locale==='en'?0:1]||text;}
+function localizeMarkup(html,locale){
+  if(locale==='zh-CN')return html;
+  const text=value=>{const key=value.trim();return Object.hasOwn(siteMessages,key)?value.replace(key,()=>escape(siteText(locale,key))):value;};
+  return html.replace(/>([^<]+)</g,(_match,value)=>'>'+text(value)+'<')
+    .replace(/(content|aria-label|alt)="([^"]*)"/g,(_match,name,value)=>name+'="'+escape(siteText(locale,value))+'"');
+}
 function build(releases,output=path.join(root,'dist/site')){
   const info=releaseInfo(releases);
-  function download(platform,label){const a=info[platform];return a?`<a class="button ${platform==='windows'?'':'secondary'}" href="${escape(a.browser_download_url)}">${label}<span>v${escape(info.version)} · ${(a.size/1024/1024).toFixed(0)} MB ↗</span></a>`:`<span class="button unavailable" aria-disabled="true">${label}<span>暂未发布</span></span>`;}
-  const values={base:'/ChatToHarness/',canonical:baseURL,version:escape(info.version),windows:download('windows','下载 Windows 版本'),macos:download('macos','下载 Mac 版本'),checksum:info.checksum?`<a href="${escape(info.checksum.browser_download_url)}">SHA-256 校验文件 ↗</a>`:'安装包正式发布后显示下载链接',repo:repoURL};
-  let html=fs.readFileSync(path.join(root,'site/index.html'),'utf8').replace(/\{\{(\w+)\}\}/g,(_match,key)=>{if(!(key in values))throw new Error('Missing site value '+key);return values[key];});
-  fs.mkdirSync(output,{recursive:true});fs.writeFileSync(path.join(output,'index.html'),html);
+  fs.mkdirSync(output,{recursive:true});
   fs.copyFileSync(path.join(root,'site/style.css'),path.join(output,'style.css'));
+  fs.copyFileSync(path.join(root,'site/language.js'),path.join(output,'language.js'));
   fs.cpSync(path.join(root,'site/assets'),path.join(output,'assets'),{recursive:true});
+  const pages=[];
+  for(const locale of locales){
+    const t=text=>siteText(locale,text);
+    function download(platform,label){const a=info[platform];return a?`<a class="button ${platform==='windows'?'':'secondary'}" href="${escape(a.browser_download_url)}">${escape(t(label))}<span>v${escape(info.version)} · ${(a.size/1024/1024).toFixed(0)} MB ↗</span></a>`:`<span class="button unavailable" aria-disabled="true">${escape(t(label))}<span>${escape(t('暂未发布'))}</span></span>`;}
+    const canonical=baseURL+(locale==='zh-CN'?'':locale+'/');
+    const values={base:'/ChatToHarness/',localeBase:route(locale),lang:locale,docLocale:locale,
+      guideAnchor:{'zh-CN':'故障处理',en:'troubleshooting',ja:'トラブルシューティング'}[locale],
+      canonical,alternates:locales.map(lang=>`<link rel="alternate" hreflang="${lang}" href="${baseURL+(lang==='zh-CN'?'':lang+'/')}">`).join(''),
+      languageLinks:locales.map(lang=>`<a href="${route(lang)}" lang="${lang}" hreflang="${lang}" data-language="${lang}"${lang===locale?' aria-current="page"':''}>${{'zh-CN':'中文',en:'English',ja:'日本語'}[lang]}</a>`).join(''),
+      version:escape(t(info.version)),windows:download('windows','下载 Windows 版本'),macos:download('macos','下载 Mac 版本'),
+      checksum:info.checksum?`<a href="${escape(info.checksum.browser_download_url)}">${escape(t('SHA-256 校验文件 ↗'))}</a>`:escape(t('安装包正式发布后显示下载链接')),repo:repoURL};
+    const html=localizeMarkup(fs.readFileSync(path.join(root,'site/index.html'),'utf8'),locale)
+      .replace(/\{\{(\w+)\}\}/g,(_match,key)=>{if(!(key in values))throw new Error('Missing site value '+key);return values[key];});
+    const folder=path.join(output,locale==='zh-CN'?'':locale);fs.mkdirSync(folder,{recursive:true});fs.writeFileSync(path.join(folder,'index.html'),html);pages.push(html);
+  }
   fs.writeFileSync(path.join(output,'.nojekyll'),'');
   fs.writeFileSync(path.join(output,'robots.txt'),`User-agent: *\nAllow: /\nSitemap: ${baseURL}sitemap.xml\n`);
-  fs.writeFileSync(path.join(output,'sitemap.xml'),`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${baseURL}</loc></url></urlset>\n`);
-  for(const match of html.matchAll(/(?:href|src)="(\/ChatToHarness\/[^"#?]*)"/g)){
+  fs.writeFileSync(path.join(output,'sitemap.xml'),`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locales.map(locale=>`<url><loc>${baseURL+(locale==='zh-CN'?'':locale+'/')}</loc></url>`).join('')}</urlset>\n`);
+  for(const html of pages)for(const match of html.matchAll(/(?:href|src)="(\/ChatToHarness\/[^"#?]*)"/g)){
     const name=match[1].slice('/ChatToHarness/'.length)||'index.html';if(!fs.existsSync(path.join(output,name)))throw new Error('Missing website asset: '+name);
   }
   return info;

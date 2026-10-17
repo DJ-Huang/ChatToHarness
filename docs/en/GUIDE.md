@@ -14,11 +14,11 @@ Supported targets are macOS 14+ on Apple Silicon and Windows 11 x64. Installers 
 
 1. Download the matching `.dmg` or `-setup.exe` from a published Release, install it, and open the application.
 2. Create or select a Tunnel in the [service console](https://platform.openai.com/settings/organization/tunnels) and prepare a Runtime API Key. The relevant organization or workspace must have permission to use the tunnel.
-3. Enter the Tunnel ID and Runtime API Key in **Connection settings** (连接配置). In **Work directories** (工作目录), select the folders that file tools may access.
-4. Choose **Save and connect** (保存并连接). After local checks succeed and the status is **Tunnel ready** (通道就绪), follow **Connection and help** (接入与帮助) to configure the client.
+3. Enter the Tunnel ID and Runtime API Key in **Connection settings**. In **Work directories**, select the folders that file tools may access.
+4. Choose **Save and connect**. After local checks succeed and the status is **Tunnel ready**, follow **Connection and help** to configure the client.
 5. Start with a read-only client request, then verify writing and reading in a dedicated temporary directory.
 
-The application interface currently uses Chinese; the labels above identify the corresponding controls. Documentation language does not change the interface language.
+Use **Interface language** in the sidebar to switch between English, Simplified Chinese, and Japanese immediately. The first launch follows your system language (other languages fall back to English); later launches remember your choice. Native menus, tray actions, status, help, and errors change together. The separate `preferences.json` stores only the language and does not read or rewrite credentials or reconnect the tunnel. The website has its own language selector and remembers your browser choice.
 
 Do not send API keys in chat or commit them to the repository. The application saves only system-encrypted credentials, reports only whether a key is saved, and clears the key input after saving. Only the Tunnel receives the Runtime API Key; tool processes do not. API callers need separate credentials.
 
@@ -71,7 +71,7 @@ Application settings, tool configuration, and logs stay in the private data dire
 | Project context expired | Have the client reload the instructions, then explicitly retry the operation. |
 | Windows blocks installation | Verify the source, SHA-256, and Release signing notes. Production signing requires the maintainer's certificate. |
 
-Use **View logs** (查看日志) to open the log directory. Redact support materials; do not include keys, complete environment dumps, or private project content.
+Use **View logs** to open the log directory. Redact support materials; do not include keys, complete environment dumps, or private project content.
 
 ## Open source and maintenance
 

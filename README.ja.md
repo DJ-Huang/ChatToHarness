@@ -1,6 +1,6 @@
 # ChatToHarness
 
-**[公式サイト・ダウンロード](https://dj-huang.github.io/ChatToHarness/)** · [GitHub Releases](https://github.com/DJ-Huang/ChatToHarness/releases)
+**[公式サイト・ダウンロード](https://dj-huang.github.io/ChatToHarness/ja/)** · [GitHub Releases](https://github.com/DJ-Huang/ChatToHarness/releases)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
@@ -12,19 +12,19 @@
 
 ### アプリの概要
 
-![アプリの概要](site/assets/console.png)
+![アプリの概要](site/assets/console-ja.png)
 
 ### 接続設定：デモ用 Tunnel ID を使用し、実際の認証情報は含みません。
 
-![接続設定：デモ用 Tunnel ID を使用し、実際の認証情報は含みません。](docs/images/console-connection.png)
+![接続設定：デモ用 Tunnel ID を使用し、実際の認証情報は含みません。](docs/images/console-connection-ja.png)
 
 ### ChatGPT
 
-![ChatGPT — @LocalHarness](docs/images/chatgpt-plugin.png)
+![ChatGPT — @LocalHarness](docs/images/chatgpt-plugin-ja.png)
 
 ChatGPT：`@` で接続済みプラグインを選び、タスクとプロジェクトのパスを入力します。既存のプラグイン名は LocalHarness のままです。この画像は入力例であり、ツール呼び出しの成功を示すものではありません。
 
-アプリの画像は独立したデモ設定で撮影しています。現在のアプリ UI は中国語です。ドキュメントは中国語・英語・日本語に対応しています。
+アプリの画像は独立したデモ設定で撮影しています。アプリ、サイト、文書は日本語・英語・中国語に対応しています。サイドバーの「表示言語」で即座に切り替え、接続を再起動せずに選択を保存できます。
 
 ## はじめに
 

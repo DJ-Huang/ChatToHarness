@@ -38,3 +38,5 @@ Static source lives in `site/`, with output in `dist/site/`. `node scripts/build
 Use application screenshots from isolated verification settings. Hide real Tunnel IDs, keys, usernames, and project content. The site never provides a credential input or storage feature. Keep the three documentation languages aligned and link to the matching language from the website.
 
 CI uses only simulated tunnels and temporary data directories. Never run a personal Tunnel simultaneously in CI or on another computer. Record real client end-to-end checks separately in [VERIFICATION.md](VERIFICATION.md).
+
+Maintain all app and website translations together. Recapture all three sets of screenshots after visible changes; use isolated credentials and a simulated tunnel. UI smoke checks generate one image per page and language.

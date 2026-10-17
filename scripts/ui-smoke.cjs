@@ -27,9 +27,9 @@ const launchArgs = development && !explicitExecutable ? [root] : [];
 const key = 'synthetic-ui-key-not-a-real-key';
 const replacement = 'synthetic-ui-replacement-not-a-real-key';
 const env = { ...process.env, LOCALHARNESS_HOME: stateHome,
-  LOCALHARNESS_TEST_MODE: '1', LOCALHARNESS_TEST_TUNNEL_SCRIPT: tunnelScript };
+  LOCALHARNESS_TEST_MODE: '1', LOCALHARNESS_TEST_LOCALE: 'zh-CN', LOCALHARNESS_TEST_TUNNEL_SCRIPT: tunnelScript };
 if (!launchArgs.length) delete env.LOCALHARNESS_RESOURCES;
-else env.LOCALHARNESS_RESOURCES = path.join(root, 'resources');
+else env.LOCALHARNESS_RESOURCES = process.env.LOCALHARNESS_RESOURCES || path.join(root, 'resources');
 delete env.ELECTRON_RUN_AS_NODE;
 let instance;
 const errors = [];
@@ -51,7 +51,7 @@ async function launch() {
   instance = await electron.launch({ executablePath: executable, args: launchArgs, env, timeout: 60000 });
   const page = await instance.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
-  await page.waitForFunction(() => document.getElementById('status-label').textContent !== '正在载入');
+  await page.waitForFunction(() => document.body.dataset.initialized === 'true');
   assert.equal((await getState()).testMode, true, 'fixture must be explicitly enabled');
   return page;
 }
@@ -152,6 +152,39 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
     await page.screenshot({ path: path.join(output, 'console-' + name + '.png'), fullPage: true });
   }
 
+  // Language changes are independent of credentials, workspace drafts, and runtime.
+  const configBeforeLanguages = fs.readFileSync(path.join(stateHome, 'settings.json'), 'utf8');
+  const pidsBeforeLanguages = fs.readFileSync(pidFile, 'utf8');
+  for (const locale of ['en', 'ja', 'zh-CN']) {
+    await page.locator('#language-select').selectOption(locale);
+    await page.waitForFunction(lang => document.documentElement.lang === lang, locale);
+    assert.equal((await getState()).system.locale, locale);
+    assert.equal((await getState()).runtime.state, 'ready');
+    const expected = {en:'Connection settings',ja:'接続設定','zh-CN':'连接配置'}[locale];
+    assert.equal(await page.locator('#nav-connection').textContent(), expected);
+    const menu = await instance.evaluate(({Menu}) => Menu.getApplicationMenu().items.flatMap(item => item.submenu?.items.map(child => child.label) || []));
+    assert.ok(menu.includes({en:'Open window',ja:'ウィンドウを開く','zh-CN':'打开窗口'}[locale]));
+    for (const name of ['overview', 'connection', 'directories', 'help']) {
+      await tab(page, name);
+      await page.screenshot({path:path.join(output, `console-${name}-${locale}.png`),fullPage:true});
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      if (locale === 'en') {
+        const visible = await page.locator('body').innerText();
+        assert.equal(/[\u3400-\u9fff]/u.test(visible.replaceAll('简体中文','').replaceAll('日本語','').replaceAll('示例工程 project','').replaceAll('示例工程','').replaceAll('中文','')), false, 'English UI should not contain untranslated Chinese');
+      }
+    }
+  }
+  assert.equal(fs.readFileSync(path.join(stateHome, 'settings.json'), 'utf8'), configBeforeLanguages);
+  assert.equal(fs.readFileSync(pidFile, 'utf8'), pidsBeforeLanguages, 'language switching must not restart managed processes');
+  await tab(page, 'connection');
+  await page.locator('#api-key').fill('unsaved-synthetic-draft');
+  await page.locator('#language-select').selectOption('ja');
+  await page.waitForFunction(() => document.documentElement.lang === 'ja');
+  assert.equal(await page.locator('#api-key').inputValue(), 'unsaved-synthetic-draft');
+  await page.locator('#api-key').fill('');
+  await page.locator('#language-select').selectOption('zh-CN');
+  await page.waitForFunction(() => document.documentElement.lang === 'zh-CN');
+
   // Window close hides, duplicate launch exits, and reopening restores the same window.
   await instance.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
   assert.equal(await instance.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), false);
@@ -179,11 +212,16 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   assert.notEqual(JSON.parse(fs.readFileSync(path.join(stateHome, 'settings.json'), 'utf8')).encryptedKey, ciphertextBefore);
   noPlaintextSecret();
 
+  await page.locator('#language-select').selectOption('ja');
+  await page.waitForFunction(() => document.documentElement.lang === 'ja');
   const quittingPids = JSON.parse(fs.readFileSync(pidFile, 'utf8'));
   await close();
   await assertGone(quittingPids);
   page = await launch();
   await waitState('ready');
+  assert.equal((await getState()).system.locale, 'ja', 'language choice survives restart');
+  await page.locator('#language-select').selectOption('zh-CN');
+  await page.waitForFunction(() => document.documentElement.lang === 'zh-CN');
   assert.deepEqual((await getState()).settings.directories, [fs.realpathSync(project)]);
 
   // A local fixture produces a permission fault; no real endpoint is contacted.
@@ -203,7 +241,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   noPlaintextSecret();
   assert.deepEqual(errors, []);
   const report = { ui: true, platform: process.platform, architecture: process.arch, packaged: launchArgs.length === 0,
-    realLocalTools: checked.runtime.toolsCount, navigation: true, unicodeSpaceDirectory: true, encryptedSaveAndReplace: true,
+    realLocalTools: checked.runtime.toolsCount, languages:['zh-CN','en','ja'], languagePersistence:true, languagePreservesCredentialsAndConnection:true, navigation: true, unicodeSpaceDirectory: true, encryptedSaveAndReplace: true,
     restartAutoConnect: true, windowHide: true, singleInstance: true, ownedProcessCleanup: true,
     authErrorAndRecovery: true, clearPreservesWorkspace: true, remoteTunnel: 'not tested: isolated fixture' };
   fs.writeFileSync(path.join(output, 'ui-report.json'), JSON.stringify(report, null, 2) + '\n');

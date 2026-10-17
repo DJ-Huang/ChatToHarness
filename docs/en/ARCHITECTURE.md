@@ -29,3 +29,9 @@ Root-to-target AGENTS files support case variants and report conflicting candida
 GitHub Actions builds on native Windows x64 and Mac arm64 runners, verifies packaged resources, and checks isolated windows and installation. Only after both platforms pass does it assemble a draft Release with SHA-256 checksums. Public Releases are not overwritten. Pages builds independently and offers downloads only from published stable Releases. Source and website content contain no user settings or credentials.
 
 See [verification boundaries](VERIFICATION.md), [release maintenance](RELEASING.md), and the [documentation index](README.md).
+
+## Language support
+
+The app shares `app/locales.js` and `app/i18n.js` between the renderer and native menus. Static text, accessibility labels, runtime state, and known errors use one catalog. System language selects the initial locale; `preferences.json` stores a later explicit choice independently from encrypted settings. Language IPC updates menus and state without entering the connection queue or changing `actionEpoch`. Paths, credentials, and tool output are never translated.
+
+The website renders three complete static pages at the root (Chinese), `/en/`, and `/ja/`. Each has localized metadata, documentation links, download states, and application screenshots, with canonical and alternate-language links. The selector remembers the choice in browser storage; direct English/Japanese URLs remain authoritative.

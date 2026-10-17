@@ -2,6 +2,11 @@
 
 (() => {
   const api = window.localHarness;
+  const i18n = window.CTHI18n;
+  let locale = i18n.normalize(navigator.language);
+  const t = (message, values) => i18n.translate(locale, message, values);
+  const translateDocument = i18n.documentTranslator(document);
+  translateDocument(locale);
   const byId = (id) => document.getElementById(id);
   const form = byId('settings-form');
   const tunnelInput = byId('tunnel-id');
@@ -59,7 +64,7 @@
   const workspaceDirty = () => JSON.stringify({ directories, autoProjectContext: autoProjectContextInput.checked }) !==
     JSON.stringify({ directories: currentState?.settings?.directories || [], autoProjectContext: currentState?.settings?.autoProjectContext !== false });
   const safeMessage = (error) => typeof error?.message === 'string' && error.message.trim()
-    ? error.message : '操作未完成，请重试或查看日志。';
+    ? error.message : t('操作未完成，请重试或查看日志。');
 
   function showTab(name, focus = false) {
     if (!Object.hasOwn(pages, name)) return;
@@ -72,8 +77,8 @@
       button.setAttribute('tabindex', selected ? '0' : '-1');
       if (selected && focus) button.focus();
     });
-    byId('page-title').textContent = pages[name][0];
-    byId('page-description').textContent = pages[name][1];
+    byId('page-title').textContent = t(pages[name][0]);
+    byId('page-description').textContent = t(pages[name][1]);
   }
 
   function renderDirectories() {
@@ -82,7 +87,7 @@
     if (!directories.length) {
       const empty = document.createElement('li');
       empty.className = 'empty-folders';
-      empty.textContent = '还没有工作目录。添加工程或文件夹，开启本机协作。';
+      empty.textContent = t('还没有工作目录。添加工程或文件夹，开启本机协作。');
       list.appendChild(empty);
       return;
     }
@@ -110,7 +115,7 @@
       remove.className = 'remove-directory';
       remove.type = 'button';
       remove.textContent = '×';
-      remove.setAttribute('aria-label', `移除目录 ${directory}`);
+      remove.setAttribute('aria-label', t('移除目录 {directory}', { directory }));
       remove.disabled = Boolean(pending);
       remove.addEventListener('click', () => {
         directories.splice(index, 1);
@@ -136,6 +141,13 @@
       actionEpoch = state.actionEpoch;
     }
     currentState = state;
+    if (state.system?.locale && state.system.locale !== locale) {
+      locale = i18n.normalize(state.system.locale);
+      translateDocument(locale);
+      showTab(activeTab);
+      renderDirectories();
+    }
+    byId('language-select').value = locale;
     const settings = state.settings || {};
     keySaved = Boolean(settings.keySaved);
     // Background connection updates must not replace a user's settings draft.
@@ -146,6 +158,7 @@
       autoProjectContextInput.checked = settings.autoProjectContext !== false;
       baseline = settingsFingerprint();
       initialized = true;
+      document.body.dataset.initialized = 'true';
       renderDirectories();
     }
     render();
@@ -158,53 +171,54 @@
     const active = ['authorizing', 'checking', 'starting', 'ready', 'reconnecting'].includes(state);
     const locked = Boolean(pending) || transitioning || !initialized;
     byId('status-badge').className = `status-badge ${state === 'ready' ? 'ready' : ['authorizing', 'checking', 'starting', 'reconnecting'].includes(state) ? 'working' : state === 'failed' ? 'failed' : ''}`;
-    byId('status-label').textContent = initialized ? (stateNames[state] || '状态未知') : '正在载入';
-    byId('overview-headline').textContent = headlines[state] || headlines.unconfigured;
-    byId('runtime-description').textContent = descriptions[state] || descriptions.unconfigured;
+    byId('status-label').textContent = initialized ? t(stateNames[state] || '状态未知') : t('正在载入');
+    byId('overview-headline').textContent = t(headlines[state] || headlines.unconfigured);
+    byId('runtime-description').textContent = t(descriptions[state] || descriptions.unconfigured);
     byId('key-status').hidden = !keySaved;
-    keyInput.placeholder = keySaved ? '已保存；输入新密钥可替换' : '输入 Runtime API Key';
+    byId('toggle-key').setAttribute('aria-label', t(keyInput.type === 'password' ? '显示密钥' : '隐藏密钥'));
+    keyInput.placeholder = keySaved ? t('已保存；输入新密钥可替换') : t('输入 Runtime API Key');
     const dirty = initialized && isDirty();
-    byId('save-indicator').textContent = dirty ? '有未保存的更改' : keySaved ? '配置已保存' : '填写后保存';
+    byId('save-indicator').textContent = dirty ? t('有未保存的更改') : keySaved ? t('配置已保存') : t('填写后保存');
     byId('save-indicator').className = `save-indicator${dirty ? ' dirty' : ''}`;
-    byId('workspace-save-indicator').textContent = initialized && workspaceDirty() ? '有未保存的更改' : directories.length ? '设置已保存' : '请先添加目录';
+    byId('workspace-save-indicator').textContent = initialized && workspaceDirty() ? t('有未保存的更改') : directories.length ? t('设置已保存') : t('请先添加目录');
     byId('workspace-save-indicator').className = `save-indicator${workspaceDirty() ? ' dirty' : ''}`;
     byId('save-connect').disabled = locked;
-    byId('save-connect-label').textContent = pending === 'save' || state === 'starting' ? '正在连接…' : '保存并连接';
+    byId('save-connect-label').textContent = pending === 'save' || state === 'starting' ? t('正在连接…') : t('保存并连接');
     byId('save-workspace').disabled = locked || !directories.length;
     byId('check-connection').disabled = locked || !directories.length;
-    byId('check-connection').textContent = pending === 'check' || state === 'checking' ? '检查中…' : '检查本机工具';
+    byId('check-connection').textContent = pending === 'check' || state === 'checking' ? t('检查中…') : t('检查本机工具');
     byId('reconnect').disabled = locked || !keySaved || !currentState?.settings?.tunnelId;
-    byId('reconnect-label').textContent = ['ready', 'reconnecting', 'failed'].includes(state) ? '重新连接' : '连接通道';
+    byId('reconnect-label').textContent = ['ready', 'reconnecting', 'failed'].includes(state) ? t('重新连接') : t('连接通道');
     byId('stop').disabled = (!active && !['save', 'check', 'reconnect'].includes(pending)) || pending === 'stop';
     byId('clear-credentials').disabled = locked || (!keySaved && !currentState?.settings?.tunnelId && !keyInput.value);
     byId('add-directory').disabled = Boolean(pending) || !initialized;
     [tunnelInput, keyInput, autoConnectInput, autoProjectContextInput].forEach((input) => { input.disabled = ['save', 'workspace', 'clear'].includes(pending); });
-    byId('action-message').textContent = actionMessage;
+    byId('action-message').textContent = t(actionMessage);
     const error = actionError || (state === 'failed' ? runtime.error : '') || '';
     byId('error-banner').hidden = !error;
-    byId('error-message').textContent = error;
-    byId('tools-summary').textContent = runtime.localReady ? `${runtime.toolsCount || '—'} 项可用` : state === 'checking' ? '正在检查' : '等待检查';
-    byId('folders-summary').textContent = directories.length ? `${directories.length} 个目录` : '尚未选择';
+    byId('error-message').textContent = t(error);
+    byId('tools-summary').textContent = runtime.localReady ? t('{count} 项可用', { count: runtime.toolsCount || '—' }) : state === 'checking' ? t('正在检查') : t('等待检查');
+    byId('folders-summary').textContent = directories.length ? t('{count} 个目录', { count: directories.length }) : t('尚未选择');
     byId('directory-nav-count').textContent = String(directories.length);
-    byId('rules-summary').textContent = autoProjectContextInput.checked ? '自动加载' : '已关闭';
-    byId('rules-detail').textContent = autoProjectContextInput.checked ? 'AGENTS.md 与相关规则' : '工具调用前不自动提供工程规范';
+    byId('rules-summary').textContent = autoProjectContextInput.checked ? t('自动加载') : t('已关闭');
+    byId('rules-detail').textContent = autoProjectContextInput.checked ? t('AGENTS.md 与相关规则') : t('工具调用前不自动提供工程规范');
     byId('step-local').className = `progress-step${runtime.localReady ? ' complete' : state === 'checking' ? ' active' : ''}`;
     byId('local-detail').textContent = runtime.localReady
-      ? `已就绪${runtime.toolsCount ? ` · ${runtime.toolsCount} 项工具` : ''}`
-      : state === 'checking' ? '正在检查本机工具…' : '连接时自动检查';
+      ? runtime.toolsCount ? t('已就绪 · {count} 项工具', { count: runtime.toolsCount }) : t('已就绪')
+      : state === 'checking' ? t('正在检查本机工具…') : t('连接时自动检查');
     byId('step-tunnel').className = `progress-step${state === 'ready' ? ' complete' : ['starting', 'reconnecting'].includes(state) ? ' active' : ''}`;
-    byId('tunnel-detail').textContent = state === 'ready' ? '通道已就绪' : state === 'starting' ? '正在建立安全通道…' : state === 'reconnecting' ? '正在恢复连接…' : state === 'failed' ? '连接需要处理' : '等待连接';
+    byId('tunnel-detail').textContent = state === 'ready' ? t('通道已就绪') : state === 'starting' ? t('正在建立安全通道…') : state === 'reconnecting' ? t('正在恢复连接…') : state === 'failed' ? t('连接需要处理') : t('等待连接');
     // Tunnel health cannot prove that a client has authorized or executed a tool.
     byId('step-client').className = `progress-step${state === 'ready' ? ' active' : ''}`;
-    byId('client-detail').textContent = state === 'ready' ? '请在客户端选择同一通道并验证工具调用。' : '选择同一通道，再发起一次工具调用。';
-    byId('tunnel-example').value = currentState?.settings?.tunnelId || '保存 Tunnel ID 后显示';
+    byId('client-detail').textContent = state === 'ready' ? t('请在客户端选择同一通道并验证工具调用。') : t('选择同一通道，再发起一次工具调用。');
+    byId('tunnel-example').value = currentState?.settings?.tunnelId || t('保存 Tunnel ID 后显示');
     byId('copy-tunnel').disabled = !currentState?.settings?.tunnelId;
-    byId('responses-example').textContent = JSON.stringify({ type: 'mcp', server_label: 'chat_to_harness', tunnel_id: currentState?.settings?.tunnelId || 'tunnel_替换为已配置的通道标识' }, null, 2);
+    byId('responses-example').textContent = JSON.stringify({ type: 'mcp', server_label: 'chat_to_harness', tunnel_id: currentState?.settings?.tunnelId || t('tunnel_替换为已配置的通道标识') }, null, 2);
     const versions = currentState?.versions || {};
     byId('app-version').textContent = versions.app ? `v${versions.app}` : '';
     byId('versions').textContent = [
-      ['Node', versions.node], ['通道运行组件', versions.tunnel], ['工具引擎', versions.desktopCommander],
-    ].map(([name, version]) => `${name} ${version || '未读取'}`).join(' · ');
+      ['Node', versions.node], [t('通道运行组件'), versions.tunnel], [t('工具引擎'), versions.desktopCommander],
+    ].map(([name, version]) => `${name} ${version || t('未读取')}`).join(' · ');
   }
 
   async function perform(name, work) {
@@ -270,7 +284,7 @@
       if (!settings.apiKey || keyInput.value.trim() === settings.apiKey) {
         keyInput.value = '';
         keyInput.type = 'password';
-        byId('toggle-key').setAttribute('aria-label', '显示密钥');
+        byId('toggle-key').setAttribute('aria-label', t('显示密钥'));
         byId('toggle-key').setAttribute('aria-pressed', 'false');
       }
       if (draftUnchanged && savedState?.settings) {
@@ -359,7 +373,7 @@
     const visible = keyInput.type === 'password';
     keyInput.type = visible ? 'text' : 'password';
     byId('toggle-key').setAttribute('aria-pressed', String(visible));
-    byId('toggle-key').setAttribute('aria-label', visible ? '隐藏密钥' : '显示密钥');
+    byId('toggle-key').setAttribute('aria-label', visible ? t('隐藏密钥') : t('显示密钥'));
   });
   byId('copy-tunnel').addEventListener('click', async () => {
     const input = byId('tunnel-example');
@@ -380,6 +394,14 @@
       actionMessage = '';
       render();
     });
+  });
+  byId('language-select').value = locale;
+  byId('language-select').addEventListener('change', async (event) => {
+    const selector = event.target;
+    selector.disabled = true;
+    try { applyState(await api.setLanguage(selector.value)); }
+    catch (error) { actionError = safeMessage(error); selector.value = locale; render(); }
+    finally { selector.disabled = false; }
   });
   showTab('overview');
   if (!api) {

@@ -12,6 +12,8 @@
 
 通过安全通道，将支持的 AI 客户端连接到本机文件、终端、Git 和开发工具；在工具操作前自动交付适用的工程规范。
 
+![ChatToHarness — 随时随地工作，只需对话。](docs/images/chatharness-work-anywhere.webp)
+
 ## 截图
 
 ### 应用概览

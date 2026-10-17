@@ -12,6 +12,8 @@
 
 A desktop console for connecting supported AI clients to local files, terminals, Git, and development tools through a secure tunnel. Project instructions are delivered before tool operations.
 
+![ChatToHarness — Work from anywhere. Just chat.](docs/images/chatharness-work-anywhere.webp)
+
 ## Screenshots
 
 ### Application overview

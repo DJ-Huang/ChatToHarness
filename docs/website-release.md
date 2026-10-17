@@ -26,3 +26,9 @@ Recovery used the existing [Website workflow dispatch on main](https://github.co
 Local website regressions: **12 passed**, including an actual main-event build while the application version is ahead of the public release. The initial full suite had **125 passed, 7 failed, 3 skipped** on this Windows host. The unchanged main baseline reproduced the same seven failures: five symbolic-link permission errors and two HOME-environment assertions. These are outside the website change.
 
 The initial PR's macOS application check passed its unit tests (130 passed, 5 skipped), then failed packaging: electron-builder skipped signing in a PR, while the existing build script required `codesign --verify --deep --strict` to pass. No signing policy or packaging code is changed here.
+
+## Incident evidence: v0.5.0 release deployment
+
+On 2026-10-17, the `v0.5.0` release workflow successfully built the site using the published installers and Pages reported deployment success, but all four production routes continued returning v0.4.0 HTML. The production verifier correctly failed after 20 attempts, including cache-busted requests. Both v0.5.0 installers and `SHA256SUMS.txt` were independently confirmed publicly downloadable with matching sizes and SHA-256 digests.
+
+The release and main branch pointed at the same commit (`c860427cd0a294e0737691526cf1a3778ee9d555`) for both the pre-release main deployment and the release-triggered deployment. A follow-up main commit that changes website-owned content is required to give Pages a new build identity and trigger a fresh production deployment; rerunning the same deployment job alone did not fix the stale HTML. Keep the post-deployment content check mandatory and do not report the release as fully delivered until all four locale routes serve the published version and download links.

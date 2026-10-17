@@ -141,7 +141,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   await page.locator('#mcp-id').fill(mcpServerId);
   await page.locator('#mcp-name').fill('UI MCP fixture');
   await page.locator('#mcp-command').fill(process.execPath);
-  await page.locator('#mcp-args').fill(JSON.stringify([path.join(root, 'tests', 'fixtures', 'mcp-server.cjs')]));
+  await page.locator('#mcp-args').fill(JSON.stringify([path.join(root, 'tests', 'fixtures', 'mcp-server.cjs'), '--project-aware']));
   await page.locator('#mcp-env').fill(JSON.stringify({ MCP_FIXTURE_NAME: mcpFixtureName, MCP_FIXTURE_START_FILE: mcpStartFile }));
   await page.locator('#mcp-save').click();
   const mcpSaved = await waitMcp(server => Boolean(server), 'save its configuration');
@@ -219,6 +219,47 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
     await tab(page, name);
     await page.screenshot({ path: path.join(output, 'console-' + name + '.png'), fullPage: true });
   }
+
+  // Capture only this isolated test app's manager, without adding a production
+  // IPC endpoint that could invoke arbitrary tools or grant permissions.
+  await instance.evaluate(({app}) => {
+    const localRequire = process.getBuiltinModule('module').createRequire(app.getAppPath() + '/package.json');
+    const {McpManager} = localRequire('./app/mcp-manager.cjs');
+    const status = McpManager.prototype.status;
+    McpManager.prototype.status = function () { globalThis.cthAcceptanceManager = this; McpManager.prototype.status = status; return status.call(this); };
+  });
+  await getState();
+  const harness = await instance.evaluate(() => globalThis.cthAcceptanceManager.call('get_harness_status', {}));
+  assert.equal(harness.isError, undefined); assert.match(harness.structuredContent.app.build.source_sha256, /^[a-f0-9]{64}$/);
+  assert.equal(harness.structuredContent.app.build.mode, launchArgs.length ? 'development' : 'packaged');
+  await tab(page, 'mcp'); await page.getByRole('button', {name: '启用', exact: true}).click();
+  await waitMcp(server => server?.phase === 'ready', 'connect for remembered local approvals');
+  if (!await page.locator('.mcp-tools').evaluate(element => element.open)) await page.locator('.mcp-tools > summary').click();
+  await page.getByRole('combobox', {name: 'echo 的调用权限', exact: true}).selectOption('ask');
+  await waitMcp(server => server?.tools.find(tool => tool.name === 'echo')?.policy === 'ask', 'request local approval');
+  const startApproval = async () => {
+    await instance.evaluate((_electron, value) => { globalThis.cthAcceptancePending = globalThis.cthAcceptanceManager.call(value.name, {project_path: value.project, value: 'synthetic approval'}); }, {name: mcpServerId + '__echo', project: fs.realpathSync(project)});
+    await page.getByRole('combobox', {name: '本机授权范围', exact: true}).waitFor();
+  };
+  await startApproval();
+  await page.getByRole('combobox', {name: '本机授权范围', exact: true}).selectOption('project');
+  await page.screenshot({path: path.join(output, 'console-project-approval.png'), fullPage: true});
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.getByRole('button', {name: '允许此次调用', exact: true}).click();
+  assert.equal((await instance.evaluate(() => globalThis.cthAcceptancePending)).isError, undefined);
+  const repeated = await instance.evaluate((_electron, value) => globalThis.cthAcceptanceManager.call(value.name, {project_path: value.project}), {name: mcpServerId + '__echo', project: fs.realpathSync(project)});
+  assert.equal(repeated.isError, undefined); assert.equal((await getState()).mcp.approvals.length, 0);
+  assert.equal((await getState()).mcp.allowAllTools, false);
+  if (!await page.locator('.mcp-tools').evaluate(element => element.open)) await page.locator('.mcp-tools > summary').click();
+  await page.getByRole('button', {name: '清除项目授权', exact: true}).click();
+  await waitMcp(server => server?.tools.find(tool => tool.name === 'echo')?.projectGrants.length === 0, 'clear its project approval');
+  await startApproval();
+  await page.getByRole('combobox', {name: '本机授权范围', exact: true}).selectOption('tool');
+  await page.getByRole('button', {name: '允许此次调用', exact: true}).click();
+  assert.equal((await instance.evaluate(() => globalThis.cthAcceptancePending)).isError, undefined);
+  await waitMcp(server => server?.tools.find(tool => tool.name === 'echo')?.savedPolicy === 'allow', 'remember its tool approval');
+  await page.getByRole('button', {name: '停用', exact: true}).click();
+  await waitMcp(server => server?.phase === 'stopped', 'stop the approval fixture');
 
   // Language changes are independent of credentials, workspace drafts, and runtime.
   const configBeforeLanguages = fs.readFileSync(path.join(stateHome, 'settings.json'), 'utf8');
@@ -328,7 +369,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   assert.equal(cleared.settings.autoConnect, false);
   assert.deepEqual(cleared.settings.directories, [fs.realpathSync(project)]);
   noPlaintextSecret();
-  assert.equal(Number(fs.readFileSync(mcpStartFile, 'utf8')), 2, 'disabled MCP service stays stopped across tunnel reconnects and app restart');
+  assert.equal(Number(fs.readFileSync(mcpStartFile, 'utf8')), 3, 'disabled MCP service stays stopped across tunnel reconnects and app restart');
   await tab(page, 'mcp');
   await page.getByRole('button', { name: '删除', exact: true }).click();
   await page.getByRole('button', { name: '确认删除', exact: true }).click();
@@ -339,6 +380,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
     realLocalTools: checked.runtime.toolsCount, languages:['zh-CN','en','ja'], languagePersistence:true, languagePreservesCredentialsAndConnection:true, navigation: true, unicodeSpaceDirectory: true, encryptedSaveAndReplace: true,
     restartAutoConnect: true, windowHide: true, singleInstance: true, ownedProcessCleanup: true,
     appMcpManagement: true, mcpWithoutWorkspace: true, mcpDefaultDeny: true, mcpEncryptedEnvironment: true,
+    harnessBuildIdentity: true, localProjectApprovalRemembered: true, localProjectApprovalRevoked: true, localToolApprovalRemembered: true, globalAllowAllPreserved: true,
     authErrorAndRecovery: true, clearPreservesWorkspace: true, remoteTunnel: 'not tested: isolated fixture' };
   fs.writeFileSync(path.join(output, 'ui-report.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report));

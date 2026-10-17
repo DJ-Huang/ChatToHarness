@@ -33,3 +33,7 @@ The updated local suite passed 69 of 71 checks; the two Windows-native checks we
 The signed native Mac application also passed the complete isolated packaged-window checks in all three languages.
 
 Both [native CI jobs](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39004923858) and the [three-language Pages deployment](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39004923882) passed. The application installed on the original Mac switched among all three languages while its real Tunnel stayed ready with 26 tools. The encrypted settings fingerprint remained unchanged. These language checks do not repeat the earlier real client read/write acceptance.
+
+## 0.3.1 automatic tag release (2026-10-17)
+
+The [v0.3.1 tag workflow](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39006275576) passed both native installer builds, packaged-window checks, installation, and uninstallation with settings retained. It automatically published the [stable Release](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.3.1), including the Windows installer, Mac DMG, SHA256SUMS.txt, and notes in all three languages. Public attachment sizes and SHA-256 digests were verified. The same workflow then deployed Pages; the Chinese, English, and Japanese live pages were checked against the actual v0.3.1 attachment URLs. Published release assets and tags remain unchanged.

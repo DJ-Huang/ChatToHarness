@@ -33,3 +33,7 @@ Mac 隔离检查已覆盖四个页面的三种语言、原生菜单、重启后�
 已签名的 Mac 原生应用也通过了完整隔离界面检查，覆盖三种语言。
 
 [双平台原生 CI](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39004923858) 与[三语官网部署](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39004923882)均通过。原 Mac 已安装新版，实机切换三种语言时，真实通道保持就绪，26 项工具可用，加密配置指纹未改变。本次语言检查未重复此前的真实客户端读写验收。
+
+## 0.3.1 标签自动发布（2026-10-17）
+
+[v0.3.1 标签工作流](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39006275576)已通过双平台原生安装包构建、打包窗口、安装与卸载保留配置验收，并自动[正式发布稳定版](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.3.1)。附件包含 Windows 安装程序、Mac DMG、SHA256SUMS.txt，附中英日更新说明；公开附件大小与 SHA-256 均已核对。同一工作流随后部署 Pages，三语正式页面已确认指向实际 v0.3.1 安装包和校验文件。已公开的附件与标签不再修改。

@@ -33,3 +33,7 @@ Mac の独立設定で、4画面の3言語表示、ネイティブメニュー�
 署名済み Mac アプリでも、3言語を含む独立したパッケージ画面チェックがすべて成功しました。
 
 [両 OS のネイティブ CI](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39004923858) と[3言語サイトの配信](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39004923882)が成功しました。元の Mac に導入したアプリで3言語を切り替えても、実トンネルは準備完了のまま26ツールを利用でき、暗号化設定の指紋も変わりません。今回の言語確認では、以前の実クライアント読み書き検証は繰り返していません。
+
+## 0.3.1 タグ自動公開（2026-10-17）
+
+[v0.3.1 のタグワークフロー](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39006275576)で、両 OS のインストーラー生成、パッケージ画面、インストール、設定を保持したアンインストールを確認し、[安定版 Release](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.3.1)を自動公開しました。Windows インストーラー、Mac DMG、SHA256SUMS.txt、3言語の更新情報を含み、公開添付ファイルのサイズと SHA-256 を照合済みです。同じワークフローで Pages も配信し、中国語・英語・日本語の実ページが v0.3.1 の実ファイルを参照することを確認しました。公開済みの添付ファイルとタグは変更しません。

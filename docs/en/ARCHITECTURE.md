@@ -26,7 +26,7 @@ Root-to-target AGENTS files support case variants and report conflicting candida
 
 ## Build and delivery
 
-GitHub Actions builds on native Windows x64 and Mac arm64 runners, verifies packaged resources, and checks isolated windows and installation. Only after both platforms pass does it assemble a draft Release with SHA-256 checksums. Public Releases are not overwritten. Pages builds independently and offers downloads only from published stable Releases. Source and website content contain no user settings or credentials.
+GitHub Actions builds on native Windows x64 and Mac arm64 runners, verifies packaged resources, and checks isolated windows and installation. Only after both platforms pass and uploaded assets are verified does it automatically publish a stable Release with notes and SHA-256 checksums, then call the website deployment. Public Releases are not overwritten. Pages builds independently and offers downloads only from published stable Releases. Source and website content contain no user settings or credentials.
 
 See [verification boundaries](VERIFICATION.md), [release maintenance](RELEASING.md), and the [documentation index](README.md).
 

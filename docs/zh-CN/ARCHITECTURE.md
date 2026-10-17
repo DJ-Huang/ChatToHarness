@@ -26,7 +26,7 @@ Mac 保留 LocalHarness 的内部名称、应用标识和状态目录，显示�
 
 ## 构建与交付
 
-GitHub Actions 在原生 Windows x64、Mac arm64 构建，校验打包资源、运行隔离窗口和安装检查。只有双平台通过后生成带 SHA-256 的草稿；公开 Release 不覆盖。Pages 独立构建，首页下载只使用已公开稳定 Release，源码和页面均不保存用户配置或凭据。
+GitHub Actions 在原生 Windows x64、Mac arm64 构建，校验打包资源、运行隔离窗口和安装检查。只有双平台通过且上传文件核验成功后，才自动正式发布带更新说明与 SHA-256 的稳定版，并直接调用官网部署；公开 Release 不覆盖。Pages 独立构建，首页下载只使用已公开稳定 Release，源码和页面均不保存用户配置或凭据。
 
 运行和验收边界见 [VERIFICATION.md](VERIFICATION.md)，维护流程见 [docs/RELEASING.md](RELEASING.md)。
 

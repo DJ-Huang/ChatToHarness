@@ -1,7 +1,7 @@
 name: Desktop installers
 on:
   push:
-    tags: ['v*']
+    tags: ['v*.*.*']
   workflow_dispatch:
     inputs:
       signed:
@@ -80,7 +80,7 @@ jobs:
           name: installer-checks-${{ runner.os }}
           path: .cache/acceptance/
           if-no-files-found: warn
-  release-draft:
+  release:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [validate, package]
     runs-on: ubuntu-latest
@@ -96,9 +96,17 @@ jobs:
           pattern: installers-*
           path: dist/release
           merge-multiple: true
-      - name: Assemble draft and verify uploaded checksums
+      - name: Verify uploaded installers and publish with release notes
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           CTH_SIGNED: ${{ inputs.signed && '1' || '0' }}
-        run: node scripts/release.cjs draft
+        run: node scripts/release.cjs publish
+  update-website:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml

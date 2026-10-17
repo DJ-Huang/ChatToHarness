@@ -19,3 +19,5 @@ Choose a topic below. Every document has an English, Simplified Chinese, and Jap
 Keep translations aligned when updating behavior, configuration, or verification results. App and website language selections are independent.
 
 The app and website support the same three languages.
+
+[Version 0.3.1 release notes (three languages)](../../release-notes/v0.3.1.md)

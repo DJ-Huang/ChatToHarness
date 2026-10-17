@@ -7,22 +7,22 @@
 ## 3 つのワークフロー
 
 - **Application checks**：PR、main のアプリ関連更新、手動実行で動きます。Windows x64 と Mac arm64 で単体チェック、ネイティブパッケージ、独立した設定での画面検証を行います。
-- **Desktop installers**：`vX.Y.Z` タグまたは手動実行で動きます。両 OS のインストーラーを生成し、実際の画面とインストールを確認した後、草稿を作成します。ブランチを指定した手動実行は Actions 成果物のみを生成します。Release 草稿を作る場合は既存のバージョンタグを選択します。
+- **Desktop installers**：`vX.Y.Z` タグまたは手動実行で動きます。両 OS のインストーラー、画面、インストールを確認し、アップロード後の検証が成功すると更新情報付きの安定版 Release を自動公開します。ブランチ指定の手動実行は Actions 成果物のみを生成し、一致するバージョンタグ指定では正式公開します。
 - **Website**：main のサイト関連更新、公開 Release の変更、手動実行で動きます。PR はビルドのみでデプロイしません。Release イベントでもサイトのソースは現在の main を使います。
 
 ## バージョンの公開手順
 
 1. `package.json`、`package-lock.json` のルートバージョン、ロックファイル内のルートパッケージのバージョンをそろえて更新し、main に統合します。
 2. アプリのバージョンと一致する `vX.Y.Z` タグを push します。ワークフローはバージョンの変更やタグの作成を自動では行いません。
-3. 両 OS の検証完了を待ちます。草稿には `ChatToHarness-X.Y.Z-windows-x64-setup.exe`、`ChatToHarness-X.Y.Z-macos-arm64.dmg`、`SHA256SUMS.txt` が含まれます。
-4. ビルド結果、署名状態、実際の検証記録を確認したうえで、GitHub 上で草稿を正式公開します。
+3. 両 OS の検証完了を待ちます。公開 Release には `ChatToHarness-X.Y.Z-windows-x64-setup.exe`、`ChatToHarness-X.Y.Z-macos-arm64.dmg`、`SHA256SUMS.txt` が含まれます。
+4. ファイルサイズと SHA-256 の確認後に自動公開します。ビルドやアップロードの失敗時は、不完全な版を公開しません。
 5. Website が公開済み安定版からダウンロードリンクを更新します。公開版がない間は未公開と表示し、草稿とプレリリースは対象にしません。
 
 失敗した場合はソースを修正して再試行できます。公開済みの成果物は上書きせず、新しいバージョンを作成します。アップロード後にサイズと SHA-256 を照合します。GitHub API やダウンロードの失敗は処理を中断し、「リリースが存在しない」として扱ってはいけません。
 
 ## 署名設定
 
-既定は Windows が未署名、Mac がアドホック署名のみで Apple 公証なしです。草稿にこの状態を明記します。手動実行の `signed` を有効にする場合、以下が必要です。
+既定は Windows が未署名、Mac がアドホック署名のみで Apple 公証なしです。Release Notes にこの状態を明記します。手動実行の `signed` を有効にする場合、以下が必要です。
 
 - Windows：`WINDOWS_CSC_LINK`、`WINDOWS_CSC_KEY_PASSWORD`。
 - Mac：`MAC_CSC_LINK`、`MAC_CSC_KEY_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`。
@@ -40,3 +40,5 @@ Pages Source を GitHub Actions に設定します。デプロイは `github-pag
 CI は模擬トンネルと一時データディレクトリのみを使用します。個人の Tunnel を CI や別の端末で同時実行してはいけません。実際のクライアントを使うエンドツーエンド検証は [VERIFICATION.md](VERIFICATION.md) に別途記録します。
 
 アプリとサイトの翻訳は同時に保守してください。表示変更後は、独立した認証情報と模擬トンネルで3言語の画像を撮り直します。画面確認ではページ・言語ごとに画像を出力します。
+
+Release Notes は GitHub が生成する変更一覧と、任意の `release-notes/vX.Y.Z.md` を組み合わせます。手書きの説明は3言語で用意してください。草稿は非公開アップロード段階だけに使用し、検証後は自動公開します。`GITHUB_TOKEN` によるイベントは通常の release ワークフローを起動しないため、公開後に Website を直接呼び出します。[GitHub の説明](https://docs.github.com/en/actions/concepts/security/github_token)を参照してください。個人トークンは不要です。

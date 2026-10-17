@@ -17,3 +17,5 @@ Choose a language to browse the complete guide, architecture, client connections
 | Verification / 验证 / 検証 | [English](en/VERIFICATION.md) | [简体中文](zh-CN/VERIFICATION.md) | [日本語](ja/VERIFICATION.md) |
 | Third-party notices / 第三方说明 / 第三者コンポーネント | [English](en/THIRD_PARTY_NOTICES.md) | [简体中文](zh-CN/THIRD_PARTY_NOTICES.md) | [日本語](ja/THIRD_PARTY_NOTICES.md) |
 | License / 许可证 / ライセンス | [English](en/LICENSE.md) | [简体中文](zh-CN/LICENSE.md) | [日本語](ja/LICENSE.md) |
+
+[Release notes / 更新说明 / 更新情報 — v0.3.1](../release-notes/v0.3.1.md)

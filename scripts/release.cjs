@@ -18,8 +18,8 @@ function gh(args, json = true, input) {
 }
 function api(route, body, method) {return gh(['api', route, ...(method ? ['--method',method] : []), ...(body ? ['--input','-'] : [])], true, body);}
 function requireDraft(release) {if (release && !release.draft) throw new Error('Refusing to replace an already published release.');}
-function findRelease(repo, tag) {
-  return gh(['api', `repos/${repo}/releases?per_page=100`, '--paginate','--slurp']).flat().find(item => item.tag_name === tag);
+function findRelease(repo, tag, run = gh) {
+  return run(['api', `repos/${repo}/releases?per_page=100`, '--paginate','--slurp']).flat().find(item => item.tag_name === tag);
 }
 function sha(file) {return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');}
 function assets(directory, appVersion) {
@@ -28,49 +28,67 @@ function assets(directory, appVersion) {
   if (JSON.stringify(present) !== JSON.stringify([...names].sort())) throw new Error('Exactly the two matching native installers are required.');
   return names.map(name => {const file=path.join(directory,name);const stat=fs.lstatSync(file);if(!stat.isFile()||stat.isSymbolicLink()||!stat.size)throw new Error('Missing installer: '+name);return file;});
 }
-async function main() {
+// Upload privately first. A failed upload, digest check, or moved tag leaves a
+// draft rather than exposing an incomplete or mismatched public release.
+function deliver({repo, tag, appVersion, directory, commitSha, runId, signed = false, publish = true, notes = '', request = api, run = gh, download}) {
+  const tagRoute=`repos/${repo}/commits/${tag}`;
+  const assertTag=()=>{if(request(tagRoute).sha!==commitSha)throw new Error('Release tag moved away from the workflow commit.');};
+  assertTag();
+  let release=findRelease(repo,tag,run);requireDraft(release);
+  const files=assets(directory,appVersion);
+  const sums=path.join(directory,'SHA256SUMS.txt');
+  fs.writeFileSync(sums,files.map(file=>`${sha(file)}  ${path.basename(file)}\n`).join(''));files.push(sums);
+  const signing=signed
+    ? '正式签名已启用，Mac 公证已验证。 / Production signing enabled; Mac notarization verified. / 正式署名を有効化し、Mac 公証を確認済み。'
+    : 'Windows 未签名；Mac 临时签名、未公证。系统可能提示或阻止安装。\n\nWindows is unsigned; Mac is ad-hoc signed and not notarized. Your OS may warn or block installation.\n\nWindows は未署名、Mac はアドホック署名のみで公証なしです。OS が警告・制限する場合があります。';
+  const runURL=`https://github.com/${repo}/actions/runs/${runId}`;
+  const managed=`<!-- CTH BUILD STATUS START -->\n${signing}\n\n[双平台构建与验收 / Build and acceptance / ビルド・検証](${runURL})\n\nWindows x64 · macOS arm64 · SHA256SUMS.txt\n<!-- CTH BUILD STATUS END -->`;
+  if(!release){
+    const generated=request(`repos/${repo}/releases/generate-notes`,{tag_name:tag});
+    release=request(`repos/${repo}/releases`,{tag_name:tag,name:`ChatToHarness ${appVersion}`,draft:true,prerelease:false,body:[managed,notes.trim(),generated.body].filter(Boolean).join('\n\n')});
+  }else{
+    release=request(`repos/${repo}/releases/${release.id}`);requireDraft(release);
+    const previous=release.body||'';
+    const block=/<!-- CTH BUILD STATUS START -->[\s\S]*?<!-- CTH BUILD STATUS END -->/;
+    request(`repos/${repo}/releases/${release.id}`,{body:block.test(previous)?previous.replace(block,()=>managed):managed+'\n\n'+previous},'PATCH');
+  }
+  const releaseRoute=`repos/${repo}/releases/${release.id}`;
+  for(const file of files){requireDraft(request(releaseRoute));run(['release','upload',tag,file,'--repo',repo,'--clobber'],false);}
+  const uploaded=run(['api',`${releaseRoute}/assets?per_page=100`,'--paginate','--slurp']).flat();
+  const expected=files.map(file=>path.basename(file)).sort();
+  if(JSON.stringify(uploaded.map(asset=>asset.name).sort())!==JSON.stringify(expected))throw new Error('Release must contain exactly both installers and SHA256SUMS.txt.');
+  for(const file of files){
+    const asset=uploaded.find(item=>item.name===path.basename(file));
+    if(!asset||asset.size!==fs.statSync(file).size)throw new Error('Uploaded asset size mismatch.');
+    if(asset.digest){if(asset.digest!=='sha256:'+sha(file))throw new Error('Uploaded checksum mismatch.');}
+    else {
+      const bytes=download?download(asset):execFileSync('gh',['api',`repos/${repo}/releases/assets/${asset.id}`,'-H','Accept: application/octet-stream'],{maxBuffer:1024*1024*1024});
+      if(crypto.createHash('sha256').update(bytes).digest('hex')!==sha(file))throw new Error('Downloaded checksum mismatch.');
+    }
+  }
+  assertTag();requireDraft(request(releaseRoute));
+  if(publish){
+    release=request(releaseRoute,{draft:false,prerelease:false,make_latest:'true'},'PATCH');
+    if(release.draft||release.prerelease||release.tag_name!==tag||!release.published_at)throw new Error('Public release confirmation failed.');
+  }
+  return release;
+}
+function main() {
   const command = process.argv[2] || 'check';
-  if (!['check','draft'].includes(command)) throw new Error('Expected check or draft.');
+  if (!['check','draft','publish'].includes(command)) throw new Error('Expected check, draft, or publish.');
   const tag = process.env.RELEASE_TAG || '';
   const appVersion = version(tag);
   const repo = process.env.GITHUB_REPOSITORY;
   if (tag && (!repo || !stable.test(tag))) throw new Error('A stable tag and repository are required.');
   if (tag) requireDraft(findRelease(repo,tag));
   if(command==='check'){console.log('Version verified: '+appVersion);return;}
-  if (!tag) throw new Error('Draft creation requires RELEASE_TAG.');
-  const commit = api(`repos/${repo}/commits/${tag}`);
-  if(commit.sha!==process.env.GITHUB_SHA)throw new Error('Release tag moved away from the workflow commit.');
-  const directory=path.resolve(process.argv[3]||path.join(root,'dist','release'));
-  const files=assets(directory,appVersion);
-  const sums=path.join(directory,'SHA256SUMS.txt');
-  fs.writeFileSync(sums,files.map(file=>`${sha(file)}  ${path.basename(file)}\n`).join(''));files.push(sums);
-  let release=findRelease(repo,tag);requireDraft(release);
-  const signed=process.env.CTH_SIGNED==='1';
-  const signing=signed?'本次构建启用了正式签名，并验证 Mac 公证。':'Windows 安装包未签名；Mac 使用临时签名且未公证。系统可能提示或阻止安装。';
-  const runURL=`https://github.com/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-  const managed=`<!-- CTH BUILD STATUS START -->\n${signing}\n\n双平台自动检查结果见[构建记录](${runURL})。人工安装体验与真实客户端验收单独记录。\n\n请检查安装包与 SHA256SUMS.txt 后正式发布。\n<!-- CTH BUILD STATUS END -->`;
-  if(!release){
-    const notes=api(`repos/${repo}/releases/generate-notes`,{tag_name:tag}).body;
-    release=api(`repos/${repo}/releases`,{tag_name:tag,name:`ChatToHarness ${appVersion}`,draft:true,prerelease:false,body:managed+'\n\n'+notes});
-  }else{
-    // Keep authored notes, but always refresh our build status when a draft is
-    // rebuilt with different signing credentials. Never leave a stale claim.
-    release=api(`repos/${repo}/releases/${release.id}`);requireDraft(release);
-    const previous=release.body||'';
-    const block=/<!-- CTH BUILD STATUS START -->[\s\S]*?<!-- CTH BUILD STATUS END -->/;
-    api(`repos/${repo}/releases/${release.id}`,{body:block.test(previous)?previous.replace(block,managed):managed+'\n\n'+previous},'PATCH');
-  }
-  for(const file of files){requireDraft(api(`repos/${repo}/releases/${release.id}`));gh(['release','upload',tag,file,'--repo',repo,'--clobber'],false);}
-  const uploaded=gh(['api',`repos/${repo}/releases/${release.id}/assets?per_page=100`,'--paginate','--slurp']).flat();
-  for(const file of files){
-    const asset=uploaded.find(item=>item.name===path.basename(file));
-    if(!asset||asset.size!==fs.statSync(file).size)throw new Error('Uploaded asset size mismatch.');
-    if(asset.digest){if(asset.digest!=='sha256:'+sha(file))throw new Error('Uploaded checksum mismatch.');}
-    else {const bytes=execFileSync('gh',['api',`repos/${repo}/releases/assets/${asset.id}`,'-H','Accept: application/octet-stream'],{maxBuffer:1024*1024*1024});if(crypto.createHash('sha256').update(bytes).digest('hex')!==sha(file))throw new Error('Downloaded checksum mismatch.');}
-  }
-  requireDraft(api(`repos/${repo}/releases/${release.id}`));
-  console.log('Release draft ready: '+release.html_url);
-  if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`## 安装包草稿\n\n[检查并正式发布](${release.html_url})\n\n双平台安装包及 SHA-256 已核对。\n`);
+  if (!tag) throw new Error('Release delivery requires RELEASE_TAG.');
+  const noteFile=path.join(root,'release-notes',tag+'.md');
+  const release=deliver({repo,tag,appVersion,directory:path.resolve(process.argv[3]||path.join(root,'dist','release')),
+    commitSha:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,signed:process.env.CTH_SIGNED==='1',publish:command==='publish',
+    notes:fs.existsSync(noteFile)?fs.readFileSync(noteFile,'utf8'):''});
+  console.log((command==='publish'?'Release published: ':'Release draft ready: ')+release.html_url);
+  if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`## ${command==='publish'?'Published release':'Release draft'}\n\n[ChatToHarness ${appVersion}](${release.html_url})\n\nBoth native installers and SHA-256 verified.\n`);
 }
-module.exports={version,requireDraft,assets,sha};
-if(require.main===module)main().catch(error=>{console.error(error.message);process.exitCode=1;});
+module.exports={version,requireDraft,assets,sha,deliver};
+if(require.main===module){try{main();}catch(error){console.error(error.message);process.exitCode=1;}}

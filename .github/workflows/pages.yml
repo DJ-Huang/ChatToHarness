@@ -9,6 +9,7 @@ on:
   release:
     types: [published, edited, released, deleted]
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 concurrency:

@@ -85,13 +85,13 @@ class McpManager extends EventEmitter {
     const servers=this.settings.list().map(config=>{
       const record=this.records.get(config.id);
       return {...config,phase:record?.phase||'stopped',error:record?.error||'',protocolVersion:record?.protocolVersion||'',
-        tools:(record?.tools||[]).map(item=>({...copy(item.tool),exposedName:item.alias,policy:this.settings.getToolPolicy(config.id,item.tool.name,item.fingerprint)}))};
+        tools:(record?.tools||[]).map(item=>({...copy(item.tool),exposedName:item.alias,policy:this.policy(record,item),savedPolicy:this.settings.getToolPolicy(config.id,item.tool.name,item.fingerprint)}))};
     });
     const builtin=this.records.get(BUILTIN);
-    return {servers,builtin:{phase:builtin?.phase||'stopped',error:builtin?.error||'',toolsCount:builtin?.tools.length||0},
+    return {servers,allowAllTools:this.settings.getAllowAllTools(),builtin:{phase:builtin?.phase||'stopped',error:builtin?.error||'',toolsCount:builtin?.tools.length||0},
       approvals:[...this.approvals.values()].map(value=>copy(value.public)),toolsVersion:this.toolsVersion};
   }
-  policy(record,item) {return record.id===BUILTIN?'allow':this.settings.getToolPolicy(record.id,item.tool.name,item.fingerprint);}
+  policy(record,item) {return record.id===BUILTIN||this.settings.getAllowAllTools()?'allow':this.settings.getToolPolicy(record.id,item.tool.name,item.fingerprint);}
   available(record) {
     if(record.phase!=='ready')return false;
     if(record.id===BUILTIN)return true;
@@ -160,6 +160,15 @@ class McpManager extends EventEmitter {
     if(!item||!['deny','allow','ask'].includes(policy))throw issue('MCP_INVALID_TOOL_POLICY');
     this.settings.setToolPolicy(serverId,toolName,policy,item.fingerprint);
     for(const operation of this.active)if(operation.record===record&&operation.item===item)operation.controller.abort(issue('MCP_POLICY_CHANGED'));
+    this.changed();
+  }
+  setAllowAllTools(enabled) {
+    if(typeof enabled!=='boolean')throw issue('MCP_INVALID_CONFIG');
+    if(enabled===this.settings.getAllowAllTools())return;
+    const previous=new Map([...this.active].map(operation=>[operation,this.policy(operation.record,operation.item)]));
+    // Persist first: a failed save must leave both permissions and calls intact.
+    this.settings.setAllowAllTools(enabled);
+    for(const [operation,policy] of previous)if(this.policy(operation.record,operation.item)!==policy)operation.controller.abort(issue('MCP_POLICY_CHANGED'));
     this.changed();
   }
   async connect(id,{testing=false}={}) {
@@ -302,7 +311,7 @@ class McpManager extends EventEmitter {
       boundedMessage({jsonrpc:'2.0',id:0,method:'tools/call',params:{name:item.tool.name,arguments:argumentsCopy}});
       if(this.policy(record,item)==='ask'){
         approval=await this.requestApproval(operation,argumentsCopy,deadline)?'allowed':'denied';
-        if(approval!=='allowed')return result=failed(controller.signal.aborted?'MCP_CANCELLED':'MCP_APPROVAL_DENIED');
+        if(approval!=='allowed')return result=failed(controller.signal.aborted?(controller.signal.reason?.code||'MCP_CANCELLED'):'MCP_APPROVAL_DENIED');
       }
       if(controller.signal.aborted||record.generation!==generation||record.client!==client||!this.available(record)||this.policy(record,item)==='deny')return result=failed('MCP_CANCELLED');
       operation.started=true;

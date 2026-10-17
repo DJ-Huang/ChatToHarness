@@ -2,6 +2,15 @@
 // Chinese source messages, English and Japanese translations. Shared by renderer and main.
 (function(root){
   const messages = {
+  "允许所有工具": ["Allow all tools","すべてのツールを許可"],
+  "已启用并信任的 MCP 服务，其所有工具均可直接调用，包括后续新增或变更的工具。": ["All tools from enabled, trusted MCP servers can be called directly, including tools added or changed later.","有効で信頼済みの MCP サーバーのすべてのツールを直接呼び出せます。後から追加・変更されるツールも含まれます。"],
+  "已允许所有工具，无需逐项授权或每次本机确认。关闭后恢复各工具原来的权限。": ["All tools are allowed, without individual authorization or local confirmation for each call. Turn this off to restore each tool’s previous permissions.","すべてのツールが許可されています。個別の権限設定や呼び出しごとのローカル確認は不要です。オフにすると各ツールの元の権限に戻ります。"],
+  "此开关只控制本机授权。ChatGPT 仍可能请求确认；在其弹窗中选择“始终允许”可记住当前工具在本次对话中的授权，新对话或刷新后可能再次询问。": ["This switch controls local authorization only. ChatGPT may still ask for confirmation. Choose “Always allow” in its prompt to remember approval for that tool in the current conversation. New or refreshed conversations may ask again.","このスイッチはローカルの権限のみを管理します。ChatGPT では引き続き確認が必要な場合があります。確認画面で「常に許可」を選ぶと、現在の会話でそのツールの許可が記憶されます。新しい会話や再読み込み後には、再び確認される場合があります。"],
+  "尚未添加 MCP 服务。添加或导入后，信任并启用服务即可使用其全部工具。": ["No MCP servers added yet. Add or import a server, then trust and enable it to use all its tools.","MCP サーバーはまだありません。追加またはインポートした後、信頼して有効にするとすべてのツールを利用できます。"],
+  "当前按各工具的权限执行。开启后自动保存，重启应用仍生效。": ["Each tool uses its own permissions. Turning this on saves it automatically, and it stays on after restarting the app.","現在は各ツールの権限に従います。オンにすると自動保存され、アプリの再起動後も有効です。"],
+  "当前所有工具均由顶部总开关统一允许。客户端可能需要刷新工具目录。": ["All tools are currently allowed by the switch above. Clients may need to refresh their tool catalog.","現在は上部のスイッチですべてのツールを許可しています。クライアントでツール一覧の更新が必要な場合があります。"],
+  "连接后可预览工具；工具由顶部总开关统一允许。": ["Tools will appear after connecting and are allowed by the switch above.","接続後にツールを確認できます。ツールは上部のスイッチですべて許可されます。"],
+  "由“允许所有工具”统一控制，关闭总开关后可单独设置。": ["Controlled by “Allow all tools”. Turn the switch off to set this tool’s permission.","「すべてのツールを許可」で管理されています。オフにすると個別に権限を設定できます。"],
   "添加工作目录或 MCP 服务，保存连接配置，即可开始。": ["Add a working directory or MCP server, then save your connection settings to begin.", "作業ディレクトリまたは MCP サーバーを追加し、接続設定を保存して開始してください。"],
   "未启用文件工具": ["File tools disabled", "ファイルツールは無効です"],
   "已拒绝此次工具调用。": ["This tool call was rejected.", "今回のツール呼び出しを拒否しました。"],

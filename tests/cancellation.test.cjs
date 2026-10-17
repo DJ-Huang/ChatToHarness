@@ -134,11 +134,13 @@ function desktopHarness(t) {
   class FakeTray extends EventEmitter {
     constructor(icon) { super(); this.icon = icon; this.destroyed = false; }
     setToolTip(text) { this.tooltip = text; }
+    setContextMenu(menu) { this.contextMenu = menu; }
     popUpContextMenu(menu) { this.menu = menu; }
     destroy() { this.destroyed = true; }
   }
   const app = {
     quitCalls: 0, setName() {}, setPath() {}, getVersion() { return 'test'; },
+    show() {}, dock: { async show() {} },
     requestSingleInstanceLock() { return true; }, whenReady() { return new Promise(() => {}); },
     on(name, handler) { handlers.set(name, handler); }, quit() { this.quitCalls++; },
   };
@@ -149,7 +151,7 @@ function desktopHarness(t) {
   const context = { require(name) {
     if (name === 'electron') return electron;
     if (name === './settings.cjs' || name === './runtime.cjs') return {};
-    if (['./platform.cjs','./preferences.cjs','./i18n.js','./updater.cjs','./dev-lifecycle.cjs'].includes(name)) return require('../app/'+name.slice(2));
+    if (['./platform.cjs','./preferences.cjs','./i18n.js','./updater.cjs','./dev-lifecycle.cjs','./window-access.cjs'].includes(name)) return require('../app/'+name.slice(2));
     return require(name);
   }, __dirname: path.dirname(mainPath), process: { platform: 'darwin', env: { LOCALHARNESS_HOME: home } }, Buffer, Promise, setTimeout };
   vm.runInNewContext(fs.readFileSync(mainPath, 'utf8') + `
@@ -193,7 +195,7 @@ test('desktop Stop cancels queued operations before their callbacks run', async 
   assert.equal(runtime.current, 'stopped');
 });
 
-test('PNG menu bar icon has Retina representations and separate left and right click behavior', async (t) => {
+test('PNG menu bar icon has Retina representations, a native context menu and window activation', async (t) => {
   const { harness, runtime, window } = desktopHarness(t);
   harness.createTray();
   const tray = harness.getTray();
@@ -204,13 +206,14 @@ test('PNG menu bar icon has Retina representations and separate left and right c
   assert.equal(window.shows, 1);
   assert.equal(window.focuses, 1);
   assert.equal(tray.menu, undefined);
-  tray.emit('right-click');
-  assert.ok(tray.menu.some(item => item.label === '查看日志'));
-  assert.equal(tray.menu.find(item => item.label === '重新连接').enabled, false);
+  const menu = tray.contextMenu;
+  assert.equal(menu, harness.getMenu());
+  assert.ok(menu.some(item => item.label === '查看日志'));
+  assert.equal(menu.find(item => item.label === '重新连接').enabled, false);
   const release = deferred();
   const queued = harness.action(() => release.promise);
   await Promise.resolve();
-  tray.menu.find(item => item.label === '停止连接').click();
+  menu.find(item => item.label === '停止连接').click();
   assert.equal(runtime.stops, 1);
   assert.equal(tray.destroyed, false);
   for (const state of ['unconfigured', 'stopped', 'failed']) {

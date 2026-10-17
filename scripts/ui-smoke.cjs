@@ -60,12 +60,20 @@ async function waitMcp(predicate, description) {
   }
   throw new Error(`MCP fixture did not ${description}: ${latest?.phase || 'missing'} ${latest?.error || ''}`);
 }
+async function setMcpAllowAll(page, enabled) {
+  await page.locator('#mcp-allow-all-tools').setChecked(enabled);
+  await page.waitForFunction(async value => {
+    const toggle = document.getElementById('mcp-allow-all-tools');
+    return (await window.localHarness.getState()).mcp.allowAllTools === value && toggle.checked === value && !toggle.disabled;
+  }, enabled);
+}
 async function launch() {
   instance = await electron.launch({ executablePath: executable, args: launchArgs, env, timeout: 60000 });
   const page = await instance.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForFunction(() => document.body.dataset.initialized === 'true');
   assert.equal((await getState()).testMode, true, 'fixture must be explicitly enabled');
+  assert.equal(fs.realpathSync(await instance.evaluate(({ app }) => app.getPath('userData'))), fs.realpathSync(stateHome), 'Electron must use the isolated profile');
   return page;
 }
 async function close() {
@@ -137,6 +145,9 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   // a workspace or a tunnel. The smoke runner's standalone Node executable is
   // intentional: Electron's process.execPath would launch another desktop app.
   await tab(page, 'mcp');
+  assert.equal(initial.mcp.allowAllTools, false);
+  assert.equal(await page.locator('#panel-mcp > section').first().getAttribute('id'), 'mcp-global-permissions', 'global permission switch is the first MCP card');
+  assert.equal(await page.getByRole('switch', { name: '允许所有工具', exact: true }).isChecked(), false);
   await page.locator('#mcp-add').click();
   await page.locator('#mcp-id').fill(mcpServerId);
   await page.locator('#mcp-name').fill('UI MCP fixture');
@@ -172,19 +183,34 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   await page.locator('.mcp-tools > summary').click();
   await page.getByRole('combobox', { name: 'echo 的调用权限', exact: true }).selectOption('allow');
   await waitMcp(server => server?.tools.find(tool => tool.name === 'echo')?.policy === 'allow', 'save the explicit echo permission');
+  await page.getByRole('combobox', { name: 'count 的调用权限', exact: true }).selectOption('ask');
+  const individualMcp = await waitMcp(server => server?.tools.find(tool => tool.name === 'count')?.policy === 'ask', 'save the explicit count confirmation');
+  const individualPolicies = individualMcp.mcp.servers.find(server => server.id === mcpServerId).tools.map(tool => [tool.name, tool.policy]);
+  const grantsBeforeAllowAll = JSON.parse(fs.readFileSync(mcpSettingsFile, 'utf8')).grants;
   await page.getByRole('button', { name: '启用', exact: true }).click();
   const mcpEnabled = await waitMcp(server => server?.enabled && server.phase === 'ready', 'connect without a workspace');
   assert.deepEqual(mcpEnabled.settings.directories, []);
   assert.equal(mcpEnabled.settings.keySaved, false);
   assert.equal(fs.existsSync(argsFile), false, 'standalone MCP management does not start the tunnel');
   assert.equal(Number(fs.readFileSync(mcpStartFile, 'utf8')), 2, 'testing stops its temporary peer before enabling a new connection');
+  // Exercise the global setting through the real renderer, IPC and settings file.
+  await setMcpAllowAll(page, true);
+  assert.equal(JSON.parse(fs.readFileSync(mcpSettingsFile, 'utf8')).allowAllTools, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(mcpSettingsFile, 'utf8')).grants, grantsBeforeAllowAll);
+  assert.deepEqual(await page.locator('.mcp-tool select').evaluateAll(selects => selects.map(select => [select.value, select.disabled])), individualPolicies.map(() => ['allow', true]));
   await page.screenshot({ path: path.join(output, 'console-mcp-connected.png'), fullPage: true });
+  await setMcpAllowAll(page, false);
+  assert.deepEqual((await getState()).mcp.servers.find(server => server.id === mcpServerId).tools.map(tool => [tool.name, tool.policy]), individualPolicies);
+  assert.deepEqual(await page.locator('.mcp-tool select').evaluateAll(selects => selects.map(select => [select.value, select.disabled])), individualPolicies.map(([, policy]) => [policy, false]));
+  await page.screenshot({ path: path.join(output, 'console-mcp-per-tool-restored.png'), fullPage: true });
+  await setMcpAllowAll(page, true);
   await page.getByRole('button', { name: '停用', exact: true }).click();
   await waitMcp(server => server?.enabled === false && server.phase === 'stopped', 'stop its standalone connection');
   const exportedMcp = JSON.parse(await page.evaluate(() => window.localHarness.mcpExport()));
   assert.equal(JSON.stringify(exportedMcp).includes(mcpFixtureName), false);
   assert.equal(Object.hasOwn(exportedMcp, 'trust'), false);
   assert.equal(Object.hasOwn(exportedMcp, 'grants'), false);
+  assert.equal(Object.hasOwn(exportedMcp, 'allowAllTools'), false, 'configuration exports do not grant global tool permissions');
   noPlaintextSecret();
 
   // Exercise the actual IPC-backed folder picker using only a temporary directory.
@@ -254,6 +280,11 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
     assert.ok(menu.includes({en:'Open window',ja:'ウィンドウを開く','zh-CN':'打开窗口'}[locale]));
     for (const name of ['overview', 'connection', 'directories', 'mcp', 'help']) {
       await tab(page, name);
+      if (name === 'mcp') {
+        const switchName = { en: 'Allow all tools', ja: 'すべてのツールを許可', 'zh-CN': '允许所有工具' }[locale];
+        assert.equal(await page.getByRole('switch', { name: switchName, exact: true }).isChecked(), true);
+        assert.equal(await page.locator('.mcp-tool select').evaluateAll(selects => selects.length > 0 && selects.every(select => select.value === 'allow' && select.disabled)), true);
+      }
       await page.screenshot({path:path.join(output, `console-${name}-${locale}.png`),fullPage:true});
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       if (locale === 'en') {
@@ -309,6 +340,15 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   page = await launch();
   await waitState('ready');
   assert.equal((await getState()).system.locale, 'ja', 'language choice survives restart');
+  assert.equal((await getState()).mcp.allowAllTools, true, 'global permission choice survives a real app restart');
+  assert.equal(JSON.parse(fs.readFileSync(mcpSettingsFile, 'utf8')).allowAllTools, true);
+  await tab(page, 'mcp');
+  assert.equal(await page.getByRole('switch', { name: 'すべてのツールを許可', exact: true }).isChecked(), true);
+  await page.screenshot({ path: path.join(output, 'console-mcp-restart-ja.png'), fullPage: true });
+  await setMcpAllowAll(page, false);
+  assert.equal(JSON.parse(fs.readFileSync(mcpSettingsFile, 'utf8')).allowAllTools, false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(mcpSettingsFile, 'utf8')).grants, grantsBeforeAllowAll, 'individual grants survive global permission changes and restart');
+  await tab(page, 'overview');
   await page.locator('#language-select').selectOption('zh-CN');
   await page.waitForFunction(() => document.documentElement.lang === 'zh-CN');
   assert.deepEqual((await getState()).settings.directories, [fs.realpathSync(project)]);
@@ -339,6 +379,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
     realLocalTools: checked.runtime.toolsCount, languages:['zh-CN','en','ja'], languagePersistence:true, languagePreservesCredentialsAndConnection:true, navigation: true, unicodeSpaceDirectory: true, encryptedSaveAndReplace: true,
     restartAutoConnect: true, windowHide: true, singleInstance: true, ownedProcessCleanup: true,
     appMcpManagement: true, mcpWithoutWorkspace: true, mcpDefaultDeny: true, mcpEncryptedEnvironment: true,
+    mcpAllowAllTools: true, mcpAllowAllPersistence: true, mcpAllowAllRestoresPolicies: true,
     authErrorAndRecovery: true, clearPreservesWorkspace: true, remoteTunnel: 'not tested: isolated fixture' };
   fs.writeFileSync(path.join(output, 'ui-report.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report));

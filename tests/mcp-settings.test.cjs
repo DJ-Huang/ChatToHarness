@@ -307,3 +307,44 @@ test('invalid imports and failed writes expose safe errors without partial confi
   assert.equal(settings.get('imported').name, 'Unity tools');
   assert.deepEqual(fs.readdirSync(f.directory), ['mcp-settings.json']);
 });
+
+test('allow-all defaults safely for old settings, persists without changing grants, and stays local to the app', t => {
+  const f = fixture(t);
+  const original = f.make();
+  assert.equal(original.getAllowAllTools(), false);
+  original.save(config());
+  original.trust('unity');
+  original.setToolPolicy('unity', 'get_scene', 'ask', 'revision-one');
+  const legacy = JSON.parse(fs.readFileSync(f.file, 'utf8'));
+  delete legacy.allowAllTools;
+  fs.writeFileSync(f.file, JSON.stringify(legacy));
+  const settings = f.make();
+  assert.equal(settings.getAllowAllTools(), false);
+  settings.setAllowAllTools(true);
+  const restarted = f.make();
+  assert.equal(restarted.getAllowAllTools(), true);
+  assert.equal(restarted.isTrusted('unity'), true);
+  assert.deepEqual(restarted.listToolPolicies('unity'), legacy.grants.unity);
+  assert.equal(restarted.getToolPolicy('unity', 'get_scene', 'revision-one'), 'ask');
+  assert.equal(Object.hasOwn(JSON.parse(restarted.export()), 'allowAllTools'), false);
+  restarted.setAllowAllTools(false);
+  const imported = restarted.previewImport(JSON.stringify({
+    schema: 1, allowAllTools: true, servers: [config({ id: 'other' })],
+  }));
+  restarted.commitImport(imported.draftId);
+  assert.equal(f.make().getAllowAllTools(), false);
+  assert.deepEqual(restarted.listToolPolicies('unity'), legacy.grants.unity);
+  const before = fs.readFileSync(f.file);
+  for (const invalid of [undefined, null, 1, 'true', {}]) {
+    assert.throws(() => restarted.setAllowAllTools(invalid), { code: 'INVALID_INPUT' });
+    assert.deepEqual(fs.readFileSync(f.file), before);
+  }
+  for (const invalid of [null, 1, 'true', {}]) {
+    const saved = JSON.parse(before);
+    saved.allowAllTools = invalid;
+    const malformed = JSON.stringify(saved);
+    fs.writeFileSync(f.file, malformed);
+    assert.throws(() => f.make(), { code: 'INVALID_CONFIG' });
+    assert.equal(fs.readFileSync(f.file, 'utf8'), malformed);
+  }
+});

@@ -67,7 +67,12 @@
         </section>
       </form>
       <section id="panel-mcp" class="tab-panel" role="tabpanel" aria-labelledby="nav-mcp" hidden>
-        <section class="card mcp-card" aria-labelledby="mcp-title"><div class="card-header"><div><h2 id="mcp-title">应用级 MCP 服务</h2><p>在 ChatToHarness 中连接工具服务，所有客户端共用；无需创建 Agent。</p></div><button id="mcp-add" class="button secondary compact-button" type="button">添加服务</button></div><p class="mcp-caption">先信任服务，再逐项授权工具。新增或变更的工具默认禁用，客户端可能需要刷新工具目录。</p><div id="mcp-server-list" class="mcp-server-list"></div></section>
+        <section id="mcp-global-permissions" class="card mcp-card mcp-permissions-card" aria-labelledby="mcp-permissions-title">
+          <div class="mcp-permissions-heading"><div><h2 id="mcp-permissions-title"><label for="mcp-allow-all-tools">允许所有工具</label></h2><p id="mcp-allow-all-help" class="mcp-caption">已启用并信任的 MCP 服务，其所有工具均可直接调用，包括后续新增或变更的工具。</p></div><input id="mcp-allow-all-tools" class="mcp-permission-switch" type="checkbox" role="switch" aria-describedby="mcp-allow-all-help mcp-allow-all-status mcp-client-permissions" /></div>
+          <p id="mcp-allow-all-status" class="mcp-caption" role="status" aria-live="polite">当前按各工具的权限执行。开启后自动保存，重启应用仍生效。</p>
+          <p id="mcp-client-permissions" class="mcp-caption">此开关只控制本机授权。ChatGPT 仍可能请求确认；在其弹窗中选择“始终允许”可记住当前工具在本次对话中的授权，新对话或刷新后可能再次询问。</p>
+        </section>
+        <section class="card mcp-card" aria-labelledby="mcp-title"><div class="card-header"><div><h2 id="mcp-title">应用级 MCP 服务</h2><p>在 ChatToHarness 中连接工具服务，所有客户端共用；无需创建 Agent。</p></div><button id="mcp-add" class="button secondary compact-button" type="button">添加服务</button></div><p id="mcp-per-tool-help" class="mcp-caption">先信任服务，再逐项授权工具。新增或变更的工具默认禁用，客户端可能需要刷新工具目录。</p><div id="mcp-server-list" class="mcp-server-list"></div></section>
         <section id="mcp-trust" class="card mcp-card mcp-trust" aria-labelledby="mcp-trust-title" hidden><h2 id="mcp-trust-title">确认信任此服务</h2><p class="mcp-caption">本地服务以当前用户身份运行；工作目录白名单不会限制第三方进程。仅连接你信任的服务。</p><pre id="mcp-trust-target" class="code-example"></pre><div class="mcp-actions"><button id="mcp-trust-confirm" class="button primary" type="button">信任并连接</button><button id="mcp-trust-cancel" class="button secondary" type="button">取消</button></div></section>
         <section id="mcp-editor" class="card mcp-card" aria-labelledby="mcp-editor-title" hidden>
           <div class="card-header"><div><h2 id="mcp-editor-title">添加 MCP 服务</h2><p>保存配置不会授权工具。请勿将密钥写入命令参数或服务地址。</p></div></div>

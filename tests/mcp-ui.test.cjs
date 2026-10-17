@@ -15,6 +15,7 @@ const methods = {
   mcpSaveServer: 'mcp-save-server', mcpRemoveServer: 'mcp-remove-server',
   mcpSetEnabled: 'mcp-set-enabled', mcpTrustServer: 'mcp-trust-server',
   mcpTestServer: 'mcp-test-server', mcpSetToolPolicy: 'mcp-set-tool-policy',
+  mcpSetAllowAllTools: 'mcp-set-allow-all-tools',
   mcpPreviewImport: 'mcp-preview-import', mcpCommitImport: 'mcp-commit-import',
   mcpExport: 'mcp-export', mcpResolveApproval: 'mcp-resolve-approval',
 };
@@ -103,6 +104,15 @@ test('MCP navigation is accessible and management inputs cannot submit tunnel se
   assert.equal(panel.attributes.role, 'tabpanel');
   assert.equal(panel.attributes['aria-labelledby'], 'nav-mcp');
   assert.equal(panel.hidden, true);
+  const allowAll = document.getElementById('mcp-allow-all-tools');
+  assert.equal(allowAll.type, 'checkbox');
+  assert.equal(allowAll.attributes.role, 'switch');
+  assert.deepEqual(allowAll.attributes['aria-describedby'].split(/\s+/).sort(),
+    ['mcp-allow-all-help', 'mcp-allow-all-status', 'mcp-client-permissions']);
+  assert.match(html, /<label\b[^>]*\bfor="mcp-allow-all-tools"[^>]*>[^<]+<\/label>/);
+  assert.match(html, /<section\b[^>]*\bid="panel-mcp"[^>]*>\s*<section\b[^>]*\bid="mcp-global-permissions"/,
+    'global permissions are the first card in the MCP panel');
+  assert.equal(document.getElementById('mcp-allow-all-status').attributes['aria-live'], 'polite');
   assert.ok(html.indexOf('id="panel-mcp"') > html.indexOf('</form>'), 'MCP editor is outside tunnel form');
   assert.ok(html.indexOf('id="mcp-approvals"') < html.indexOf('<form'), 'approvals remain visible outside every tab panel');
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
@@ -126,9 +136,12 @@ test('renderer and restricted preload agree on MCP methods and exact IPC routes'
   assert.deepEqual(referenced, Object.keys(methods).sort());
   assert.deepEqual(Object.keys(exposed).filter(name => name.startsWith('mcp')).sort(), referenced);
   for (const [method, route] of Object.entries(methods)) {
-    const args = method === 'mcpSetEnabled' ? ['server', true] : method === 'mcpExport' ? [] : [{ test: method }];
-    await exposed[method](...args);
-    assert.deepEqual(calls.pop(), ['localharness:' + route, ...args]);
+    const cases = method === 'mcpSetAllowAllTools' ? [[true], [false]]
+      : [method === 'mcpSetEnabled' ? ['server', true] : method === 'mcpExport' ? [] : [{ test: method }]];
+    for (const args of cases) {
+      await exposed[method](...args);
+      assert.deepEqual(calls.pop(), ['localharness:' + route, ...args]);
+    }
   }
   assert.equal(exposed.invoke, undefined);
   assert.equal(exposed.ipcRenderer, undefined);
@@ -232,5 +245,144 @@ test('all MCP error messages have Chinese, English and Japanese translations wit
       assert.deepEqual(placeholders(translated), placeholders(key));
       if (locale === 'en') assert.doesNotMatch(translated, /[\u3400-\u9fff]/u);
     }
+  }
+});
+
+test('global MCP permissions load persisted state without authorizing tools and have localized guidance', async () => {
+  const guidance = new Set(['允许所有工具']);
+  const help = html.match(/<p\b[^>]*\bid="mcp-allow-all-help"[^>]*>([^<]+)<\/p>/);
+  assert.ok(help, 'global permission scope has visible help');
+  guidance.add(help[1]);
+  const clientHelp = html.match(/<p\b[^>]*\bid="mcp-client-permissions"[^>]*>([^<]+)<\/p>/);
+  assert.ok(clientHelp, 'client approval guidance remains visible in either permission mode');
+  assert.match(clientHelp[1], /ChatGPT.*始终允许.*本次对话/);
+  guidance.add(clientHelp[1]);
+  for (const saved of [undefined, false, true]) {
+    const state = initialState();
+    if (saved !== undefined) state.mcp.allowAllTools = saved;
+    const fixture = await rendererFixture(state);
+    const toggle = fixture.node('mcp-allow-all-tools');
+    assert.equal(toggle.checked, saved === true, 'initial value comes from saved backend state');
+    assert.equal(toggle.disabled, false);
+    assert.deepEqual(fixture.calls, [], 'initial rendering must not change permissions');
+    for (const id of ['mcp-allow-all-status', 'mcp-per-tool-help']) {
+      const text = fixture.node(id).textContent.trim();
+      assert.ok(text, id + ' describes the current permission mode');
+      guidance.add(text);
+    }
+    guidance.add(fixture.node('mcp-server-list').textContent.trim());
+    fixture.update({ ...state, mcp: { ...state.mcp, allowAllTools: saved !== true } });
+    assert.equal(toggle.checked, saved !== true, 'backend state notifications update the switch');
+    assert.deepEqual(fixture.calls, [], 'state notifications must not change permissions');
+  }
+  const placeholders = text => [...text.matchAll(/\{\w+\}/g)].map(match => match[0]).sort();
+  for (const key of guidance) {
+    assert.ok(Object.hasOwn(messages, key), 'Missing permission translation: ' + key);
+    assert.equal(i18n.translate('zh-CN', key), key);
+    for (const locale of ['en', 'ja']) {
+      const translated = i18n.translate(locale, key);
+      assert.notEqual(translated, key, locale + ': ' + key);
+      assert.deepEqual(placeholders(translated), placeholders(key));
+      if (locale === 'en') assert.doesNotMatch(translated, /[\u3400-\u9fff]/u);
+    }
+  }
+});
+
+test('global MCP permission changes pass booleans and restore individual tool policies when disabled', async () => {
+  const savedPolicies = ['deny', 'ask', 'allow'];
+  const stateFor = allowAllTools => ({
+    ...initialState(),
+    mcp: {
+      allowAllTools, approvals: [],
+      servers: [{
+        id: 'example', name: 'Example', enabled: true, trusted: true,
+        transport: 'stdio', command: 'example-server', phase: 'connected',
+        tools: savedPolicies.map((savedPolicy, index) => ({
+          name: 'tool_' + index, savedPolicy,
+          policy: allowAllTools ? 'allow' : savedPolicy,
+          inputSchema: { type: 'object' },
+        })),
+      }],
+    },
+  });
+  const permissionCalls = [];
+  const fixture = await rendererFixture(stateFor(false), {
+    async mcpSetAllowAllTools(...args) {
+      permissionCalls.push(args);
+      return stateFor(args[0]);
+    },
+  });
+  const selections = () => descendants(fixture.node('mcp-server-list')).filter(node => node.tagName === 'SELECT');
+  const toolsDetails = () => descendants(fixture.node('mcp-server-list')).find(node => node.tagName === 'DETAILS' && node.className === 'mcp-tools');
+  const assertPolicies = enabled => {
+    const controls = selections();
+    assert.equal(controls.length, savedPolicies.length);
+    assert.deepEqual(controls.map(node => node.value), enabled ? ['allow', 'allow', 'allow'] : savedPolicies);
+    assert.deepEqual(controls.map(node => node.disabled), savedPolicies.map(() => enabled));
+  };
+  const toggle = fixture.node('mcp-allow-all-tools');
+  const individualHelp = fixture.node('mcp-per-tool-help').textContent;
+  const individualStatus = fixture.node('mcp-allow-all-status').textContent;
+  assertPolicies(false);
+  toolsDetails().open = true; // A native toggle event may still be queued when permissions change.
+  toggle.checked = true;
+  await toggle.emit('change');
+  await settled();
+  assert.equal(toggle.checked, true);
+  assert.equal(toggle.disabled, false);
+  assertPolicies(true);
+  assert.equal(toolsDetails().open, true, 'saving permissions preserves an expanded tool list without waiting for toggle events');
+  assert.notEqual(fixture.node('mcp-per-tool-help').textContent, individualHelp);
+  assert.notEqual(fixture.node('mcp-allow-all-status').textContent, individualStatus);
+  toggle.checked = false;
+  await toggle.emit('change');
+  await settled();
+  assert.equal(toggle.checked, false);
+  assertPolicies(false);
+  assert.equal(toolsDetails().open, true, 'restoring individual permissions preserves the expanded tool list');
+  assert.equal(fixture.node('mcp-per-tool-help').textContent, individualHelp);
+  assert.equal(fixture.node('mcp-allow-all-status').textContent, individualStatus);
+  assert.deepEqual(permissionCalls, [[true], [false]], 'both changes send exactly one boolean');
+  assert.deepEqual(fixture.calls, [], 'global changes do not overwrite saved per-tool policies');
+});
+
+test('global MCP permission saves prevent duplicate requests and restore saved state after failure', async () => {
+  for (const saved of [false, true]) {
+    const state = initialState();
+    state.mcp.allowAllTools = saved;
+    const permissionCalls = [];
+    let rejectSave;
+    const fixture = await rendererFixture(state, {
+      mcpSetAllowAllTools(...args) {
+        permissionCalls.push(args);
+        return new Promise((_resolve, reject) => { rejectSave = reject; });
+      },
+    });
+    const toggle = fixture.node('mcp-allow-all-tools');
+    toggle.checked = !saved;
+    const saving = toggle.emit('change');
+    assert.equal(toggle.disabled, true, 'the switch is disabled while saving');
+    assert.equal(toggle.checked, !saved, 'the requested value remains visible while saving');
+    assert.deepEqual(permissionCalls, [[!saved]]);
+    toggle.checked = saved;
+    await toggle.emit('change');
+    assert.deepEqual(permissionCalls, [[!saved]], 'a repeated change cannot start a concurrent save');
+    assert.equal(toggle.checked, !saved, 'a repeated event cannot replace the pending choice');
+    rejectSave(new Error('WRITE_FAILED'));
+    await saving;
+    await settled();
+    assert.equal(toggle.checked, saved, 'a failed save restores the backend value');
+    assert.equal(toggle.disabled, false, 'failure leaves the switch available for retry');
+    fixture.api.mcpSetAllowAllTools = async (...args) => {
+      permissionCalls.push(args);
+      return { ...state, mcp: { ...state.mcp, allowAllTools: args[0] } };
+    };
+    toggle.checked = !saved;
+    await toggle.emit('change');
+    await settled();
+    assert.deepEqual(permissionCalls, [[!saved], [!saved]]);
+    assert.equal(toggle.checked, !saved, 'retry applies the successfully saved state');
+    assert.equal(toggle.disabled, false);
+    assert.deepEqual(fixture.calls, []);
   }
 });

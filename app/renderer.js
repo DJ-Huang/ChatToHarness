@@ -28,6 +28,7 @@
   let updatePreferencePending = false;
   let updateError = '';
   let mcpPending = '';
+  let mcpAllowAllDraft = null;
   let mcpEditorId = null;
   let mcpTrustRequest = null;
   let mcpImportDraft = null;
@@ -35,6 +36,7 @@
   let approvalRenderKey = '';
   const mcpApprovalPending = new Set();
   const mcpOpenTools = new Set();
+  const mcpToolElements = new Map();
   const cancelled = Symbol('cancelled');
   const tabNames = ['overview', 'connection', 'directories', 'mcp', 'help'];
   const pages = {
@@ -304,6 +306,16 @@
     const servers = mcpServers();
     const installing = ['downloading', 'verifying', 'installing'].includes(currentState?.updates?.phase);
     const busy = Boolean(mcpPending) || installing || !initialized;
+    const allowAllTools = currentState?.mcp?.allowAllTools === true;
+    byId('mcp-allow-all-tools').checked = mcpAllowAllDraft ?? allowAllTools;
+    byId('mcp-allow-all-tools').disabled = busy;
+    byId('mcp-global-permissions').dataset.enabled = String(allowAllTools);
+    byId('mcp-allow-all-status').textContent = t(mcpPending === 'allow-all-tools' ? '正在保存…' : allowAllTools
+      ? '已允许所有工具，无需逐项授权或每次本机确认。关闭后恢复各工具原来的权限。'
+      : '当前按各工具的权限执行。开启后自动保存，重启应用仍生效。');
+    byId('mcp-per-tool-help').textContent = t(allowAllTools
+      ? '当前所有工具均由顶部总开关统一允许。客户端可能需要刷新工具目录。'
+      : '先信任服务，再逐项授权工具。新增或变更的工具默认禁用，客户端可能需要刷新工具目录。');
     for (const id of ['mcp-add', 'mcp-save', 'mcp-cancel', 'mcp-import-preview', 'mcp-export', 'mcp-import-confirm', 'mcp-trust-confirm', 'mcp-trust-cancel']) byId(id).disabled = busy;
     byId('mcp-import-text').disabled = busy;
     byId('mcp-import-preview').disabled = busy || !byId('mcp-import-text').value.trim();
@@ -312,12 +324,18 @@
     byId('mcp-nav-count').textContent = String(servers.length);
     byId('mcp-editor-title').textContent = t(mcpEditorId ? '编辑 MCP 服务' : '添加 MCP 服务');
     byId('mcp-save').textContent = t(mcpPending === 'save' ? '正在保存…' : '保存服务');
-    const key = JSON.stringify([servers, locale, mcpPending, initialized, installing]);
+    const key = JSON.stringify([servers, allowAllTools, locale, mcpPending, initialized, installing]);
     if (key !== mcpRenderKey) {
       mcpRenderKey = key;
       const list = byId('mcp-server-list');
+      // Read open state synchronously; details toggle events may arrive after this redraw.
+      mcpOpenTools.clear();
+      for (const [id, tools] of mcpToolElements) if (tools.open) mcpOpenTools.add(id);
+      mcpToolElements.clear();
       list.replaceChildren();
-      if (!servers.length) list.append(make('div', 'empty-folders', t('尚未添加 MCP 服务。添加服务或导入配置后，先测试连接再授权工具。')));
+      if (!servers.length) list.append(make('div', 'empty-folders', t(allowAllTools
+        ? '尚未添加 MCP 服务。添加或导入后，信任并启用服务即可使用其全部工具。'
+        : '尚未添加 MCP 服务。添加服务或导入配置后，先测试连接再授权工具。')));
       const phases = { disabled: '已停用', stopped: '已停止', connecting: '连接中', starting: '连接中', connected: '已连接', ready: '已连接', reconnecting: '重连中', failed: '连接异常', error: '连接异常', untrusted: '等待信任', disconnected: '未连接' };
       for (const server of servers) {
         const item = make('article', 'mcp-server');
@@ -348,9 +366,9 @@
         item.append(actions);
         const tools = make('details', 'mcp-tools');
         tools.open = mcpOpenTools.has(server.id);
-        tools.addEventListener('toggle', () => { if (tools.open) mcpOpenTools.add(server.id); else mcpOpenTools.delete(server.id); });
+        mcpToolElements.set(server.id, tools);
         tools.append(make('summary', '', t('工具与授权（{count}）', { count: server.tools?.length || 0 })));
-        if (!server.tools?.length) tools.append(make('p', 'mcp-caption', t('连接后可预览工具；工具默认禁用。')));
+        if (!server.tools?.length) tools.append(make('p', 'mcp-caption', t(allowAllTools ? '连接后可预览工具；工具由顶部总开关统一允许。' : '连接后可预览工具；工具默认禁用。')));
         for (const tool of server.tools || []) {
           const row = make('div', 'mcp-tool');
           const line = make('div', 'mcp-tool-heading');
@@ -363,8 +381,9 @@
           for (const [value, text] of [['deny', '禁用'], ['allow', '直接调用'], ['ask', '每次本机确认']]) {
             const option = make('option', '', t(text)); option.value = value; select.append(option);
           }
-          select.value = tool.policy || 'deny';
-          select.disabled = busy;
+          select.value = allowAllTools ? 'allow' : tool.policy || 'deny';
+          select.disabled = busy || allowAllTools;
+          if (allowAllTools) select.title = t('由“允许所有工具”统一控制，关闭总开关后可单独设置。');
           select.addEventListener('change', event => mcpPerform('policy', () => api.mcpSetToolPolicy({ serverId: server.id, toolName: tool.name, policy: event.target.value })));
           label.append(select); line.append(title, label); row.append(line);
           if (tool.description) row.append(make('p', 'mcp-tool-description', tool.description));
@@ -676,6 +695,13 @@
     closeMcpEditor(); actionMessage = 'MCP 服务配置已保存。';
     return state;
   }));
+  byId('mcp-allow-all-tools').addEventListener('change', async event => {
+    if (mcpPending || event.target.disabled) { renderMcp(); return; }
+    const enabled = event.target.checked;
+    mcpAllowAllDraft = enabled;
+    try { await mcpPerform('allow-all-tools', () => api.mcpSetAllowAllTools(enabled)); }
+    finally { mcpAllowAllDraft = null; renderMcp(); }
+  });
   byId('mcp-trust-cancel').addEventListener('click', () => { mcpTrustRequest = null; renderMcp(); });
   byId('mcp-trust-confirm').addEventListener('click', () => {
     const request = mcpTrustRequest;

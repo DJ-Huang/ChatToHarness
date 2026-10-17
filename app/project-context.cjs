@@ -84,7 +84,7 @@ class ProjectContexts {
   constructor({ defaultDirectory, allowedDirectories = [], maxTokens = 256 } = {}) {
     this.defaultDirectory = defaultDirectory || allowedDirectories[0] || process.cwd();
     this.allowedDirectories = (allowedDirectories.length ? allowedDirectories : [this.defaultDirectory]).map(file => path.resolve(file));
-    this.maxTokens = maxTokens; this.contexts = new Map(); this.files = new Map(); this.directories = new Map(); this.agentDirectories = new Map(); this.pending = new Map();this.directoryEntries=0;
+    this.maxTokens = maxTokens; this.contexts = new Map(); this.files = new Map(); this.directories = new Map(); this.pending = new Map();this.directoryEntries=0;
     this.cacheBytes = 0; this.cacheStats = { bodyReads: 0, indexReads: 0, hits: 0 };
   }
   async authorize(file, mustExist = false) {
@@ -153,7 +153,8 @@ class ProjectContexts {
   }
   async agentFiles(directory,signal){
     aborted(signal);const stat=await optionalStat(directory);if(!stat)return [];
-    const key=signature(stat),cached=this.agentDirectories.get(directory);if(cached?.key===key)return cached.names;
+    // Directory metadata can remain unchanged when a child is created.
+    // Probe both fixed names on every refresh; readRule still caches bodies.
     const names=[],identities=new Set();
     for(const name of ['AGENTS.md','agents.md']){
       try{
@@ -163,7 +164,6 @@ class ProjectContexts {
         if(!identities.has(identity)){identities.add(identity);names.push(name);}
       }catch(error){if(error.code!=='ENOENT')throw error;}
     }
-    this.agentDirectories.set(directory,{key,names});if(this.agentDirectories.size>512)this.agentDirectories.delete(this.agentDirectories.keys().next().value);
     return names;
   }
   async readRule(file, body, signal) {
@@ -365,6 +365,6 @@ class ProjectContexts {
     if (writing && contexts.some(context => context.diagnostics.some(item => item.blocks_writes))) throw new ContextError('PROJECT_INSTRUCTIONS_UNAVAILABLE', 'Resolve AGENTS errors before writing.', { contexts });
     return { contexts, needsDelivery: writing && (refresh||contexts.some(context => context.agents.length || context.loaded_rules.length || context.diagnostics.some(item=>item.source==='previous rule_paths'))) };
   }
-  dispose() { for (const shared of this.pending.values()) shared.controller.abort(); this.pending.clear(); this.files.clear(); this.directories.clear(); this.agentDirectories.clear();this.directoryEntries=0;this.contexts.clear(); this.cacheBytes = 0; }
+  dispose() { for (const shared of this.pending.values()) shared.controller.abort(); this.pending.clear(); this.files.clear(); this.directories.clear();this.directoryEntries=0;this.contexts.clear(); this.cacheBytes = 0; }
 }
 module.exports = { ProjectContexts, ContextError, MAX_BODY_BYTES, canonical, inside };

@@ -62,7 +62,7 @@ function main() {
   run(path.join(__dirname, 'prepare-resources.cjs'));
   verifyResources(path.join(root, 'resources'));
   const installer = process.argv.includes('--dist');
-  const args = [process.platform === 'darwin' ? '--mac' : '--win', process.platform === 'darwin' ? '--arm64' : '--x64',
+  const args = ['--config', 'electron-builder.config.cjs', process.platform === 'darwin' ? '--mac' : '--win', process.platform === 'darwin' ? '--arm64' : '--x64',
     ...(installer ? [] : ['--dir']), '--publish', 'never', ...config.overrides,
     ...(process.env.CTH_ELECTRON_DIST ? [`-c.electronDist=${process.env.CTH_ELECTRON_DIST}`] : [])];
   console.log(`正在生成 ChatToHarness ${installer ? '安装包' : '应用'}…`);

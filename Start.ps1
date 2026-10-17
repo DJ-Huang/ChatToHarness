@@ -11,7 +11,7 @@ if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -
 }
 if ([Environment]::OSVersion.Version.Build -lt 22000) { throw 'ChatToHarness requires Windows 11 or newer.' }
 Set-Location -LiteralPath $projectRoot
-$sourcePaths = @('app','scripts','vendor','assets','native','package.json','package-lock.json','Start.ps1','Start.cmd','README.md','ARCHITECTURE.md','LICENSE','THIRD_PARTY_NOTICES.md')
+$sourcePaths = @('app','scripts','vendor','assets','native','package.json','package-lock.json','electron-builder.config.cjs','Start.ps1','Start.cmd','README.md','ARCHITECTURE.md','LICENSE','THIRD_PARTY_NOTICES.md')
 $needsBuild = -not ((Test-Path -LiteralPath $appPath) -and (Test-Path -LiteralPath $buildStamp))
 if (-not $needsBuild) {
   $stampTime = (Get-Item -LiteralPath $buildStamp).LastWriteTimeUtc

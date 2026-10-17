@@ -19,7 +19,7 @@ fi
 build_current() {
   [[ -x "$APP/Contents/MacOS/ChatToHarness" && -f "$STAMP" ]] || return 1
   [[ -z "$(find "$ROOT/app" "$ROOT/scripts" "$ROOT/vendor" "$ROOT/assets" "$ROOT/native" \
-    "$ROOT/package.json" "$ROOT/package-lock.json" "$ROOT/Start.sh" "$ROOT/Start.command" \
+    "$ROOT/package.json" "$ROOT/package-lock.json" "$ROOT/electron-builder.config.cjs" "$ROOT/Start.sh" "$ROOT/Start.command" \
     "$ROOT/README.md" "$ROOT/ARCHITECTURE.md" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" \
     -type f -newer "$STAMP" -print -quit)" ]]
 }

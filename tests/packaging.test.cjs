@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const versions = require('../scripts/versions.cjs');
-const { signingConfig, verifyResources } = require('../scripts/build.cjs');
+const { signingConfig, verifyResources, shouldVerifyMacSignature } = require('../scripts/build.cjs');
 const { envWithPath } = require('../scripts/prepare-resources.cjs');
 const manifest = require('../package.json');
 
@@ -36,6 +36,9 @@ test('explicit signing requires credentials and default build ignores ambient si
     APPLE_API_KEY: 'key', APPLE_API_KEY_ID: 'id', APPLE_API_ISSUER: 'issuer' });
   assert.ok(signed.overrides.includes('-c.forceCodeSigning=true'));
   assert.ok(signed.overrides.includes('-c.mac.notarize=true'));
+  assert.equal(shouldVerifyMacSignature('darwin', false), false);
+  assert.equal(shouldVerifyMacSignature('darwin', true), true);
+  assert.equal(shouldVerifyMacSignature('win32', true), false);
 });
 
 test('package keeps legacy identity and user data while exposing branded native installers', () => {

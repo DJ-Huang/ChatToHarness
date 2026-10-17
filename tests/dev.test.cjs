@@ -107,7 +107,7 @@ test('launcher returns application errors without replay and reports an incompat
 test('shutdown first allows normal application cleanup, cancels replacement retries and remains idempotent',async()=>{
   const child=fakeChild();const order=[];let timerCancelled=false;
   child.kill=signal=>{order.push(signal);queueMicrotask(()=>{order.push('application cleanup');child.finish(0);});return true;};
-  const launcher=new DevelopmentLauncher({binary:'/electron',spawnChild:()=>child,stop:async value=>{assert.equal(value,child);order.push('owned tree cleanup');},
+  const launcher=new DevelopmentLauncher({binary:'/electron',platform:'darwin',spawnChild:()=>child,stop:async value=>{assert.equal(value,child);order.push('owned tree cleanup');},
     setTimer:()=>123,clearTimer:value=>{assert.equal(value,123);timerCancelled=true;}});
   const running=launcher.launch();const first=launcher.shutdown();assert.equal(launcher.shutdown(),first);
   await first;assert.equal(await running,0);assert.equal(timerCancelled,true);assert.equal(order[0],'SIGTERM');assert.ok(order.indexOf('application cleanup')<order.indexOf('owned tree cleanup'));

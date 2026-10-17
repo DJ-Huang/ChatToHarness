@@ -65,3 +65,11 @@ The complete local suite ran 131 checks: 129 passed, 2 native Windows checks ski
 [Pre-release checks](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39014237373) passed. Windows: 125 of 131 passed, 6 skipped by platform/tool availability. Mac: 126 of 131 passed, 5 skipped. Neither platform failed. Both completed packaging, discovery of 27 real tools, reads without a prerequisite, writes without AGENTS, bounded search, changed-rule/cross-project isolation, credential isolation, local tunnel control-plane checks, actual packaged windows and process cleanup. Update checks and preferences ran through real IPC without modifying credentials or reconnecting tools.
 
 Acceptance scripts now compare canonical native Windows paths and explicitly select the POSIX shutdown scenario. Website/docs screenshots use current isolated Mac windows in all three languages. CI does not exercise personal remote tunnels. Public release still awaits native installers, installer acceptance and uploaded size/SHA-256 checks in the tag workflow.
+
+## v0.4.0 public release (2026-10-17)
+
+[v0.4.0 is public](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.4.0), neither a draft nor a prerelease; the latest stable API returns v0.4.0. The [tag pipeline](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39014606580) passed native builds, real tools, packaged windows, install/start/uninstall data retention, uploaded asset verification and website build/deployment on both supported platforms.
+
+Public assets contain the Windows x64 installer (188,361,888 bytes), Mac arm64 DMG (237,125,755 bytes), and SHA256SUMS.txt. The downloaded public checksum file matches all three asset sizes and GitHub SHA-256 digests. Published tags and assets remain unchanged.
+
+The website job built v0.4.0 and deployed successfully. At verification time public pages still hit old CDN content, so updated downloads on all three root routes are not marked verified. Use the Release URL for immediate downloads; the cache does not affect public installers or the latest-version API.

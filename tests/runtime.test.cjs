@@ -35,7 +35,8 @@ function fixture(t) {
   const cleanup = [];
   t.after(async () => {
     for (const action of cleanup.reverse()) await action();
-    fs.rmSync(root, { recursive: true, force: true });
+    // Windows may retain a process working-directory handle briefly after exit.
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   return { root, home, notes, cleanup };
 }

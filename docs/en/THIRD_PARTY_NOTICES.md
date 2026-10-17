@@ -9,6 +9,7 @@ ChatToHarness uses the actual Desktop Commander npm release. It does not reimple
 | Node.js | 24.22.0 | https://nodejs.org/ | MIT and bundled dependency licenses |
 | OpenAI Tunnel client runtime | 0.0.16 | https://github.com/openai/tunnel-client | See upstream release license report |
 | Desktop Commander | 0.3.0 | https://github.com/wonderwhy-er/DesktopCommanderMCP | MIT and bundled dependency licenses |
+| MCP TypeScript SDK | 1.32.1 | https://github.com/modelcontextprotocol/typescript-sdk | MIT |
 | Electron | 44.7.2 | https://www.electronjs.org/ | MIT, Chromium and bundled dependency licenses |
 | electron-builder (build only) | 26.15.3 | https://github.com/electron-userland/electron-builder | MIT |
 
@@ -19,3 +20,5 @@ Desktop Commander has one ChatToHarness-specific build-time modification: `dist/
 Release downloads are fixed by version and SHA-256. npm dependencies are fixed by committed lockfiles and npm integrity hashes. The Tunnel checksum and license report originate from the [official release](https://github.com/openai/tunnel-client/releases/tag/v0.0.16); Node.js hashes originate from the [official checksum list](https://nodejs.org/dist/v24.22.0/SHASUMS256.txt).
 
 Original third-party license texts are retained; this overview does not replace them.
+
+The MCP SDK is a direct runtime dependency for the application gateway and its downstream clients. Its original license and dependency licenses are retained with the packaged npm dependencies. User-configured MCP servers are separate programs or services: they are not bundled components, and their operators are responsible for their own licenses and access requirements.

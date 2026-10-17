@@ -17,6 +17,9 @@ const modeFile = path.join(home, 'health-mode.json');
 const pidFile = path.join(home, 'managed-pids.json');
 const argsFile = path.join(home, 'tunnel-arguments.json');
 const tunnelScript = path.join(home, 'tunnel fixture.cjs');
+const mcpStartFile = path.join(home, 'mcp-fixture-starts.txt');
+const mcpFixtureName = 'synthetic-ui-mcp-name-not-a-real-key';
+const mcpServerId = 'ui_fixture';
 const output = path.resolve(process.env.CTH_SMOKE_OUTPUT || path.join(root, '.cache', 'acceptance'));
 const development = process.argv.includes('--dev');
 const explicitExecutable = process.env.CTH_EXECUTABLE || process.env.LOCALHARNESS_EXECUTABLE;
@@ -47,6 +50,16 @@ async function waitState(name) {
   }
   throw new Error('UI state did not become ' + name);
 }
+async function waitMcp(predicate, description) {
+  let latest;
+  for (let count = 0; count < 250; count++) {
+    const state = await getState();
+    latest = state.mcp?.servers.find(server => server.id === mcpServerId);
+    if (predicate(latest)) return state;
+    await delay(100);
+  }
+  throw new Error(`MCP fixture did not ${description}: ${latest?.phase || 'missing'} ${latest?.error || ''}`);
+}
 async function launch() {
   instance = await electron.launch({ executablePath: executable, args: launchArgs, env, timeout: 60000 });
   const page = await instance.firstWindow();
@@ -65,7 +78,7 @@ async function tab(page, name) {
   await page.locator('#nav-' + name).click();
   assert.equal(await page.locator('#panel-' + name).isVisible(), true);
   assert.equal(await page.locator('#nav-' + name).getAttribute('aria-selected'), 'true');
-  for (const other of ['overview', 'connection', 'directories', 'help']) {
+  for (const other of ['overview', 'connection', 'directories', 'mcp', 'help']) {
     if (other !== name) assert.equal(await page.locator('#panel-' + other).isVisible(), false);
   }
 }
@@ -75,16 +88,17 @@ async function assertGone(pids) {
   assert.deepEqual(pids.filter(alive), [], 'all owned fixture processes must stop');
 }
 function noPlaintextSecret() {
-  for (const file of [path.join(stateHome, 'settings.json'), argsFile, path.join(stateHome, 'logs', 'app.log')]) {
+  for (const file of [path.join(stateHome, 'settings.json'), path.join(stateHome, 'mcp-settings.json'), argsFile, path.join(stateHome, 'logs', 'app.log')]) {
     if (!fs.existsSync(file)) continue;
     const text = fs.readFileSync(file, 'utf8');
     assert.equal(text.includes(key), false, path.basename(file) + ' exposes synthetic key');
     assert.equal(text.includes(replacement), false, path.basename(file) + ' exposes replacement key');
+    assert.equal(text.includes(mcpFixtureName), false, path.basename(file) + ' exposes MCP environment value');
   }
 }
 
 async function main() {
-  if (fs.existsSync(path.join(stateHome, 'settings.json'))) throw new Error('UI smoke requires a fresh isolated state directory; existing settings will not be touched');
+  if (['settings.json', 'mcp-settings.json'].some(file => fs.existsSync(path.join(stateHome, file)))) throw new Error('UI smoke requires a fresh isolated state directory; existing settings will not be touched');
   fs.mkdirSync(project, { recursive: true });
   fs.mkdirSync(stateHome, { recursive: true });
   fs.mkdirSync(output, { recursive: true });
@@ -110,7 +124,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   assert.equal(await page.title(), 'ChatToHarness');
   await page.screenshot({ path: path.join(output, 'console-initial.png'), fullPage: true });
 
-  // All four navigation entries select real, separate panels; keyboard navigation
+  // All five navigation entries select real, separate panels; keyboard navigation
   // follows the vertical tab pattern. No client branding leaks into the overview.
   await tab(page, 'help');
   assert.ok((await page.locator('#panel-help').textContent()).includes('ChatGPT'));
@@ -118,6 +132,60 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   await page.locator('#nav-help').press('Home');
   assert.equal(await page.locator('#panel-overview').isVisible(), true);
   assert.equal(/ChatGPT|OpenAI|Mac|macOS|Windows/.test(await page.locator('#panel-overview').textContent()), false);
+
+  // Manage a real MCP peer through the packaged app before configuring either
+  // a workspace or a tunnel. The smoke runner's standalone Node executable is
+  // intentional: Electron's process.execPath would launch another desktop app.
+  await tab(page, 'mcp');
+  await page.locator('#mcp-add').click();
+  await page.locator('#mcp-id').fill(mcpServerId);
+  await page.locator('#mcp-name').fill('UI MCP fixture');
+  await page.locator('#mcp-command').fill(process.execPath);
+  await page.locator('#mcp-args').fill(JSON.stringify([path.join(root, 'tests', 'fixtures', 'mcp-server.cjs')]));
+  await page.locator('#mcp-env').fill(JSON.stringify({ MCP_FIXTURE_NAME: mcpFixtureName, MCP_FIXTURE_START_FILE: mcpStartFile }));
+  await page.locator('#mcp-save').click();
+  const mcpSaved = await waitMcp(server => Boolean(server), 'save its configuration');
+  await page.locator('#mcp-editor').waitFor({ state: 'hidden' });
+  const savedServer = mcpSaved.mcp.servers.find(server => server.id === mcpServerId);
+  assert.equal(savedServer.enabled, false);
+  assert.equal(savedServer.trusted, false);
+  assert.deepEqual(savedServer.tools, []);
+  assert.equal(fs.existsSync(mcpStartFile), false, 'saving an untrusted service never starts it');
+  assert.equal(await page.locator('#mcp-env').inputValue(), '{}', 'submitted environment values are cleared from the editor');
+  const mcpSettingsFile = path.join(stateHome, 'mcp-settings.json');
+  const savedMcp = JSON.parse(fs.readFileSync(mcpSettingsFile, 'utf8')).servers.find(server => server.id === mcpServerId);
+  assert.deepEqual(Object.keys(savedMcp.env.MCP_FIXTURE_NAME), ['secretRef']);
+  assert.match(savedMcp.env.MCP_FIXTURE_NAME.secretRef, /^secret_[a-f0-9]{32}$/);
+  assert.equal(JSON.stringify(mcpSaved).includes(mcpFixtureName), false, 'public state never returns the saved environment value');
+  noPlaintextSecret();
+
+  await page.getByRole('button', { name: '测试连接', exact: true }).click();
+  assert.equal(await page.locator('#mcp-trust').isVisible(), true);
+  assert.ok((await page.locator('#mcp-trust-target').textContent()).includes(process.execPath));
+  await page.locator('#mcp-trust-confirm').click();
+  const mcpTested = await waitMcp(server => server?.trusted && server.tools.length > 0 && server.phase === 'stopped', 'finish its local connection test');
+  const discoveredServer = mcpTested.mcp.servers.find(server => server.id === mcpServerId);
+  assert.ok(discoveredServer.protocolVersion);
+  assert.equal(discoveredServer.tools.every(tool => tool.policy === 'deny'), true, 'discovery never grants tool permissions');
+  assert.equal(Number(fs.readFileSync(mcpStartFile, 'utf8')), 1);
+  await page.waitForFunction(() => !document.getElementById('mcp-add').disabled);
+  await page.locator('.mcp-tools > summary').click();
+  await page.getByRole('combobox', { name: 'echo 的调用权限', exact: true }).selectOption('allow');
+  await waitMcp(server => server?.tools.find(tool => tool.name === 'echo')?.policy === 'allow', 'save the explicit echo permission');
+  await page.getByRole('button', { name: '启用', exact: true }).click();
+  const mcpEnabled = await waitMcp(server => server?.enabled && server.phase === 'ready', 'connect without a workspace');
+  assert.deepEqual(mcpEnabled.settings.directories, []);
+  assert.equal(mcpEnabled.settings.keySaved, false);
+  assert.equal(fs.existsSync(argsFile), false, 'standalone MCP management does not start the tunnel');
+  assert.equal(Number(fs.readFileSync(mcpStartFile, 'utf8')), 2, 'testing stops its temporary peer before enabling a new connection');
+  await page.screenshot({ path: path.join(output, 'console-mcp-connected.png'), fullPage: true });
+  await page.getByRole('button', { name: '停用', exact: true }).click();
+  await waitMcp(server => server?.enabled === false && server.phase === 'stopped', 'stop its standalone connection');
+  const exportedMcp = JSON.parse(await page.evaluate(() => window.localHarness.mcpExport()));
+  assert.equal(JSON.stringify(exportedMcp).includes(mcpFixtureName), false);
+  assert.equal(Object.hasOwn(exportedMcp, 'trust'), false);
+  assert.equal(Object.hasOwn(exportedMcp, 'grants'), false);
+  noPlaintextSecret();
 
   // Exercise the actual IPC-backed folder picker using only a temporary directory.
   await instance.evaluate(({ dialog }, selected) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] }); }, project);
@@ -147,13 +215,14 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   assert.equal(await page.locator('#step-client').getAttribute('class'), 'progress-step active');
   noPlaintextSecret();
   await page.screenshot({ path: path.join(output, 'console-overview.png'), fullPage: true });
-  for (const name of ['connection', 'directories', 'help']) {
+  for (const name of ['connection', 'directories', 'mcp', 'help']) {
     await tab(page, name);
     await page.screenshot({ path: path.join(output, 'console-' + name + '.png'), fullPage: true });
   }
 
   // Language changes are independent of credentials, workspace drafts, and runtime.
   const configBeforeLanguages = fs.readFileSync(path.join(stateHome, 'settings.json'), 'utf8');
+  const mcpConfigBeforeLanguages = fs.readFileSync(mcpSettingsFile, 'utf8');
   const pidsBeforeLanguages = fs.readFileSync(pidFile, 'utf8');
   // Exercise update IPC without a real network request or installer. Checking
   // and preferences must leave both credentials and active tools unchanged.
@@ -183,7 +252,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
     assert.equal(await page.locator('#nav-connection').textContent(), expected);
     const menu = await instance.evaluate(({Menu}) => Menu.getApplicationMenu().items.flatMap(item => item.submenu?.items.map(child => child.label) || []));
     assert.ok(menu.includes({en:'Open window',ja:'ウィンドウを開く','zh-CN':'打开窗口'}[locale]));
-    for (const name of ['overview', 'connection', 'directories', 'help']) {
+    for (const name of ['overview', 'connection', 'directories', 'mcp', 'help']) {
       await tab(page, name);
       await page.screenshot({path:path.join(output, `console-${name}-${locale}.png`),fullPage:true});
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -194,6 +263,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
     }
   }
   assert.equal(fs.readFileSync(path.join(stateHome, 'settings.json'), 'utf8'), configBeforeLanguages);
+  assert.equal(fs.readFileSync(mcpSettingsFile, 'utf8'), mcpConfigBeforeLanguages, 'language switching preserves MCP configuration and permissions');
   assert.equal(fs.readFileSync(pidFile, 'utf8'), pidsBeforeLanguages, 'language switching must not restart managed processes');
   await tab(page, 'connection');
   await page.locator('#api-key').fill('unsaved-synthetic-draft');
@@ -258,10 +328,17 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   assert.equal(cleared.settings.autoConnect, false);
   assert.deepEqual(cleared.settings.directories, [fs.realpathSync(project)]);
   noPlaintextSecret();
+  assert.equal(Number(fs.readFileSync(mcpStartFile, 'utf8')), 2, 'disabled MCP service stays stopped across tunnel reconnects and app restart');
+  await tab(page, 'mcp');
+  await page.getByRole('button', { name: '删除', exact: true }).click();
+  await page.getByRole('button', { name: '确认删除', exact: true }).click();
+  await waitMcp(server => !server, 'remove its temporary configuration');
+  assert.deepEqual(JSON.parse(fs.readFileSync(mcpSettingsFile, 'utf8')).secrets, {}, 'removing the fixture also removes its encrypted environment values');
   assert.deepEqual(errors, []);
   const report = { ui: true, platform: process.platform, architecture: process.arch, packaged: launchArgs.length === 0,
     realLocalTools: checked.runtime.toolsCount, languages:['zh-CN','en','ja'], languagePersistence:true, languagePreservesCredentialsAndConnection:true, navigation: true, unicodeSpaceDirectory: true, encryptedSaveAndReplace: true,
     restartAutoConnect: true, windowHide: true, singleInstance: true, ownedProcessCleanup: true,
+    appMcpManagement: true, mcpWithoutWorkspace: true, mcpDefaultDeny: true, mcpEncryptedEnvironment: true,
     authErrorAndRecovery: true, clearPreservesWorkspace: true, remoteTunnel: 'not tested: isolated fixture' };
   fs.writeFileSync(path.join(output, 'ui-report.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report));

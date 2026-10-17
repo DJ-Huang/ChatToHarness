@@ -2,11 +2,11 @@
 
 [English](../en/ARCHITECTURE.md) | [简体中文](../zh-CN/ARCHITECTURE.md) | [日本語](../ja/ARCHITECTURE.md)
 
-Request path: supported client → OpenAI Secure MCP Tunnel → local Tunnel runtime → project-instruction protocol proxy → Desktop Commander. External clients connect through the Tunnel only. Internal stdio and loopback health endpoints are not additional public MCP entry points.
+Request path: supported client → OpenAI Secure MCP Tunnel → local Tunnel runtime → authenticated private IPC → application MCP gateway. The gateway routes built-in tools through the project-instruction proxy to Desktop Commander and authorized third-party tools to their own MCP connections. External clients connect through the existing Tunnel only; private IPC and health endpoints are not public MCP entry points.
 
 ## Desktop layer
 
-The Electron main process manages settings, system-encrypted credentials, single-instance behavior, windows, the background icon, and connection scheduling. HTML/CSS/JavaScript provides four separate pages. A restricted preload exposes settings, directory selection, state subscriptions, and connection controls. The renderer has no Node access and uses sandboxing, context isolation, navigation restrictions, and an external-link allowlist.
+The Electron main process manages settings, system-encrypted credentials, single-instance behavior, windows, the background icon, and connection scheduling. HTML/CSS/JavaScript provides separate settings and help pages. A restricted preload exposes settings, directory selection, state subscriptions, and connection controls. The renderer has no Node access and uses sandboxing, context isolation, navigation restrictions, and an external-link allowlist.
 
 Closing the window hides it. Stop and Quit advance `actionEpoch`, cancelling queued automatic connections and the connect step after saving settings. Automatic key retrieval starts after the page loads so a system authorization dialog does not block the initial display. Public state reports only whether a key is saved, never plaintext or ciphertext.
 
@@ -18,6 +18,20 @@ The platform adapter supplies component locations, the default shell, user envir
 
 Pinned versions and checksums determine bundled components, including Node. Tool settings and logs live in the private data directory, with the real HOME/USERPROFILE preserved and telemetry disabled. The build-time Desktop Commander configuration adaptation accepts only an exact known source match and stops the build on mismatch.
 
+## Application MCP gateway
+
+MCP server settings belong to ChatToHarness and are shared by clients of the Tunnel, independently of any Agent. The Electron main process owns configuration, secrets, trust, tool policy and one connection per service. The Tunnel's stdio entry uses an authenticated private local channel to access the gateway; it cannot manage configurations or approve calls. Unity and browsers are ordinary third-party MCP services. This release adds no Agent runner or Computer Use driver.
+
+The manager supports local `stdio` and local/remote Streamable HTTP. Remote targets require HTTPS; HTTP is accepted only for loopback targets. OAuth and legacy HTTP+SSE are not supported. SDK `1.32.1` negotiates independently on each side and exposes the negotiated protocol version; a peer requiring only `2026-07-28` is unsupported. Configuration supports platform-specific command overrides. System encryption stores secret values separately; configuration and exports contain references, and renderer state contains only saved-secret indicators. Imports are previewed, disabled by default, and never start commands. Exports omit trust records and tool authorizations.
+
+Built-in names stay unchanged. Third-party names use stable `serverId__toolName` namespaces and are routed by a registry. All discovery pages are read; list changes refresh the registry. New or changed definitions require fresh authorization. Each tool is disabled, directly allowed, or requires local confirmation on every call. Server annotations never grant authorization. First connection requires trust in the actual command or target URL; changing the launch target invalidates trust. Confirmations bind the tool, immutable arguments and connection generation and expire with the call deadline.
+
+Third-party arguments and tool input/output schemas are preserved without project-context injection or built-in argument stripping. Results preserve structured content, images and tool errors. Only tools are aggregated: resources, prompts, sampling and elicitation are not additional gateway capabilities. Resource links may occur in tool results. Clients may need to refresh their own tool catalogs after changes.
+
+Connections and process trees are managed independently. Repeated connection checks reuse existing connections; Tunnel reconnection does not relaunch healthy services. Transport failures use independent reconnects, while authentication, configuration and protocol errors require correction. Calls are never replayed after disconnect; once forwarded, a missing result is reported as execution state unknown. The total call deadline is 60 seconds by default, at most 90 seconds including local confirmation, and serialized messages are limited to 8 MiB. Logs record service, tool, duration, authorization result and execution status, excluding argument/result bodies and images.
+
+Stop connection stops the Tunnel and all managed services; disabling one service affects only that service. Closing the window keeps services running in the background. Third-party stdio processes receive a minimal runtime environment plus their explicit configuration, never the Tunnel key. Work-directory restrictions do not sandbox third-party processes, which retain the user's operating-system permissions.
+
 ## Project guidance and search
 
 `get_project_context(project_path, target_paths?, rule_paths?)` retains projects, bodies, indexes, and tokens, adding `diagnostics` with `blocks_writes`. Project scope determines instruction applicability; app-authorized folders determine file access. Shared rules can cross projects without expanding target or write scope. Missing AGENTS is normal, reference failures are soft, and unavailable applicable AGENTS block writes only.
@@ -26,7 +40,7 @@ Reads include guidance automatically; valid tokens reuse delivered bodies. A fir
 
 `search_project` invokes bundled ripgrep with an argument array, never a shell. Defaults are literal queries, 2 seconds, 100 results per page, and two context lines per side. Limits are 1,000 matches, 2 MiB stored, 64 KiB per result page, four concurrent searches, and a maximum 10-second budget. Project/query-bound snapshots expire after five idle minutes. Completed, empty, timed-out, limited, and partial results remain distinct. Native streaming search tools remain available.
 
-Pending requests are bounded and use 60-second deadlines, extended up to 180 seconds for explicit waits. Cancellation reaches context reads and searches; disconnect disposes requests, caches, and search children. Pre-forward failures report `not_started`; forwarded timeouts report `unknown`, with no automatic replay. Late replies are discarded. Continuations and cleanup bind originating handles, not a global current project. Known cleanup does not require fresh rules. Tool schemas, output schemas, and behavior annotations are maintained together; unsupported widget hints are removed.
+The internal built-in proxy bounds pending requests and supports explicit waits up to 180 seconds; the enclosing gateway imposes its shorter total call deadline. Cancellation reaches context reads and searches; disconnect disposes requests, caches, and search children. Pre-forward failures report `not_started`; forwarded timeouts report `unknown`, with no automatic replay. Late replies are discarded. Continuations and cleanup bind originating handles, not a global current project. Known cleanup does not require fresh rules. Tool schemas, output schemas, and behavior annotations are maintained together; unsupported widget hints are removed.
 
 ## App updates
 

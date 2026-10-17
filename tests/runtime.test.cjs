@@ -62,6 +62,31 @@ test('tool environments strip tunnel and API credentials while retaining HOME an
   assert.equal(source.CONTROL_PLANE_API_KEY, fakeKey);
 });
 
+test('app gateway supports MCP-only workspaces and Tunnel restarts reuse downstream ownership', {timeout:15000}, async t => {
+  const f=fixture(t),report=path.join(f.root,'gateway-tunnel.json');
+  const tunnel=writeScript(path.join(f.root,'gateway-tunnel.cjs'),`
+require('node:fs').writeFileSync(${JSON.stringify(report)},JSON.stringify({args:process.argv.slice(2),endpoint:process.env.CTH_GATEWAY_ENDPOINT}));
+setInterval(()=>{},1000);
+`);
+  const gateway={starts:0,stops:0,closes:0,async start(settings){this.starts++;assert.deepEqual(settings.directories,[]);return 2;},
+    environment(){return {CTH_GATEWAY_ENDPOINT:'synthetic-private-endpoint',CTH_GATEWAY_TOKEN:'0'.repeat(64)};},
+    async stop(){this.stops++;},async close(){this.closes++;}};
+  const manager=new RuntimeManager({home:f.home,paths:{node:process.execPath,tunnel:process.execPath,desktopCommander:path.join(f.root,'missing-unused-builtin'),processHost:windowsProcessHost()},gateway,tunnelScript:tunnel});
+  f.cleanup.push(()=>manager.close());
+  await manager.connect({directories:[],tunnelId:'tunnel_'+'a'.repeat(32)},fakeKey);
+  await waitFor(()=>fs.existsSync(report),'gateway Tunnel fixture did not start');
+  const first=JSON.parse(fs.readFileSync(report,'utf8'));
+  assert.equal(first.endpoint,'synthetic-private-endpoint');
+  assert.equal(first.args[first.args.indexOf('--mcp.command')+1],tunnelCommand([process.execPath,manager.gatewayLauncher]));
+  assert.equal(fs.existsSync(manager.gatewayLauncher),true);
+  assert.equal(gateway.starts,1);
+  await manager.stopProcess();manager.launch();
+  assert.equal(gateway.starts,1,'a transport restart cannot restart managed MCP clients');
+  await manager.disconnect();
+  assert.equal(gateway.stops,1);
+  assert.equal(manager.status().state,'stopped');
+});
+
 test('shell command quoting preserves unicode, spaces, apostrophes and shell metacharacters', {skip:process.platform==='win32'}, () => {
   const values = ['', "中文 project ' files", 'literal $(echo unsafe) `id` $HOME ; * \nnext line'];
   for (const value of values) {

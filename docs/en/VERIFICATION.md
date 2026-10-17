@@ -73,3 +73,12 @@ Acceptance scripts now compare canonical native Windows paths and explicitly sel
 Public assets contain the Windows x64 installer (188,361,888 bytes), Mac arm64 DMG (237,125,755 bytes), and SHA256SUMS.txt. The downloaded public checksum file matches all three asset sizes and GitHub SHA-256 digests. Published tags and assets remain unchanged.
 
 The website job built v0.4.0 and deployed successfully. At verification time public pages still hit old CDN content, so updated downloads on all three root routes are not marked verified. Use the Release URL for immediate downloads; the cache does not affect public installers or the latest-version API.
+
+## Application MCP manager and gateway (2026-10-17, unreleased)
+
+- The full local run plus targeted reruns cover the current 202 cases: 200 passed and two Windows-native checks were skipped on Mac. The full suite ran once; after updating the obsolete mandatory-directory assertion and adding MCP-only runtime and HTTP recovery coverage, only affected checks were rerun.
+- The Mac arm64 application builds successfully. Official MCP SDK 1.32.1 is a direct packaged dependency, including its MIT license. Gateway, settings, transport and entry-point sources were checked against the final packaged contents.
+- The real built-in engine smoke passed with 27 tools, project guidance, search, file round trips and credential isolation. The shipped Tunnel runtime accepted the private gateway command and exposed its health endpoint against a synthetic loopback control plane; no OpenAI control-plane connection was made.
+- Packaged-window acceptance passed with isolated settings: five-page navigation, all three languages, MCP management without workspace folders, trust/test/enable/disable, default-denied tools, explicit tool grants, encrypted environment references and export, restart persistence, single-instance behavior and process cleanup. Temporary profiles have separate test keychain identities; the production identity is retained and personal settings were not used.
+- Six HTTP-focused checks passed: static authentication, graceful/abrupt SSE loss, POST network failure, expired-session 404 and optional GET 405. Connections recover without replaying interrupted calls. Changed or removed tools cannot regain old grants when their definitions reappear.
+- This round did not run a Windows-native build or remote CI, verify real remote Tunnel clients, publish a release, or replace the installed application.

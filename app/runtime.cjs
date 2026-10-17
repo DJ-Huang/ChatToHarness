@@ -47,9 +47,10 @@ function healthRequest(base, suffix) {
 }
 
 class RuntimeManager extends EventEmitter {
-  constructor({home, resources, launcherSource=path.join(__dirname,'mcp-launch.cjs'), paths, probe, tunnelScript, log=()=>{}}) {
+  constructor({home, resources, launcherSource=path.join(__dirname,'mcp-launch.cjs'), paths, probe, tunnelScript, gateway, log=()=>{}}) {
     super();this.home=home;this.log=log;this.launcherSource=launcherSource;
     this.paths=paths||bundledPaths(resources);this.tunnelScript=tunnelScript;
+    this.gateway=gateway;this.gatewayLauncher=path.join(home,'mcp-gateway-stdio.cjs');
     this.localHome=path.join(home,'desktop-commander');this.launcher=path.join(home,'mcp-launch.cjs');
     this.healthFile=path.join(home,'tunnel-health-url');this.launchId=0;this.probeOverride=probe;
     this.value={state:'unconfigured',error:'',localReady:false,toolsCount:0};
@@ -98,6 +99,15 @@ class RuntimeManager extends EventEmitter {
     return env;
   }
   async probe(settings) {
+    if(this.gateway){
+      fs.mkdirSync(this.home,{recursive:true,mode:0o700});
+      if(fs.lstatSync(this.home).isSymbolicLink())throw new Error(ERRORS.config);
+      for(const name of ['node','tunnel'])fs.accessSync(this.paths[name],fs.constants.X_OK);
+      const source=path.join(path.dirname(this.launcherSource),'mcp-gateway-stdio.cjs');
+      const temporary=this.gatewayLauncher+'.'+process.pid+'.tmp';
+      try{fs.writeFileSync(temporary,fs.readFileSync(source),{mode:0o600,flag:'wx'});fs.renameSync(temporary,this.gatewayLauncher);}finally{try{fs.unlinkSync(temporary);}catch{}}
+      return this.gateway.start(settings);
+    }
     this.prepare(settings);
     if(this.probeOverride)return this.probeOverride(settings);
     const child=spawnManaged(this.paths.node,[this.launcher,this.paths.desktopCommander,String(process.pid)],{processHost:this.paths.processHost,env:this.childEnvironment(settings),cwd:settings.directories[0],stdio:['pipe','pipe','pipe']});
@@ -157,10 +167,11 @@ class RuntimeManager extends EventEmitter {
     // A delayed cleanup of an old connection must not remove the new URL file.
     this.healthFile=path.join(this.home,`tunnel-health-${process.pid}-${++this.launchId}`);
     const env=this.childEnvironment(settings);env.CONTROL_PLANE_API_KEY=key;
+    if(this.gateway)Object.assign(env,this.gateway.environment());
     env.NO_PROXY=env.no_proxy=[env.NO_PROXY||env.no_proxy||'','127.0.0.1','localhost','::1'].filter(Boolean).join(',');
-    const command=tunnelCommand([this.paths.node,this.launcher,this.paths.desktopCommander,String(process.pid)]);
+    const command=tunnelCommand(this.gateway?[this.paths.node,this.gatewayLauncher]:[this.paths.node,this.launcher,this.paths.desktopCommander,String(process.pid)]);
     const args=['run','--control-plane.tunnel-id',settings.tunnelId,'--control-plane.api-key','env:CONTROL_PLANE_API_KEY','--mcp.command',command,'--mcp.stdio-send-initialized-notification','--health.listen-addr','127.0.0.1:0','--health.url-file',this.healthFile,'--log.format','json','--log.level','info'];
-    const child=spawnManaged(this.tunnelScript?this.paths.node:this.paths.tunnel,this.tunnelScript?[this.tunnelScript,...args]:args,{processHost:this.paths.processHost,cwd:settings.directories[0],env,stdio:['ignore','pipe','pipe']});
+    const child=spawnManaged(this.tunnelScript?this.paths.node:this.paths.tunnel,this.tunnelScript?[this.tunnelScript,...args]:args,{processHost:this.paths.processHost,cwd:settings.directories[0]||this.home,env,stdio:['ignore','pipe','pipe']});
     this.process=child;this.startedAt=Date.now();
     child.once('error',()=>{if(this.process===child)this.processError='process';});
     // Consume output without keeping request bodies, paths or auth headers.
@@ -199,7 +210,7 @@ class RuntimeManager extends EventEmitter {
     }finally{this.monitorBusy=false;}
   }
   async stopProcess(){const child=this.process,file=this.healthFile;this.process=null;try{fs.unlinkSync(file);}catch{}await stopTree(child);try{fs.unlinkSync(file);}catch{}}
-  async disconnect(){const generation=++this.generation;this.desired=null;this.cancelProbe?.();await this.stopProcess();if(this.probeChild)await stopTree(this.probeChild);if(generation===this.generation)this.update({state:'stopped',error:''});return this.status();}
-  async close(){this.closed=true;clearInterval(this.timer);await this.disconnect();}
+  async disconnect(){const generation=++this.generation;this.desired=null;this.cancelProbe?.();await this.stopProcess();if(this.probeChild)await stopTree(this.probeChild);await this.gateway?.stop();if(generation===this.generation)this.update({state:'stopped',error:''});return this.status();}
+  async close(){this.closed=true;clearInterval(this.timer);await this.disconnect();await this.gateway?.close();}
 }
 module.exports={RuntimeManager,ERRORS,reason,cleanEnvironment,shellQuote,stopTree,healthRequest};

@@ -2,7 +2,13 @@
 
 [English](../en/CLIENTS.md) | [简体中文](../zh-CN/CLIENTS.md) | [日本語](../ja/CLIENTS.md)
 
-执行链路：客户端 → Secure MCP Tunnel → 本机工具代理 → Desktop Commander。先打开 ChatToHarness，选择工作目录、保存通道配置，确认“通道就绪”。同一 Tunnel 的本机 stdio 运行实例保持单个，切勿在其他工具中再启动第二个 runtime。
+执行链路：客户端 → Secure MCP Tunnel → ChatToHarness MCP 网关 → 内置工具代理或已授权第三方 MCP 服务。先打开 ChatToHarness，保存通道配置并确认“通道就绪”；使用内置文件工具时再选择工作目录。同一 Tunnel 的本机 stdio 运行实例保持单个，切勿在其他工具中再启动第二个 runtime。
+
+## 应用共享工具
+
+在 ChatToHarness 的 **MCP Servers** 页面添加下游服务、信任命令／URL 并逐项授权工具，不需要为某个 Agent 单独配置 Unity、浏览器等服务。连接由应用持有，同一 Tunnel 的调用方看到相同的已授权工具目录。第三方使用 `serverId__toolName` 名称，内置名称保持不变。传输、密钥与导入导出见 [MCP Servers 使用说明](GUIDE.md#mcp-servers)。
+
+新增连接或列表变更通知会刷新网关注册表，但不保证当前聊天立即重新发现工具，必要时在客户端刷新工具目录。新增或定义变化的工具等待本机授权；每次本机确认与客户端自己的确认规则分别生效，并须在网关总截止内完成（默认 60 秒、最多 90 秒）。重连不重放调用，已发出但丢失响应的操作应先核对目标状态再决定重试；消息上限为 8 MiB。
 
 ## ChatGPT
 

@@ -35,7 +35,9 @@ test('Windows development environments preserve user profile, Git and SSH withou
 test('persistent commands select the configured shell grammar and preserve Unicode', () => {
   const command = 'Write-Output "中文 $value & literal"';
   const argv = taskShellArguments('C:\\Program Files\\PowerShell\\7\\pwsh.exe', command, 'win32');
-  assert.equal(argv.at(-2), '-EncodedCommand'); assert.equal(Buffer.from(argv.at(-1), 'base64').toString('utf16le'), command);
+  assert.equal(argv.at(-2), '-EncodedCommand');
+  const decoded = Buffer.from(argv.at(-1), 'base64').toString('utf16le');
+  assert.match(decoded, /\[Console\]::OutputEncoding = \[System.Text.UTF8Encoding\]/); assert.ok(decoded.endsWith('\n' + command));
   assert.deepEqual(taskShellArguments('C:\\Windows\\System32\\cmd.exe', command, 'win32'), ['/d', '/s', '/c', command]);
   assert.deepEqual(taskShellArguments('/bin/zsh', command, 'darwin'), ['-lc', command]);
   assert.throws(() => taskShellArguments('unknown.exe', command, 'win32'), {code: 'TASK_UNSUPPORTED_SHELL'});

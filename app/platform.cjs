@@ -32,7 +32,12 @@ function defaultShell(platform = process.platform, env = process.env) {
 function taskShellArguments(shell, command, platform = process.platform) {
   if (platform !== 'win32') return ['-lc', command];
   const name = path.win32.basename(shell).toLowerCase().replace(/\.exe$/, '');
-  if (name === 'powershell' || name === 'pwsh') return ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')];
+  if (name === 'powershell' || name === 'pwsh') {
+    // The command travels as UTF-16LE, while durable stdout/stderr logs use
+    // UTF-8. Windows PowerShell 5.1 otherwise inherits an OEM console codepage.
+    const script = '[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::InputEncoding;\n' + command;
+    return ['-NoLogo', '-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
+  }
   if (name === 'cmd') return ['/d', '/s', '/c', command];
   if (['bash', 'sh', 'zsh', 'dash', 'ksh'].includes(name)) return ['-lc', command];
   throw Object.assign(new Error('Persistent tasks support PowerShell, cmd.exe or a POSIX shell. Select one in Desktop Commander configuration.'), {code: 'TASK_UNSUPPORTED_SHELL'});

@@ -83,17 +83,9 @@
     "Project instructions, delivered",
     "プロジェクト規約を自動提供"
   ],
-  "按工程和目标目录加载 AGENTS.md，索引 rules，规则变化时要求刷新上下文，避免工程之间混用。": [
-    "Load AGENTS.md by project and target directory, index rules, and refresh context when instructions change. Keep projects separate.",
-    "工程と対象フォルダーに応じて AGENTS.md を読み込み、rules を一覧化。規約変更時にコンテキストを更新し、工程間の混同を防ぎます。"
-  ],
   "连接状态，一眼看清": [
     "Connection status at a glance",
     "接続状態がひと目でわかる"
-  ],
-  "工具检查、重连、停止和日志集中管理。通道就绪与客户端实际调用分别验证。": [
-    "Check tools, reconnect, stop, and view logs in one place. Verify tunnel readiness and actual client calls separately.",
-    "ツール確認、再接続、停止、ログを一元管理。トンネルの準備状態と実際のクライアント呼び出しを分けて確認します。"
   ],
   "三步，把对话接到本机。": [
     "Three steps from chat to local tools.",
@@ -218,5 +210,13 @@
   "语言切换": [
     "Choose language",
     "言語を選択"
+  ],
+  "按工程和目标目录加载可选 AGENTS.md，支持授权范围内的共享规范；读取和搜索不因缺失引用而中断。": [
+    "Load optional AGENTS.md for each project and target, with shared guidance inside authorized folders. Missing references do not block reads or searches.",
+    "工程と対象に応じた任意の AGENTS.md と、許可範囲内の共有規約に対応。不足する参照で読み取りや検索を止めません。"
+  ],
+  "有预算的代码搜索、更新检查、连接恢复、停止和日志集中管理。开发入口直接运行最新源码。": [
+    "Bounded code search, update checks, reconnection, stop controls and logs in one place. The development entry runs current source directly.",
+    "上限付きコード検索、更新確認、再接続、停止、ログを一元管理。開発入口から現在のソースを直接実行できます。"
   ]
 }

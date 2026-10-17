@@ -59,3 +59,9 @@ All 35 focused checks passed in their relevant groups: main-process/development 
 ## v0.4.0 pre-release checks (2026-10-17)
 
 The complete local suite ran 131 checks: 129 passed, 2 native Windows checks skipped on this platform, no failures. Version/lock consistency, release guards and diff checks passed. Native builds, real tools, packaged windows, installer acceptance and public asset verification remain pending in the GitHub release pipeline; publication is not yet confirmed.
+
+## v0.4.0 native checks on both platforms (2026-10-17)
+
+[Pre-release checks](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39014237373) passed. Windows: 125 of 131 passed, 6 skipped by platform/tool availability. Mac: 126 of 131 passed, 5 skipped. Neither platform failed. Both completed packaging, discovery of 27 real tools, reads without a prerequisite, writes without AGENTS, bounded search, changed-rule/cross-project isolation, credential isolation, local tunnel control-plane checks, actual packaged windows and process cleanup. Update checks and preferences ran through real IPC without modifying credentials or reconnecting tools.
+
+Acceptance scripts now compare canonical native Windows paths and explicitly select the POSIX shutdown scenario. Website/docs screenshots use current isolated Mac windows in all three languages. CI does not exercise personal remote tunnels. Public release still awaits native installers, installer acceptance and uploaded size/SHA-256 checks in the tag workflow.

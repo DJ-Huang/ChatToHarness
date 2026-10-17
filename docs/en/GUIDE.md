@@ -34,6 +34,10 @@ Automatic checks run 10 seconds after launch and every 24 hours thereafter, and 
 
 **Download and install** downloads the matching installer and verifies its size and SHA-256. After verification, the app stops the connection, opens the installer, and quits. On Mac, drag the new version from the DMG into Applications; Windows uses the installer wizard. Save or discard unsaved configuration changes and finish running tool tasks first. Development mode checks versions only. Missing assets, download failures, or invalid checksums do not start installation.
 
+![App updates and client help](../images/console-help-en.png)
+
+This screenshot uses isolated demonstration settings and a synthetic update response; it does not establish a real tunnel call.
+
 ## Automatic project instructions
 
 Enabled by default. Give the client the task and project directory. File, search, and terminal tools may also specify `project_path` as the instruction root.

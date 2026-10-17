@@ -28,7 +28,7 @@ Closing the window keeps the application running in the background. Left-click t
 
 ## MCP Servers
 
-This section describes new source functionality that is not included in the published v0.4.0 installers. Use the source development entry point or a local build.
+MCP server management is available starting with v0.5.0, through the matching installers or the source development entry point.
 
 Configure services in **MCP Servers** in ChatToHarness. These are application settings shared by the Tunnel's clients; you do not attach each service to a particular Agent. Built-in file and terminal tools keep their existing names. Unity, browsers and other integrations connect as ordinary MCP services, without app-specific logic in ChatToHarness. No work directory is needed for third-party services; built-in file tools still require authorized folders.
 

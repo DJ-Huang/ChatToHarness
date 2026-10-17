@@ -1,4 +1,5 @@
 'use strict';
+const {version: appVersion} = require('../package.json');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
@@ -128,7 +129,7 @@ class RuntimeManager extends EventEmitter {
     const rpc=(method,params)=>new Promise((resolve,reject)=>{if(broken)return reject(new Error(ERRORS.mcp));const number=++id;waiting.set(number,{resolve,reject});child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:number,method,params})+'\n');});
     const timeout=setTimeout(abort,20000);
     try{
-      const init=await rpc('initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'ChatToHarness Check',version:'0.3.0'}});
+      const init=await rpc('initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'ChatToHarness Check',version:appVersion}});
       if(!init?.serverInfo)throw new Error(ERRORS.mcp);
       child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
       let count=0,cursor;const names=new Set();

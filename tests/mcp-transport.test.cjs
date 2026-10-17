@@ -117,7 +117,7 @@ test('third-party environments inherit only basic runtime values and explicit se
 
 test('managed stdio preserves literal argv and confines each real child to its own environment', { timeout: 15000 }, async t => {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mcp transport 中文 ')));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const entry = path.join(directory, "server O'Brien.cjs");
   fs.writeFileSync(entry, `
 const readline = require('node:readline');

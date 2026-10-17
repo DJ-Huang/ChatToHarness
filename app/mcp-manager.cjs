@@ -1,4 +1,5 @@
 'use strict';
+const {version: appVersion} = require('../package.json');
 
 const {EventEmitter} = require('node:events');
 const crypto = require('node:crypto');
@@ -193,7 +194,7 @@ class McpManager extends EventEmitter {
           reconnectionOptions:{initialReconnectionDelay:1000,maxReconnectionDelay:30000,reconnectionDelayGrowFactor:2,maxRetries:0}
         }),inspect);
       }else transport=new ManagedStdioTransport(config,{processHost:this.processHost,nodePath:this.nodePath,onMessage:inspect});
-      client=new Client({name:'ChatToHarness',version:'0.4.0'},{capabilities:{}});
+      client=new Client({name:'ChatToHarness',version:appVersion},{capabilities:{}});
       record.client=client;record.transport=transport;
       client.onerror=error=>{
         if(/MCP_(MESSAGE_TOO_LARGE|PROTOCOL_INVALID)/.test(error.message)){

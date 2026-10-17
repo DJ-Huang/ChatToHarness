@@ -198,7 +198,8 @@ test('explicit local text rules work without adopting editor rule directories au
   const outside = path.join(f.temporary, 'outside.txt');
   fs.writeFileSync(outside, 'Outside rule');
   f.put('AGENTS.md', 'Follow `../outside.txt`.');
-  assert.equal((await f.contexts.getContext({project_path:f.root})).rules_index[0].path,outside);
+  const indexed = await f.contexts.getContext({project_path:f.root});
+  assert.deepEqual(indexed.rules_index.map(entry => entry.path).sort(), [outside, path.join(f.root, 'rules/readme.markdown')].sort());
 });
 
 test('nonexistent write paths retain realpath confinement and new child directories require refreshed context', async (t) => {

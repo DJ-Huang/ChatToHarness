@@ -344,4 +344,4 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   console.log(JSON.stringify(report));
 }
 main().catch(error => { console.error(error.stack || error.message); process.exitCode = 1; })
-  .finally(async () => { await close(); fs.rmSync(home, { recursive: true, force: true }); });
+  .finally(async () => { await close(); fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });

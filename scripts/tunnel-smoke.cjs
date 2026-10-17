@@ -23,6 +23,6 @@ async function main(){
   for(let attempt=0;attempt<60&&!hits&&child.exitCode===null;attempt++)await new Promise(resolve=>setTimeout(resolve,100));
   assert.ok(hits>0,'Runtime did not accept configuration: '+lines);assert.ok(fs.existsSync(manager.healthFile));
   console.log(JSON.stringify({realTunnelRuntime:true,appOwnedGateway:true,stdioCommandAccepted:true,healthEndpoint:true,localControlPlaneRequests:hits,externalOpenAIContact:false}));
- }finally{await stopTree(child);await manager.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(home,{recursive:true,force:true});}
+ }finally{await stopTree(child);await manager.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(home,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
 }
 main().catch(error=>{console.error(error.message);process.exitCode=1;});

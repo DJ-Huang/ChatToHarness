@@ -1,4 +1,5 @@
 'use strict';
+const {version: appVersion} = require('../package.json');
 
 const net = require('node:net');
 const fs = require('node:fs');
@@ -68,7 +69,7 @@ class McpGateway {
       const remaining=buffer.subarray(end+1);buffer=Buffer.alloc(0);if(remaining.length)socket.unshift(remaining);
       socket.write('{"ready":true}\n');
       const transport=new LineTransport(socket,socket,{close:async()=>socket.destroy()});
-      const server=new Server({name:'ChatToHarness',version:'0.4.0'},{capabilities:{tools:{listChanged:true}},instructions:'ChatToHarness provides authorized local tools and configured MCP extensions. Tool access is managed in the desktop application. Interrupted calls are never automatically replayed.'});
+      const server=new Server({name:'ChatToHarness',version:appVersion},{capabilities:{tools:{listChanged:true}},instructions:'ChatToHarness provides authorized local tools and configured MCP extensions. Tool access is managed in the desktop application. Interrupted calls are never automatically replayed.'});
       this.sessions.add(server);
       server.oninitialized=()=>this.initializedSessions.add(server);
       server.onerror=()=>{};server.onclose=()=>this.sessions.delete(server);

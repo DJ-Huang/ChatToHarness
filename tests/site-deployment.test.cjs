@@ -25,7 +25,7 @@ test('main build remains successful with public downloads when package version i
   assert.equal(result.status,0,result.stderr);
   assert.match(result.stdout,/Website built: 0\.3\.1/);
   assert.equal(fs.readFileSync(output,'utf8'),'version=0.3.1\n');
-  for(const route of ['','en','ja'])validatePage(fs.readFileSync(path.join(root,'dist/site',route,'index.html'),'utf8'),'0.3.1');
+  for(const route of ['','en','zh-CN','ja'])validatePage(fs.readFileSync(path.join(root,'dist/site',route,'index.html'),'utf8'),'0.3.1');
 });
 
 test('release caller waits for public installers and never silently deploys the old stable version',async()=>{
@@ -50,23 +50,34 @@ test('production smoke check catches stale locales, missing assets and stale dis
   const output=fs.mkdtempSync(path.join(os.tmpdir(),'cth-site-deployment-'));
   t.after(()=>fs.rmSync(output,{recursive:true,force:true}));
   build([current],output);
-  const pages=['','en/','ja/'].map(route=>fs.readFileSync(path.join(output,route,'index.html'),'utf8'));
-  for(const html of pages){
+  const routes=['','en/','zh-CN/','ja/'];
+  const pages=new Map(routes.map(route=>['/ChatToHarness/'+route,fs.readFileSync(path.join(output,route,'index.html'),'utf8')]));
+  for(const html of pages.values()){
     validatePage(html,'0.4.0');
     assert.throws(()=>validatePage(html.replaceAll('0.4.0','0.3.1'),'0.4.0'),/stale/);
     assert.throws(()=>validatePage(html.replace('SHA256SUMS.txt','missing.txt'),'0.4.0'),/stale/);
     assert.throws(()=>validatePage(html.replaceAll('<span>v0.4.0 ','<span>v0.3.1 '),'0.4.0'),/displayed/);
     assert.throws(()=>validatePage(html.replace('<span>v0.4.0 ','<span>v0.3.1 '),'0.4.0'),/displayed/);
   }
-  let requests=0,waits=0;const seen=new Set();
+  let waits=0;const seen=new Set();
   const request=async url=>{
-    const parsed=new URL(url);seen.add(parsed.searchParams.has('release-check'));
-    const index=parsed.pathname.endsWith('/en/')?1:parsed.pathname.endsWith('/ja/')?2:0;
-    requests++;
-    const html=waits===0&&index===1?pages[index].replaceAll('0.4.0','0.3.1'):pages[index];
+    const parsed=new URL(url),cacheBusted=parsed.searchParams.has('release-check');
+    seen.add(parsed.pathname+'|'+cacheBusted);
+    const page=pages.get(parsed.pathname);
+    assert.ok(page,'Unexpected production route: '+parsed.pathname);
+    const html=waits===0&&parsed.pathname.endsWith('/zh-CN/')&&cacheBusted?page.replaceAll('0.4.0','0.3.1'):page;
     return {ok:true,text:async()=>html};
   };
   await verifySite('0.4.0',{request,attempts:2,wait:async()=>{waits++;},report:()=>{}});
-  assert.equal(waits,1);assert.equal(requests,11);assert.equal(seen.size,2);
+  assert.equal(waits,1,'A stale Chinese page must delay production verification.');
+  assert.deepEqual([...seen].sort(),[...pages.keys()].flatMap(route=>[route+'|false',route+'|true']).sort());
+  for(const staleCacheBusted of [false,true]){
+    const staleChinese=async url=>{
+      const parsed=new URL(url),page=pages.get(parsed.pathname);
+      const stale=parsed.pathname.endsWith('/zh-CN/')&&parsed.searchParams.has('release-check')===staleCacheBusted;
+      return {ok:true,text:async()=>stale?page.replaceAll('0.4.0','0.3.1'):page};
+    };
+    await assert.rejects(verifySite('0.4.0',{request:staleChinese,attempts:1,report:()=>{}}),/zh-CN\/.*stale/);
+  }
   await assert.rejects(verifySite('0.4.0',{request:async()=>({ok:false,status:503}),attempts:1,report:()=>{}}),/production is inconsistent/);
 });

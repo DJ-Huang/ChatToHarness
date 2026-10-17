@@ -198,7 +198,8 @@ test('explicit local text rules work without adopting editor rule directories au
   const outside = path.join(f.temporary, 'outside.txt');
   fs.writeFileSync(outside, 'Outside rule');
   f.put('AGENTS.md', 'Follow `../outside.txt`.');
-  assert.equal((await f.contexts.getContext({project_path:f.root})).rules_index[0].path,outside);
+  const indexed = await f.contexts.getContext({project_path:f.root});
+  assert.deepEqual(indexed.rules_index.map(entry => entry.path).sort(), [outside, path.join(f.root, 'rules/readme.markdown')].sort());
 });
 
 test('nonexistent write paths retain realpath confinement and new child directories require refreshed context', async (t) => {
@@ -214,6 +215,22 @@ test('nonexistent write paths retain realpath confinement and new child director
   fs.mkdirSync(outside);
   fs.symlinkSync(outside, path.join(f.root, 'escape'));
   await assert.rejects(f.contexts.getContext({ project_path: f.root, target_paths: ['escape/new-file.txt'] }), { code: 'TARGET_OUTSIDE_PROJECT' });
+});
+
+test('new AGENTS invalidates delivered context even when directory metadata is unchanged', async t => {
+  const f=fixture(t),file=f.put('child/source.txt'),directory=path.dirname(file);
+  const snapshot=fs.statSync(directory,{bigint:true}),stat=fs.promises.stat.bind(fs.promises);
+  t.mock.method(fs.promises,'stat',(target,options)=>target===directory&&options?.bigint
+    ? Promise.resolve(snapshot) : stat(target,options));
+  const loaded=await f.contexts.getContext({project_path:f.root,target_paths:[file]});
+  assert.equal(loaded.agents.length,0);
+  await f.contexts.validate([loaded.project_context_token],[file]);
+  f.put('child/AGENTS.md','New child rules despite unchanged directory timestamps');
+  await assert.rejects(f.contexts.validate([loaded.project_context_token],[file]),{code:'PROJECT_CONTEXT_STALE'});
+  const refreshed=await f.contexts.prepare([loaded.project_context_token],[file],{projectPath:f.root,writing:true});
+  assert.equal(refreshed.needsDelivery,true);
+  assert.equal(refreshed.contexts[0].agents[0].content,'New child rules despite unchanged directory timestamps');
+  await f.contexts.validate([refreshed.contexts[0].project_context_token],[file]);
 });
 
 test('no instructions allow first writes and warm reads reuse cached bodies', async t => {

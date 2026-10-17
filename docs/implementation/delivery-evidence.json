@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "created_at": "2026-10-17T18:00:46.486970+00:00",
+  "application": {
+    "schema": 1,
+    "version": "0.5.0",
+    "commit": "f0795543b021a8b811c4fcd2df7d8f7d875e30d4",
+    "dirty": false,
+    "source_sha256": "01a7ce06abbfd72c31c26de3a10d2358d2bf8306e38c6de5c34af14242e3f4e4",
+    "built_at": "2026-10-17T17:47:43.599Z"
+  },
+  "acceptance_commit": "0bdfdfaaa0bba868ae879e9bfd61421c4e867f35",
+  "worktree_branch": "codex/harness-continuity",
+  "baseline": {
+    "tests": 213,
+    "pass": 211,
+    "fail": 0,
+    "skipped": 2
+  },
+  "final_tests": {
+    "tests": 241,
+    "pass": 239,
+    "fail": 0,
+    "skipped": 2
+  },
+  "macos": {
+    "official_engine_version": "0.3.0",
+    "official_tools": {
+      "total": 25,
+      "verified": 23,
+      "partial": 2
+    },
+    "formats": {
+      "xlsx": {
+        "status": "verified",
+        "bytes": 6453
+      },
+      "docx": {
+        "status": "verified",
+        "bytes": 1757
+      },
+      "pdf": {
+        "status": "verified",
+        "bytes": 25936
+      }
+    },
+    "mcp_smoke": "passed",
+    "tunnel_smoke": "passed: isolated loopback fixture",
+    "continuity": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "started_at": "2026-10-17T17:47:47.211Z",
+      "failures": [],
+      "project_read_edit": true,
+      "start_call_ms": 24,
+      "session_reconnect": true,
+      "manager_restart": true,
+      "duration_ms": 125066,
+      "single_execution": true,
+      "artifact_sha256": "08a0e7afc020275d9396e682a49e90dc80cf64ccf0870caae06c0dd5f960a3de",
+      "saved_logs": true,
+      "undo": true,
+      "finished_at": "2026-10-17T17:49:54.875Z"
+    },
+    "ui": {
+      "ui": true,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "packaged": true,
+      "realLocalTools": 45,
+      "languages": [
+        "zh-CN",
+        "en",
+        "ja"
+      ],
+      "languagePersistence": true,
+      "languagePreservesCredentialsAndConnection": true,
+      "navigation": true,
+      "unicodeSpaceDirectory": true,
+      "encryptedSaveAndReplace": true,
+      "restartAutoConnect": true,
+      "windowHide": true,
+      "singleInstance": true,
+      "ownedProcessCleanup": true,
+      "appMcpManagement": true,
+      "mcpWithoutWorkspace": true,
+      "mcpDefaultDeny": true,
+      "mcpEncryptedEnvironment": true,
+      "harnessBuildIdentity": true,
+      "localProjectApprovalRemembered": true,
+      "localProjectApprovalRevoked": true,
+      "localToolApprovalRemembered": true,
+      "globalAllowAllPreserved": true,
+      "authErrorAndRecovery": true,
+      "clearPreservesWorkspace": true,
+      "remoteTunnel": "not tested: isolated fixture"
+    },
+    "standalone_package": {
+      "outside_repository": true,
+      "isolated_profile": true,
+      "exit_code": 0
+    },
+    "packaged_dependencies": {
+      "@modelcontextprotocol/sdk": true,
+      "@hono/node-server": true,
+      "ajv": true,
+      "ajv-formats": true,
+      "content-type": true,
+      "cors": true,
+      "cross-spawn": true,
+      "eventsource": true,
+      "eventsource-parser": true,
+      "express": true,
+      "express-rate-limit": true,
+      "hono": true,
+      "jose": true,
+      "json-schema-typed": true,
+      "pkce-challenge": true,
+      "raw-body": true,
+      "zod": true,
+      "zod-to-json-schema": true
+    }
+  },
+  "windows": {
+    "native_status": "pending: no Windows host connected",
+    "ci_matrix": "windows-2025, macos-15",
+    "native_continuity_script": "scripts/continuity-smoke.cjs"
+  },
+  "original_workspace": {
+    "checked_at": "2026-10-17T17:54:39.067173+00:00",
+    "branch": "codex/mcp-tool-access-stability",
+    "head": "6f9583d7ed73b6e63b3a129c72b547943d865496",
+    "status": "M app/mcp-proxy.cjs\n M app/project-context.cjs\n M electron-builder.config.cjs",
+    "files": {
+      "app/mcp-proxy.cjs": {
+        "sha256": "f40288fc3a8b55e40fa79d34b839a23bbd850a87ad576ddbf9d359dbe9705c63",
+        "unchanged": true
+      },
+      "app/project-context.cjs": {
+        "sha256": "701a526c9cb31769b5aa94087f0d7297104171c787ca97f9e5697d85896671f7",
+        "unchanged": true
+      },
+      "electron-builder.config.cjs": {
+        "sha256": "1dc438bfdab7bd9d061b7a152fb625f06a84fac53134bccd1b4a35bb87aa88db",
+        "unchanged": true
+      }
+    },
+    "original_main_pid": 41054,
+    "original_main_still_running": true
+  },
+  "delivery_constraints": {
+    "running_app_replaced": false,
+    "running_app_restarted": false,
+    "release_published": false,
+    "pushed": false,
+    "pr_created": false,
+    "multi_agent_models_started": false
+  },
+  "file_sha256": {
+    "scripts/mcp-smoke.cjs": "8273c847d3706303c40f74a789b3c1ea2216d022d403feffff3b09669a17c385",
+    "scripts/capability-smoke.cjs": "ac099d5c31cb04c0affe59c0ef344d7ed22e5c66ef6526c5e92b1d29662daba7",
+    "scripts/continuity-smoke.cjs": "a0531ef516ae3f72a19267c04f2644a7ef3280e2225027d76fcfec85211dd736",
+    "scripts/tunnel-smoke.cjs": "f551c1d8ab563b71879a33052a09a0570cfafac9d5a023a282ef3ddfc108e5e1",
+    "scripts/ui-smoke.cjs": "bbacc222971134e7b92e6a7282fdcabf86157169dc714603eab3a2a04c82e5c8"
+  },
+  "evidence_log_sha256": {
+    "continuity-all-tests.log": "43da9beeb6a847aa558ed4c4854b16a993e3745533fba8951392e14e0d5a406b",
+    "final-mcp-smoke.log": "d134a9482f1914ea30044fc93e1ff58adc1e808b8869235d18cd24b303f1ea06",
+    "final-capability-smoke.log": "effcec43489d9b405f1b06f0a7d83777b9275e09da856f9b5bf99ffc18607758",
+    "final-continuity-smoke.log": "0729fe5d46ab12dab8d3a6d3246fbf7a83c3f9952667b2c7f380e341029ab3a2",
+    "final-tunnel-smoke.log": "cabf860c165c1c7e4c84c817b44435c2c2bdeac20582941dd6e766be30cab582",
+    "build-macos.log": "b122efdb3440024db219156f17800bf45f010aff615a2102093b092f08cdd72d",
+    "standalone-ui-smoke.log": "aee445fd359676c032fc288f70f8f383754e019629a04f1bb39daae25bf3ae5b"
+  }
+}

@@ -2,7 +2,7 @@
   "platform": "darwin",
   "arch": "arm64",
   "engine_version": "0.3.0",
-  "generated_at": "2026-10-17T16:58:01.792Z",
+  "generated_at": "2026-10-17T17:44:09.892Z",
   "tools": {
     "get_config": {
       "status": "verified",
@@ -128,7 +128,7 @@
   "formats": {
     "xlsx": {
       "status": "verified",
-      "bytes": 6454
+      "bytes": 6453
     },
     "docx": {
       "status": "verified",

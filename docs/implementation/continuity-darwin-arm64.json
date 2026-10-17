@@ -1,0 +1,16 @@
+{
+  "platform": "darwin",
+  "arch": "arm64",
+  "started_at": "2026-10-17T17:47:47.211Z",
+  "failures": [],
+  "project_read_edit": true,
+  "start_call_ms": 24,
+  "session_reconnect": true,
+  "manager_restart": true,
+  "duration_ms": 125066,
+  "single_execution": true,
+  "artifact_sha256": "08a0e7afc020275d9396e682a49e90dc80cf64ccf0870caae06c0dd5f960a3de",
+  "saved_logs": true,
+  "undo": true,
+  "finished_at": "2026-10-17T17:49:54.875Z"
+}

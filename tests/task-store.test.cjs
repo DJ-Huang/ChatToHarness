@@ -64,6 +64,14 @@ test('expired worker heartbeats are reported as interrupted and never trigger au
   const result = f.store.status(job.task_id, f.project); assert.equal(result.state, 'interrupted'); assert.equal(result.execution_state, 'unknown');
   assert.equal(f.start('console.log("one attempt")', 'orphan').reused, true); assert.equal(launches, 1);
 });
+test('an unreadable task state retains its identity and is never treated as a fresh command', t => {
+  let launches = 0;
+  const f = fixture(t, {launch: () => { launches++; const worker = new EventEmitter(); worker.unref = () => {}; return worker; }});
+  const command = 'console.log("saved identity")', job = f.start(command, 'missing-state');
+  fs.unlinkSync(path.join(f.store.taskPath(job.task_id), 'state.json'));
+  assert.throws(() => f.start(command, 'missing-state'), error => error.code === 'TASK_STATE_UNREADABLE' && error.details.task_id === job.task_id && error.details.execution_state === 'unknown');
+  assert.equal(launches, 1);
+});
 test('runtime deadline terminates a task and reports a saved timeout', {timeout: 15000}, async t => {
   const f = fixture(t), job = f.start('setInterval(()=>{},1000)', 'deadline', {runtime_limit_ms: 300});
   await until(() => f.store.status(job.task_id, f.project).terminal);

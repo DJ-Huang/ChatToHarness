@@ -72,7 +72,9 @@ class TaskStore {
     return {...this.status(taskId, input.project_path), reused: false};
   }
   status(id, project) {
-    const {directory, request} = this.request(id, project), saved = readJson(path.join(directory, 'state.json'));
+    const {directory, request} = this.request(id, project); let saved;
+    try { saved = readJson(path.join(directory, 'state.json')); }
+    catch { throw fail('TASK_STATE_UNREADABLE', 'The saved task state cannot be read. Keep this task_id and inspect its artifacts and logs before deciding what to do next; the command will not be replayed.', {task_id: id, operation_executed: null, execution_state: 'unknown'}); }
     const stale = !FINAL.has(saved.state) && Date.now() - Date.parse(saved.updated_at) > 15000;
     const state = stale ? {...saved, state: 'interrupted', execution_state: saved.operation_executed !== false ? 'unknown' : 'not_started', next_action: 'Worker heartbeat is unavailable. Inspect artifacts and logs; this task will never be replayed automatically.'} : saved;
     return {summary: `${id}: ${state.state}.`, ...state, command_summary: request.command.slice(0, 200), artifact_paths: request.artifact_paths,

@@ -2,10 +2,10 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ['site/**', 'scripts/build-site.cjs', 'tests/site-release.test.cjs', 'tests/fixtures/**', '.github/workflows/pages.yml']
+    paths: ['site/**', 'scripts/*site*.cjs', 'tests/*site*.test.cjs', 'tests/fixtures/**', '.github/workflows/pages.yml', '.github/workflows/desktop.yml']
   pull_request:
     branches: [main]
-    paths: ['site/**', 'scripts/build-site.cjs', 'tests/site-release.test.cjs', 'tests/fixtures/**', '.github/workflows/pages.yml']
+    paths: ['site/**', 'scripts/*site*.cjs', 'tests/*site*.test.cjs', 'tests/fixtures/**', '.github/workflows/pages.yml', '.github/workflows/desktop.yml']
   release:
     types: [published, edited, released, deleted]
   workflow_dispatch:
@@ -18,6 +18,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.site.outputs.version }}
+      deploy: ${{ steps.site.outputs.deploy }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -25,8 +28,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.22.0'
-      - run: node --test tests/site-release.test.cjs
+      - run: node --test tests/*site*.test.cjs
       - name: Build with published stable downloads
+        id: site
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/build-site.cjs
@@ -34,9 +38,10 @@ jobs:
         with:
           path: dist/site
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.build.outputs.deploy == 'true'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       pages: write
@@ -45,6 +50,16 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
       - uses: actions/configure-pages@v5
       - uses: actions/deploy-pages@v4
         id: deployment
+      - name: Verify production versions and downloads in all languages
+        env:
+          EXPECTED_VERSION: ${{ needs.build.outputs.version }}
+        run: node scripts/verify-site.cjs "$EXPECTED_VERSION"

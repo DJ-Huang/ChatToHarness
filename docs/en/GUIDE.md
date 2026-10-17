@@ -84,7 +84,7 @@ Double-click `Dev.command` on Mac or `Dev.cmd` on Windows. The first run prepare
 
 After editing code, launch that entry again to restart; it does not watch file saves. The old instance receives a graceful Quit request, stops its tunnel and tools, cancels reconnects and releases the single-instance lock before the new instance loads source. Existing directories, credentials and preferences retain their storage. A new executable may require first-use keychain authorization.
 
-Keep the development terminal open. Ctrl+C or closing it ends that development run. Closing the app window still hides it in the background; launching the development entry again replaces it. Restarting ends active tool tasks.
+Keep the development terminal open. Ctrl+C or closing it ends that development run. Startup displays a standard window with minimize controls. On Mac, use the Dock icon or its Open window menu; on Windows, restore the minimized window from the taskbar. The menu-bar/system-tray menu also provides Open window. Closing the window hides it in the background; if the tray is unavailable, it minimizes instead so an entry remains accessible. Relaunching the development entry gracefully restarts and shows the window, ending active tool tasks.
 
 For the first switch from an older version without the restart protocol, select **Quit ChatToHarness** once from its menu; closing the window is insufficient. If the old instance stays alive, the launcher fails clearly after at most 15 seconds rather than starting a second service. Subsequent development restarts use the one-click entry. If Windows reports that a changed pinned dependency is in use, quit the old development instance before preparing it again.
 

@@ -38,6 +38,25 @@ test('explicit signing requires credentials and default build ignores ambient si
   assert.ok(signed.overrides.includes('-c.mac.notarize=true'));
 });
 
+test('macOS PR builds allow only credential-free ad-hoc signing by default', () => {
+  const env = { GITHUB_BASE_REF: 'main', CSC_FOR_PULL_REQUEST: 'false', CSC_LINK: 'ambient-cert',
+    CSC_KEY_PASSWORD: 'ambient-password', WIN_CSC_LINK: 'ambient-win-cert', WIN_CSC_KEY_PASSWORD: 'ambient-win-password',
+    APPLE_ID: 'ambient-id', APPLE_APP_SPECIFIC_PASSWORD: 'ambient-password', APPLE_TEAM_ID: 'ambient-team',
+    APPLE_API_KEY: 'ambient-key', APPLE_API_KEY_ID: 'ambient-key-id', APPLE_API_ISSUER: 'ambient-issuer' };
+  const adhoc = signingConfig('darwin', env);
+  assert.equal(adhoc.env.CSC_FOR_PULL_REQUEST, 'true');
+  assert.equal(adhoc.env.CSC_IDENTITY_AUTO_DISCOVERY, 'false');
+  for (const name of Object.keys(env).filter(name => /^(CSC_|WIN_CSC_|APPLE_)/.test(name) && name !== 'CSC_FOR_PULL_REQUEST')) {
+    assert.equal(adhoc.env[name], undefined, `${name} must not reach the builder`);
+  }
+  assert.ok(adhoc.overrides.includes('-c.mac.identity=-'));
+  assert.ok(adhoc.overrides.includes('-c.mac.notarize=false'));
+  assert.equal(adhoc.env.GITHUB_BASE_REF, 'main');
+  assert.equal(env.CSC_FOR_PULL_REQUEST, 'false');
+  assert.equal(signingConfig('darwin', { ...env, CTH_SIGNED: '1' }).env.CSC_FOR_PULL_REQUEST, 'false');
+  assert.equal(signingConfig('win32', env).env.CSC_FOR_PULL_REQUEST, 'false');
+});
+
 test('package keeps legacy identity and user data while exposing branded native installers', () => {
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
   assert.equal(manifest.version, require('../package-lock.json').version);

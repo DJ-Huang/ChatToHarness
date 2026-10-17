@@ -28,6 +28,10 @@ function signingConfig(platform, env) {
     for (const name of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD',
       'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID', 'APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER']) delete buildEnv[name];
     buildEnv.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
+    // electron-builder's PR guard also skips the certificate-free ad-hoc
+    // signature required by our macOS package verification. Allow only this
+    // mode after removing credentials and forcing mac.identity=- below.
+    if (platform === 'darwin') buildEnv.CSC_FOR_PULL_REQUEST = 'true';
   }
   const overrides = platform === 'darwin' ? (signed
     ? ['-c.mac.hardenedRuntime=true', '-c.mac.notarize=true',

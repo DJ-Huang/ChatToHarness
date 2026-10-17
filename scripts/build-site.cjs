@@ -64,5 +64,14 @@ function build(releases,output=path.join(root,'dist/site')){
   }
   return info;
 }
-module.exports={releaseInfo,build};
-if(require.main===module)(async()=>{const fixture=process.argv.indexOf('--fixture');const releases=fixture>=0?JSON.parse(fs.readFileSync(process.argv[fixture+1],'utf8')):await publishedReleases();console.log('Website built:',build(releases).version);})().catch(error=>{console.error(error.message);process.exitCode=1;});
+module.exports={releaseInfo,build,publishedReleases};
+if(require.main===module)(async()=>{
+  const {prepareDeployment}=require('./site-deployment.cjs');
+  const fixture=process.argv.indexOf('--fixture');
+  const load=fixture>=0?async()=>JSON.parse(fs.readFileSync(process.argv[fixture+1],'utf8')):publishedReleases;
+  const event=process.env.GITHUB_EVENT_PATH?JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')):{};
+  const {releases,info}=await prepareDeployment({load,event,eventName:process.env.GITHUB_EVENT_NAME,ref:process.env.GITHUB_REF});
+  build(releases);
+  if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`version=${info.version}\n`);
+  console.log('Website built:',info.version);
+})().catch(error=>{console.error(error.message);process.exitCode=1;});

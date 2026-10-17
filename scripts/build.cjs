@@ -60,6 +60,9 @@ function verifyResources(resources, options = {}) {
   }
   return receipt;
 }
+function shouldVerifyMacSignature(platform, signed) {
+  return platform === 'darwin' && signed;
+}
 function main() {
   versions.forPlatform();
   const config = signingConfig(process.platform, process.env);
@@ -78,8 +81,9 @@ function main() {
   if (!fs.existsSync(executable)) throw new Error('应用打包未生成预期入口。');
   const resources = process.platform === 'darwin' ? path.join(application, 'Contents', 'Resources') : path.join(application, 'resources');
   verifyResources(resources, { packaged: true, signed: config.signed });
-  if (process.platform === 'darwin') {
+  if (shouldVerifyMacSignature(process.platform, config.signed)) {
     const signed = spawnSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', application], { stdio: 'inherit' });
+    if (signed.error) throw signed.error;
     if (signed.status !== 0) throw new Error('应用签名校验失败。');
   }
   if (process.platform === 'win32' && config.signed) {
@@ -102,4 +106,4 @@ function main() {
   } else console.log(`已生成：${application}`);
 }
 if (require.main === module) { try { main(); } catch (error) { console.error(`构建失败：${error.message}`); process.exitCode = 1; } }
-module.exports = { signingConfig, verifyResources };
+module.exports = { signingConfig, verifyResources, shouldVerifyMacSignature };

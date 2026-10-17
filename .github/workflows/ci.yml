@@ -27,7 +27,8 @@ jobs:
           node-version: '24.22.0'
           cache: npm
       - name: Validate runner architecture
-        run: node -e "if(process.platform==='darwin' ? process.arch!=='arm64' : process.arch!=='x64')process.exit(1)"
+        run: |
+          node -e "if(process.platform==='darwin' ? process.arch!=='arm64' : process.arch!=='x64')process.exit(1)"
       - run: npm ci --no-audit --no-fund
       - run: node scripts/release.cjs check
       - run: npm test

@@ -53,7 +53,8 @@ jobs:
           node-version: '24.22.0'
           cache: npm
       - name: Validate native architecture
-        run: node -e "if(process.platform==='darwin' ? process.arch!=='arm64' : process.arch!=='x64')process.exit(1)"
+        run: |
+          node -e "if(process.platform==='darwin' ? process.arch!=='arm64' : process.arch!=='x64')process.exit(1)"
       - run: npm ci --no-audit --no-fund
       - run: npm test
       - name: Build verified native installers

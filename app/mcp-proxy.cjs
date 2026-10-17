@@ -4,7 +4,7 @@ const os = require('node:os');
 const {StringDecoder} = require('node:string_decoder');
 const {SEARCH_TOOL} = require('./project-search.cjs');
 const {inside} = require('./project-context.cjs');
-const WORKFLOW = 'ChatToHarness: local file, search and terminal tools. search_project returns bounded matches with 1-based lines; read_file offsets are 0-based. Reads include optional project guidance and diagnostics. get_project_context loads selected rule bodies. A write with newly discovered guidance returns contexts and delivery tokens without execution; a subsequent request can include those tokens. File access uses desktop folder settings. Terminal context_paths describe project scope and do not sandbox the shell. Forwarded timeouts have unknown execution state; mutations are not replayed by the server.';
+const WORKFLOW = 'ChatToHarness: local file, search and terminal tools. search_project returns bounded matches with 1-based lines; read_file offsets are 0-based. Reads include optional project guidance and diagnostics. get_project_context discovers optional project skills, loads selected rule/skill bodies and reports matching guidance. A write with newly discovered guidance returns contexts and delivery tokens without execution; a subsequent request can include those tokens. File access uses desktop folder settings. Terminal context_paths describe project scope and do not sandbox the shell. Forwarded timeouts have unknown execution state; mutations are not replayed by the server.';
 const TOKEN_DESCRIPTION = 'Optional delivered-context tokens. A write may return fresh guidance and tokens for an explicit retry.';
 const FILE_TOOLS = new Set(['read_file','read_multiple_files','write_file','write_pdf','create_directory','list_directory','move_file','get_file_info','edit_block']);
 const SEARCH_TOOLS = new Set(['start_search','get_more_search_results','stop_search','list_searches']);
@@ -14,9 +14,9 @@ const CONTROL_TOOLS = new Set(['stop_search','force_terminate','kill_process']);
 const GATED_TOOLS = new Set([...FILE_TOOLS,...SEARCH_TOOLS,...TERMINAL_TOOLS]);
 const CONTEXT_TOOL = {
   name:'get_project_context',title:'Load project guidance',
-  description:'Read optional AGENTS and a rule index for an explicit project. Missing references produce diagnostics. Shared references may be in any authorized folder. rule_paths selects full bodies. Reads do not require this call. Returned tokens record delivery and confer no access rights.',
-  inputSchema:{type:'object',properties:{project_path:{type:'string',description:'Absolute task project directory or file in a Git project.'},target_paths:{type:'array',items:{type:'string'},maxItems:128},rule_paths:{type:'array',items:{type:'string'},maxItems:128}},required:['project_path'],additionalProperties:false},
-  outputSchema:{type:'object',properties:{project_path:{type:'string'},target_paths:{type:'array',items:{type:'string'}},agents:{type:'array',items:{type:'object'}},rules_index:{type:'array',items:{type:'object'}},loaded_rules:{type:'array',items:{type:'object'}},diagnostics:{type:'array',items:{type:'object'}},context_version:{type:'string'},instruction_version:{type:'string'},project_context_token:{type:'string'},instructions:{type:'string'}},required:['project_path','agents','rules_index','loaded_rules','diagnostics','project_context_token']},
+  description:'Read optional AGENTS, rule and skill indexes for an explicit project. task and target_paths report guidance matches; rule_paths and skill_paths select full bodies. Missing references produce diagnostics. Shared references may be in any authorized folder. Returned tokens record delivery and confer no access rights.',
+  inputSchema:{type:'object',properties:{project_path:{type:'string',description:'Absolute task project directory or file in a Git project.'},target_paths:{type:'array',items:{type:'string'},maxItems:128},rule_paths:{type:'array',items:{type:'string'},maxItems:128},skill_paths:{type:'array',items:{type:'string'},maxItems:128},task:{type:'string',maxLength:4096}},required:['project_path'],additionalProperties:false},
+  outputSchema:{type:'object',properties:{project_path:{type:'string'},target_paths:{type:'array',items:{type:'string'}},agents:{type:'array',items:{type:'object'}},rules_index:{type:'array',items:{type:'object'}},loaded_rules:{type:'array',items:{type:'object'}},skills_index:{type:'array',items:{type:'object'}},loaded_skills:{type:'array',items:{type:'object'}},precedence:{type:'object'},budget:{type:'object'},diagnostics:{type:'array',items:{type:'object'}},context_version:{type:'string'},instruction_version:{type:'string'},project_context_token:{type:'string'},instructions:{type:'string'}},required:['project_path','agents','rules_index','loaded_rules','diagnostics','project_context_token']},
   annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}
 };
 function idKey(id){return `${typeof id}:${String(id)}`;}
@@ -149,7 +149,7 @@ class McpProxy{
       const key=idKey(message.id),pending=this.pending.get(key);if(!pending&&this.expired.has(key))return;
       if(pending){clearTimeout(pending.timer);this.pending.delete(key);}
       if(pending&&object(message.result)){
-        if(pending.method==='initialize')message={...message,result:{...message.result,instructions:`${this.enabled?WORKFLOW:'Automatic project guidance is disabled. Authorized-folder checks still apply.'}\n\n${message.result.instructions||''}`}};
+        if(pending.method==='initialize'){this.upstreamCapabilities=message.result.capabilities||{};message={...message,result:{...message.result,instructions:`${this.enabled?WORKFLOW:'Automatic project guidance is disabled. Authorized-folder checks still apply.'}\n\n${message.result.instructions||''}`}};}
         else if(pending.method==='tools/list'&&Array.isArray(message.result.tools)){
           const tools=message.result.tools.map(tool=>this.decorateTool(tool));
           if(!message.result.nextCursor){for(const tool of [CONTEXT_TOOL,SEARCH_TOOL])if(!tools.some(item=>item.name===tool.name))tools.push({...tool});}
@@ -183,7 +183,7 @@ class McpProxy{
     return this.sendClient(message);
   }
   decorateTool(tool){
-    if(object(tool._meta)){
+    if(object(tool._meta)&&!this.upstreamCapabilities?.resources){
       const meta={...tool._meta};delete meta['ui/resourceUri'];delete meta['openai/outputTemplate'];delete meta['openai/widgetAccessible'];
       if(object(meta.ui)){const ui={...meta.ui};delete ui.resourceUri;if(Object.keys(ui).length)meta.ui=ui;else delete meta.ui;}
       const clean={...tool};if(Object.keys(meta).length)clean._meta=meta;else delete clean._meta;tool=clean;

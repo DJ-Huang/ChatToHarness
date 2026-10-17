@@ -21,6 +21,9 @@ class McpGateway {
       this.manager.log?.('mcp-list-notification',{recipients,toolsVersion:this.manager.toolsVersion});
     };
     manager.on('toolsChanged',this.changed);
+    this.contentChanged=kind=>{for(const session of this.sessions)if(this.initializedSessions.has(session))void session.notification({method:`notifications/${kind}/list_changed`}).catch(()=>{});};
+    this.resourcesChanged=()=>this.contentChanged('resources');this.promptsChanged=()=>this.contentChanged('prompts');
+    manager.on('resourcesChanged',this.resourcesChanged);manager.on('promptsChanged',this.promptsChanged);
   }
   async start() {
     if(this.starting)return this.starting;
@@ -73,7 +76,7 @@ class McpGateway {
       const remaining=buffer.subarray(end+1);buffer=Buffer.alloc(0);if(remaining.length)socket.unshift(remaining);
       socket.write('{"ready":true}\n');
       const transport=new LineTransport(socket,socket,{close:async()=>socket.destroy()});
-      const server=new Server({name:'ChatToHarness',version:appVersion},{capabilities:{tools:{listChanged:true}},instructions:'ChatToHarness provides authorized local tools and configured MCP extensions. Tool access is managed in the desktop application. Interrupted calls are never automatically replayed.'});
+      const server=new Server({name:'ChatToHarness',version:appVersion},{capabilities:{tools:{listChanged:true},...(this.manager.content?{resources:{listChanged:true},prompts:{listChanged:true}}:{})},instructions:'ChatToHarness provides authorized local tools and configured MCP extensions. Tool access is managed in the desktop application. Interrupted calls are never automatically replayed.'});
       const session=++this.nextSession;let initializations=0;
       this.sessions.add(server);
       this.manager.log?.('mcp-session',{session,phase:'opened'});
@@ -94,6 +97,11 @@ class McpGateway {
           const token=request.params._meta?.progressToken;
           if(token!==undefined)void server.notification({method:'notifications/progress',params:{...progress,progressToken:token}}).catch(()=>{});
         }}));
+      if(this.manager.content){
+        const types=require('@modelcontextprotocol/sdk/types.js');
+        for(const [schema,method] of [[types.ListResourcesRequestSchema,'resources/list'],[types.ListResourceTemplatesRequestSchema,'resources/templates/list'],[types.ReadResourceRequestSchema,'resources/read'],[types.ListPromptsRequestSchema,'prompts/list'],[types.GetPromptRequestSchema,'prompts/get']])
+          server.setRequestHandler(schema,(request,extra)=>this.manager.content.native(method,request.params||{},{signal:extra.signal}).catch(error=>{throw new McpError(ErrorCode.InvalidParams,/^MCP_[A-Z_]+$/.test(error.code||'')?error.code:'MCP_CONTENT_FAILED');}));
+      }
       void server.connect(transport).catch(()=>{this.sessions.delete(server);socket.destroy();});
     };
     socket.on('data',authenticate);socket.once('close',()=>clearTimeout(timer));
@@ -107,7 +115,7 @@ class McpGateway {
     if(server)await new Promise(resolve=>server.close(()=>resolve()));
     if(this.directory)fs.rmSync(this.directory,{recursive:true,force:true});this.directory=null;
   }
-  async close(){await this.stop();this.manager.off('toolsChanged',this.changed);}
+  async close(){await this.stop();this.manager.off('toolsChanged',this.changed);this.manager.off('resourcesChanged',this.resourcesChanged);this.manager.off('promptsChanged',this.promptsChanged);}
 }
 
 module.exports={McpGateway};

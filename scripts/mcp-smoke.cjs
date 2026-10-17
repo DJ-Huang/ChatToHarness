@@ -31,7 +31,7 @@ async function main(){
    assert.ok(initialized.instructions.includes('get_project_context'));
    child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
    const tools=await rpc('tools/list',{});const names=new Set(tools.tools.map(x=>x.name));
-   assert.ok(tools.tools.every(tool=>!tool._meta?.['openai/outputTemplate']&&!tool._meta?.['ui/resourceUri']&&!tool._meta?.ui?.resourceUri),'Unsupported preview template leaked');
+   assert.ok(initialized.capabilities?.resources || tools.tools.every(tool=>!tool._meta?.['openai/outputTemplate']&&!tool._meta?.['ui/resourceUri']&&!tool._meta?.ui?.resourceUri),'Preview templates require advertised resource support');
    for(const name of ['get_project_context','search_project','start_process','read_file','write_file'])assert.ok(names.has(name));
    assert.equal(tools.tools.find(tool=>tool.name==='start_process').annotations.readOnlyHint,false);
    const raw=(name,args)=>rpc('tools/call',{name,arguments:args});

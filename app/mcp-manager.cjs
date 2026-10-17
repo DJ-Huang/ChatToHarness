@@ -81,9 +81,10 @@ function redact(value,secrets=[]) {
 
 /** App-owned MCP clients. This class never accepts settings from model calls. */
 class McpManager extends EventEmitter {
-  constructor({settings,builtinFactory,services,nodePath=process.execPath,processHost,fetcher=globalThis.fetch,log=()=>{},callTimeout=60000}={}) {
+  constructor({settings,builtinFactory,services,enableContent=false,nodePath=process.execPath,processHost,fetcher=globalThis.fetch,log=()=>{},callTimeout=60000}={}) {
     super();Object.assign(this,{settings,builtinFactory,services,nodePath,processHost,fetcher,log,callTimeout});
     this.records=new Map();this.approvals=new Map();this.active=new Set();this.running=false;this.closed=false;this.epoch=0;
+    this.content=enableContent?new (require('./mcp-content.cjs').McpContent)(this):undefined;
     this.toolsVersion=0;this.visibleFingerprint='';this.visibleDefinitions=new Map();
   }
   changed() {
@@ -121,8 +122,8 @@ class McpManager extends EventEmitter {
     try{return this.settings.get(record.id).enabled&&this.settings.isTrusted(record.id);}catch{return false;}
   }
   visibleTools() {
-    const result=this.services&&this.running?[...this.services.tools()]:[];
-    for(const record of this.records.values())if(this.available(record))for(const item of record.tools)if(this.policy(record,item)!=='deny')result.push({...item.tool,name:item.alias});
+    const result=this.running?[...(this.services?.tools()||[]),...(this.content?.tools()||[])]:[];
+    for(const record of this.records.values())if(this.available(record))for(const item of record.tools)if(this.policy(record,item)!=='deny')result.push({...this.content?.decorateTool(record,item.tool)||item.tool,name:item.alias});
     return result.sort((a,b)=>a.name.localeCompare(b.name));
   }
   listTools(cursor) {
@@ -251,7 +252,13 @@ class McpManager extends EventEmitter {
         }
       });
       await client.connect(transport,{signal:record.controller.signal,timeout:CONNECT_TIMEOUT});
-      await this.refreshTools(record,client);
+      record.capabilities=client.getServerCapabilities()||{};
+      if(this.content){
+        const schemas=require('@modelcontextprotocol/sdk/types.js');
+        if(record.capabilities.resources)client.setNotificationHandler(schemas.ResourceListChangedNotificationSchema,()=>this.emit('resourcesChanged'));
+        if(record.capabilities.prompts)client.setNotificationHandler(schemas.PromptListChangedNotificationSchema,()=>this.emit('promptsChanged'));
+      }
+      if(record.capabilities.tools)await this.refreshTools(record,client);else record.tools=[];
       if(epoch!==this.epoch||generation!==record.generation||record.controller.signal.aborted)throw issue('MCP_STOPPED');
       record.phase='ready';record.error='';record.terminalError='';record.attempts=0;this.logConnection(record,'ready',{count:record.tools.length});this.changed();
     }catch(error){
@@ -296,7 +303,7 @@ class McpManager extends EventEmitter {
       }
       if(record.client!==client||signal.aborted)throw issue('MCP_DISCONNECTED');
       const aliases=new Set(tools.map(item=>item.alias));
-      if(this.services?.tools().some(tool=>aliases.has(tool.name)))throw issue('MCP_TOOL_NAME_CONFLICT');
+      if([...(this.services?.tools()||[]),...(this.content?.tools()||[])].some(tool=>aliases.has(tool.name)))throw issue('MCP_TOOL_NAME_CONFLICT');
       for(const other of this.records.values())if(other!==record&&other.tools.some(item=>aliases.has(item.alias)))throw issue('MCP_TOOL_NAME_CONFLICT');
       // Only removed or redefined tools invalidate their captured calls.
       // List ordering and changes to unrelated tools do not affect a grant.
@@ -327,6 +334,7 @@ class McpManager extends EventEmitter {
     });
   }
   async call(name,args={}, {signal,onprogress}={}) {
+    if(this.content?.has(name))return this.running?this.content.call(name,args,{signal,onprogress}):failed('MCP_STOPPED');
     if(this.services?.has(name))return this.running?this.services.call(name,args,{signal,onprogress}):failed('MCP_STOPPED');
     let record,item;
     for(const candidate of this.records.values()){
@@ -384,7 +392,7 @@ class McpManager extends EventEmitter {
     await Promise.allSettled([...this.records.values()].map(record=>this.disconnect(record)));
     await this.broker?.stop();this.changed();
   }
-  async close(){this.closed=true;await this.stop();await this.broker?.close();this.services?.dispose();}
+  async close(){this.closed=true;await this.stop();await this.broker?.close();this.services?.dispose();this.content?.dispose();}
 }
 
 module.exports={McpManager,BUILTIN,fingerprint,alias,errorCode,failed};

@@ -58,6 +58,44 @@ function waitFor(promise, signal) {
     promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', cancel));
   });
 }
+// Front matter is a bounded discovery hint. It never changes authorization.
+function guidanceMetadata(content) {
+  const metadata = {}, header = content.slice(0, 4096).match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!header) return metadata;
+  let listKey = null;
+  const scalar = value => value.trim().replace(/^(['"])([\s\S]*)\1$/, '$2').slice(0, 1024);
+  for (const line of header[1].split(/\r?\n/)) {
+    const item = line.match(/^\s+-\s+(.+)$/);
+    if (item && listKey) { if (metadata[listKey].length < 32) metadata[listKey].push(scalar(item[1]).slice(0, 256)); continue; }
+    const field = line.match(/^([A-Za-z_]+):\s*(.*?)\s*$/);
+    listKey = null;
+    if (!field) continue;
+    const key = field[1], value = field[2];
+    if (['name', 'description'].includes(key)) metadata[key] = scalar(value);
+    if (key === 'alwaysApply') metadata.alwaysApply = value === 'true';
+    if (['globs', 'paths', 'tasks', 'task_keywords'].includes(key)) {
+      metadata[key] = value ? value.replace(/^\[|\]$/g, '').split(',').slice(0, 32).map(scalar).map(item => item.slice(0, 256)).filter(Boolean) : [];
+      if (!value) listKey = key;
+    }
+  }
+  return metadata;
+}
+function guidanceMatches(metadata, root, targets, task) {
+  const patterns = [...(metadata.globs || []), ...(metadata.paths || [])];
+  const keywords = [...(metadata.tasks || []), ...(metadata.task_keywords || [])];
+  const pathMatch = patterns.some(pattern => targets.some(target => {
+    const relative = path.relative(root, target.target).split(path.sep).join('/');
+    try { return path.posix.matchesGlob(relative, pattern); } catch { return false; }
+  }));
+  const taskMatch = Boolean(task && keywords.some(keyword => task.toLowerCase().includes(keyword.toLowerCase())));
+  return { path: pathMatch, task: taskMatch, always: metadata.alwaysApply === true,
+    suggested: metadata.alwaysApply === true || pathMatch || taskMatch,
+    basis: 'Matched rule bodies load automatically; skill bodies load only when selected.' };
+}
+function contextOptions(input) {
+  if (input.task !== undefined && (typeof input.task !== 'string' || input.task.length > 4096 || input.task.includes('\0'))) throw new ContextError('INVALID_CONTEXT_TASK', 'task must be text of up to 4096 characters.');
+  return { requestedSkills: paths(input.skill_paths, 'skill_paths'), task: input.task || '' };
+}
 function markdownReferences(content) {
   const found = new Set();
   const expressions = [
@@ -207,7 +245,7 @@ class ProjectContexts {
     catch { throw failPath('RULE_UNREADABLE', 'Rule bodies must be UTF-8 text without NUL bytes.', file); }
     const heading = content.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/m);
     const data = { signature: signature(stat), hash: body ? crypto.createHash('sha256').update(bytes).digest('hex') : signature(stat),
-      bytes: Number(stat.size), title: (heading ? heading[1] : path.basename(file, path.extname(file))).slice(0,256), storedBytes: bytes.length, ...(body ? { content } : {}) };
+      metadata: guidanceMetadata(content), bytes: Number(stat.size), title: (heading ? heading[1] : path.basename(file, path.extname(file))).slice(0,256), storedBytes: bytes.length, ...(body ? { content } : {}) };
     if (!body && this.files.get(file)?.signature === data.signature && this.files.get(file).content !== undefined) return this.files.get(file);
     if (this.files.has(file)) this.cacheBytes -= this.files.get(file).storedBytes;
     this.files.delete(file); this.files.set(file, data); this.cacheBytes += data.storedBytes;
@@ -216,7 +254,7 @@ class ProjectContexts {
     }
     return data;
   }
-  async build(root, inputs, requestedRules, signal) {
+  async build(root, inputs, requestedRules, signal, {requestedSkills = [], task = ''} = {}) {
     const targets = [];
     for (const input of inputs.length ? inputs : [root]) { aborted(signal); targets.push(await this.resolveTarget(root, input)); }
     const scopes = [...new Set(targets.map(item => item.scope))].sort(), directories = new Set([root]);
@@ -249,7 +287,7 @@ class ProjectContexts {
     const addRule = async (logical, source) => {
       if(index.size>=MAX_INDEX_FILES&&source!=='rule_paths')throw failPath('RULE_INDEX_LIMIT','Rule index capacity reached; select specific rule_paths for full bodies.',logical);
       aborted(signal); const file = await this.authorize(logical, true), data = await this.readRule(file, false, signal);
-      if (!index.has(file)) index.set(file, { path: file, title: data.title, source: [] });
+      if (!index.has(file)) index.set(file, { path: file, title: data.metadata?.name || data.title, description: data.metadata?.description || '', metadata: data.metadata || {}, match: guidanceMatches(data.metadata || {}, root, targets, task), source: [] });
       if (!index.get(file).source.includes(source)) index.get(file).source.push(source);
       fingerprint.push(['rule', logical, file, data.signature]); return file;
     };
@@ -267,34 +305,75 @@ class ProjectContexts {
         try {
           const resolved = await this.authorize(file, true), stat = await optionalStat(resolved);
           if (stat?.isDirectory()) await walk(file);
-          else if (/\.(?:md|markdown)$/i.test(entry.name)) { await addRule(file, 'rules/'); indexed++; }
+          else if (/\.(?:md|markdown|mdc)$/i.test(entry.name)) { await addRule(file, 'rules/'); indexed++; }
         } catch (error) { diagnose(error, file); if (error.code === 'RULE_INDEX_LIMIT') return; }
       }
     };
     const rulesDirectory = path.join(root, 'rules');
     try { if (await optionalStat(rulesDirectory)) await walk(rulesDirectory); } catch (error) { diagnose(error, rulesDirectory); }
+    const referencedSkills = [];
     for (const agent of agents) for (const reference of markdownReferences(agent.content)) {
       const logical = path.resolve(path.dirname(agent.path), reference);
       if (agents.some(candidate => candidate.path === logical)) continue;
+      if (/^SKILL\.md$/i.test(path.basename(logical))) { referencedSkills.push([logical,agent.path]); continue; }
       try {
         if (/[{}*]/.test(reference)) throw failPath('RULE_REFERENCE_PATTERN', 'This reference is a documentation pattern; select concrete rule files when needed.', logical);
         await addRule(logical, agent.path);
       } catch (error) { diagnose(error, agent.path); }
     }
+    const skills = new Map(), skillDirectories = new Set();
+    const addSkill = async (logical, source) => {
+      if (skills.size >= MAX_INDEX_FILES) throw failPath('SKILL_INDEX_LIMIT','Skill index capacity reached; select a narrower project.',logical);
+      const file = await this.authorize(logical,true), data = await this.readRule(file,false,signal);
+      if (!skills.has(file)) skills.set(file,{path:file,name:data.metadata?.name || path.basename(path.dirname(file)),title:data.title,description:data.metadata?.description || '',metadata:data.metadata || {},match:guidanceMatches(data.metadata || {},root,targets,task),source:[]});
+      if (!skills.get(file).source.includes(source)) skills.get(file).source.push(source);
+      fingerprint.push(['skill',logical,file,data.signature]); return file;
+    };
+    const walkSkills = async (logical, depth = 0) => {
+      aborted(signal); const directory = await this.authorize(logical,true);
+      if (skillDirectories.has(directory)) return;
+      if (skillDirectories.size >= 256 || depth > 4) throw failPath('SKILL_INDEX_LIMIT','Skill directory discovery budget reached.',logical);
+      skillDirectories.add(directory);
+      const entries = await this.directory(directory,signal);
+      if (entries.truncated) diagnose(failPath('SKILL_INDEX_LIMIT','Skill directory contains more than 2048 entries.',directory),directory);
+      for (const entry of entries.sort((a,b)=>a.name.localeCompare(b.name))) {
+        const file = path.join(logical,entry.name);
+        try {
+          if (entry.isDirectory() && entry.name !== 'node_modules' && !entry.name.startsWith('.')) await walkSkills(file,depth+1);
+          else if (/^SKILL\.md$/i.test(entry.name)) await addSkill(file,'skill_directory');
+        } catch(error) { diagnose(error,file); if(error.code==='SKILL_INDEX_LIMIT')return; }
+      }
+    };
+    for (const relative of ['skills','.agents/skills','.codex/skills']) {
+      const directory = path.join(root,relative);
+      try { if(await optionalStat(directory))await walkSkills(directory); } catch(error) { diagnose(error,directory); }
+    }
+    for (const [logical,source] of referencedSkills) try { await addSkill(logical,source); } catch(error) { diagnose(error,source); }
     const loadedRules = [];
-    for (const requested of requestedRules) {
+    const selectedRules = [...new Set([...requestedRules,...[...index.values()].filter(item=>item.match.suggested).map(item=>item.path)])];
+    for (const requested of selectedRules) {
       const logical = path.isAbsolute(requested) ? path.resolve(requested) : path.resolve(root, requested), file = await addRule(logical, 'rule_paths');
       if (loadedRules.some(rule => rule.path === file)) continue;
       const data = await this.readRule(file, true, signal); bodyBytes += data.bytes;
       if (bodyBytes > MAX_BODY_BYTES) throw failPath('CONTEXT_TOO_LARGE', 'Combined instruction bodies exceed 64 KiB; request fewer rule bodies.', file);
       loadedRules.push({ path: file, content: data.content }); delivered.push(['body', logical, file, data.hash]);
     }
+    const loadedSkills = [];
+    for (const requested of requestedSkills) {
+      const logical = path.isAbsolute(requested) ? path.resolve(requested) : path.resolve(root,requested), file = await addSkill(logical,'skill_paths');
+      if(loadedSkills.some(skill=>skill.path===file))continue;
+      const data = await this.readRule(file,true,signal); bodyBytes += data.bytes;
+      if(bodyBytes > MAX_BODY_BYTES)throw failPath('CONTEXT_TOO_LARGE','Combined AGENTS, rule and skill bodies exceed 64 KiB; select fewer bodies.',file);
+      loadedSkills.push({path:file,content:data.content});delivered.push(['skill_body',logical,file,data.hash]);
+    }
     const blocking = diagnostics.filter(item => item.blocks_writes);
     const instructionVersion = crypto.createHash('sha256').update(JSON.stringify({ root, scopes, delivered, blocking })).digest('hex');
     const version = crypto.createHash('sha256').update(JSON.stringify({ instructionVersion, fingerprint, diagnostics })).digest('hex');
     return { project_path: root, target_paths: [...new Set(targets.map(item => item.target))], agents,
-      rules_index: [...index.values()].sort((a, b) => a.path.localeCompare(b.path)), loaded_rules: loadedRules, diagnostics,
-      instructions: 'AGENTS and selected rule bodies are project guidance. Missing instructions are allowed. References are optional discovery hints; rule_paths selects full text. Diagnostics do not block reads; blocks_writes marks unavailable AGENTS. Delivery tokens record supplied content, not model compliance or access authorization.',
+      rules_index: [...index.values()].sort((a, b) => a.path.localeCompare(b.path)), loaded_rules: loadedRules, skills_index:[...skills.values()].sort((a,b)=>a.path.localeCompare(b.path)), loaded_skills:loadedSkills, diagnostics,
+      precedence:{agents:'outer_to_inner',rules:'matching_or_explicit',skills:'explicit_on_demand',authorization:'desktop_settings_only'},
+      budget:{body_bytes:bodyBytes,body_limit_bytes:MAX_BODY_BYTES,metadata_prefix_bytes:4096},
+      instructions: 'AGENTS apply outer-to-inner. Rule metadata globs/paths and tasks/task_keywords select applicable bodies; alwaysApply rules also load. skills_index is discovery only; skill_paths loads selected bodies. Explicit user instructions take precedence over project guidance. Missing instructions are allowed. Diagnostics do not block reads; blocks_writes marks unavailable AGENTS. Delivery tokens record supplied content and never grant access.',
       instructionVersion, version, scopes };
   }
   publicResult(result) {
@@ -304,8 +383,8 @@ class ProjectContexts {
   async getContext(input = {}, { signal } = {}) {
     aborted(signal); const root = await this.resolveProject(input.project_path), targetInputs = paths(input.target_paths, 'target_paths');
     if (!targetInputs.length && input.project_path) { const hint = await this.authorize(input.project_path), stat = await optionalStat(hint); if (!stat?.isDirectory()) targetInputs.push(hint); }
-    const requestedRules = paths(input.rule_paths, 'rule_paths'), result = await this.build(root, targetInputs, requestedRules, signal); aborted(signal);
-    const token = crypto.randomBytes(32).toString('base64url'); this.contexts.set(token, { result, targetInputs, requestedRules });
+    const requestedRules = paths(input.rule_paths, 'rule_paths'), options = contextOptions(input), result = await this.build(root, targetInputs, requestedRules, signal, options); aborted(signal);
+    const token = crypto.randomBytes(32).toString('base64url'); this.contexts.set(token, { result, targetInputs, requestedRules, options });
     while (this.contexts.size > this.maxTokens) this.contexts.delete(this.contexts.keys().next().value);
     return { ...this.publicResult(result), project_context_token: token };
   }
@@ -317,7 +396,7 @@ class ProjectContexts {
       const record = this.contexts.get(token);
       if (!record) throw new ContextError('INVALID_PROJECT_CONTEXT', 'The context token expired; reload instructions.');
       let current;
-      try { current = await this.build(record.result.project_path, record.targetInputs, record.requestedRules, signal); }
+      try { current = await this.build(record.result.project_path, record.targetInputs, record.requestedRules, signal, record.options); }
       catch (error) { if (signal?.aborted) throw signal.reason; throw new ContextError('PROJECT_CONTEXT_STALE', 'Selected project instructions changed or are unavailable.', { cause: error.code, ...error.details }); }
       if (current.diagnostics.some(item => item.blocks_writes)) throw new ContextError('PROJECT_INSTRUCTIONS_UNAVAILABLE', 'Resolve the reported AGENTS errors before writing.', { diagnostics: current.diagnostics });
       if (current.instructionVersion !== record.result.instructionVersion) throw new ContextError('PROJECT_CONTEXT_STALE', 'Delivered instructions changed; read the refreshed context before retrying.', { project_path: current.project_path, target_paths: current.target_paths });
@@ -325,7 +404,14 @@ class ProjectContexts {
     }
     for (const input of targetPaths.length ? targetPaths : [this.defaultDirectory]) {
       const target = await this.authorize(input), stat = await optionalStat(target), scope = stat?.isDirectory() ? target : path.dirname(target);
-      if (!records.some(record => inside(record.result.project_path, target) && record.result.scopes.includes(scope))) throw new ContextError('PROJECT_CONTEXT_SCOPE_REQUIRED', 'New target scope; read its instructions before retrying.', { target_paths: [target] });
+      const covering = records.map((record, index) => ({record, current: currentResults[index]})).filter(({record}) => inside(record.result.project_path, target) && record.result.scopes.includes(scope));
+      if (!covering.length) throw new ContextError('PROJECT_CONTEXT_SCOPE_REQUIRED', 'New target scope; read its instructions before retrying.', { target_paths: [target] });
+      // Two files in the same directory can match different rules. A directory
+      // delivery token alone must not skip newly applicable file-pattern rules.
+      const rulesCovered = covering.some(({record, current}) => current.rules_index
+        .filter(rule => guidanceMatches(rule.metadata || {}, current.project_path, [{target}], record.options?.task || '').suggested)
+        .every(rule => current.loaded_rules.some(loaded => loaded.path === rule.path)));
+      if (!rulesCovered) throw new ContextError('PROJECT_CONTEXT_SCOPE_REQUIRED', 'This filename matches guidance that has not been delivered. Read the refreshed context before retrying.', {target_paths: [target]});
     }
     return currentResults;
   }
@@ -336,7 +422,7 @@ class ProjectContexts {
     if (!writing && Array.isArray(tokens) && tokens.length) {
       try {
         const contexts = await this.validate(tokens, targets, { signal });
-        return { contexts: contexts.map(context => ({ ...context, agents: [], loaded_rules: [], rules_index: [], reused: true,
+        return { contexts: contexts.map(context => ({ ...context, agents: [], loaded_rules: [], rules_index: [], skills_index:[], loaded_skills:[], reused: true,
           instructions: 'Previously delivered instruction bodies are unchanged and omitted here. Current diagnostics are included.' })), needsDelivery: false };
       } catch (error) { if (signal?.aborted || error.code === 'PATH_NOT_ALLOWED') throw error; }
     }
@@ -349,13 +435,14 @@ class ProjectContexts {
     for (const target of targets) {
       const matching = Array.isArray(tokens) ? tokens.map(token => this.contexts.get(token)).filter(record => record && inside(record.result.project_path, target)).sort((a, b) => b.result.project_path.length - a.result.project_path.length)[0] : null;
       const root = projectPath ? await this.resolveProject(projectPath) : matching?.result.project_path || await this.inferProject(target);
-      if (!groups.has(root)) groups.set(root, { targets: [], rules: new Set() });
+      if (!groups.has(root)) groups.set(root, { targets: [], rules: new Set(), skills: new Set(), task: matching?.options?.task || '' });
       groups.get(root).targets.push(target);
       for (const rule of matching?.requestedRules || []) groups.get(root).rules.add(rule);
+      for (const skill of matching?.options?.requestedSkills || []) groups.get(root).skills.add(skill);
     }
     const contexts = [];
     for (const [root, group] of groups) {
-      try { contexts.push(await this.getContext({ project_path: root, target_paths: group.targets, rule_paths: [...group.rules] }, { signal })); }
+      try { contexts.push(await this.getContext({ project_path: root, target_paths: group.targets, rule_paths: [...group.rules],skill_paths:[...group.skills],task:group.task }, { signal })); }
       catch (error) {
         if (signal?.aborted || error.code === 'PATH_NOT_ALLOWED' || error.code === 'TARGET_OUTSIDE_PROJECT') throw error;
         const context = await this.getContext({ project_path: root, target_paths: group.targets }, { signal });
@@ -363,7 +450,7 @@ class ProjectContexts {
       }
     }
     if (writing && contexts.some(context => context.diagnostics.some(item => item.blocks_writes))) throw new ContextError('PROJECT_INSTRUCTIONS_UNAVAILABLE', 'Resolve AGENTS errors before writing.', { contexts });
-    return { contexts, needsDelivery: writing && (refresh||contexts.some(context => context.agents.length || context.loaded_rules.length || context.diagnostics.some(item=>item.source==='previous rule_paths'))) };
+    return { contexts, needsDelivery: writing && (refresh||contexts.some(context => context.agents.length || context.loaded_rules.length || context.loaded_skills.length || context.diagnostics.some(item=>item.source==='previous rule_paths'))) };
   }
   dispose() { for (const shared of this.pending.values()) shared.controller.abort(); this.pending.clear(); this.files.clear(); this.directories.clear();this.directoryEntries=0;this.contexts.clear(); this.cacheBytes = 0; }
 }

@@ -56,6 +56,10 @@ jobs:
         with:
           node-version: '24.22.0'
       - uses: actions/configure-pages@v5
+      # Keep the production content check mandatory: a release can change the public
+      # stable-download metadata without changing the main commit SHA. If Pages reports
+      # deployment success but serves stale HTML, a new main commit touching this workflow
+      # gives the deployment a fresh build identity; rerunning the same commit is insufficient.
       - uses: actions/deploy-pages@v4
         id: deployment
       - name: Verify production versions and downloads in all languages

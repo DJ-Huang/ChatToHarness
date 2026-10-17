@@ -38,6 +38,7 @@
       "THIRD_PARTY_NOTICES.md",
       "VERIFICATION.md",
       "docs/**/*",
+      "release-notes/**/*.md",
       "site/assets/*.png"
     ],
     "extraResources": [

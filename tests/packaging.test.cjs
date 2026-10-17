@@ -39,7 +39,8 @@ test('explicit signing requires credentials and default build ignores ambient si
 });
 
 test('package keeps legacy identity and user data while exposing branded native installers', () => {
-  assert.equal(manifest.version, '0.3.0');
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(manifest.version, require('../package-lock.json').version);
   assert.equal(manifest.build.appId, 'local.localharness.mac');
   assert.equal(manifest.build.productName, 'ChatToHarness');
   assert.equal(manifest.build.nsis.deleteAppDataOnUninstall, false);

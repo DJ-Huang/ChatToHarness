@@ -7,7 +7,12 @@ function privateDirectory(directory) {
   if (!fs.lstatSync(directory).isDirectory() || fs.lstatSync(directory).isSymbolicLink()) throw Object.assign(new Error('Private storage must be a real directory.'), {code: 'UNSAFE_STORAGE'});
   fs.chmodSync(directory, 0o700);
 }
-function syncDirectory(directory) { let fd; try { fd = fs.openSync(directory, 'r'); fs.fsyncSync(fd); } catch { /* Windows cannot fsync directory handles. */ } finally { if (fd !== undefined) fs.closeSync(fd); } }
+function syncDirectory(directory) {
+  let fd;
+  try { fd = fs.openSync(directory, 'r'); fs.fsyncSync(fd); }
+  catch (error) { if (process.platform !== 'win32' || !['EPERM', 'EISDIR', 'EINVAL', 'EACCES'].includes(error.code)) throw error; }
+  finally { if (fd !== undefined) fs.closeSync(fd); }
+}
 function readJson(file, maxBytes = 512 * 1024) {
   const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
   try { const stat = fs.fstatSync(fd); if (!stat.isFile() || stat.nlink !== 1 || stat.size > maxBytes) throw Object.assign(new Error('Stored record is not a bounded private file.'), {code: 'UNSAFE_STORAGE'}); return JSON.parse(fs.readFileSync(fd, 'utf8')); }

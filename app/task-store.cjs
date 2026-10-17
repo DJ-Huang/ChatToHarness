@@ -34,6 +34,11 @@ class TaskStore {
     if (request.task_id !== id || request.project_path !== project) throw fail('TASK_SCOPE_MISMATCH', 'This task belongs to a different project.');
     return {directory, request};
   }
+  existing(input) {
+    if(typeof input.idempotency_key!=='string')return undefined;
+    const id=`task_${sha(JSON.stringify([input.project_path,input.idempotency_key]))}`;
+    return fs.existsSync(path.join(this.directory,id)) ? this.start(input) : undefined;
+  }
   start(input) {
     this.initialize();
     if (typeof input.command !== 'string' || !input.command.trim() || input.command.length > 65536 || input.command.includes('\0')) throw fail('INVALID_ARGUMENT', 'command must be nonempty shell text up to 65536 characters.');
@@ -57,7 +62,7 @@ class TaskStore {
     const state = {task_id: taskId, project_path: input.project_path, state: 'queued', created_at: created, updated_at: created, operation_executed: false, execution_state: 'not_started'};
     atomicJson(path.join(directory, 'state.json'), state); syncDirectory(this.directory);
     const env = developmentEnvironment(cleanEnvironment(), this.nodePath);
-    for (const key of Object.keys(env)) if (/^CTH_GATEWAY_/i.test(key)) delete env[key];
+    for (const key of Object.keys(env)) if (/^(CTH_GATEWAY_|NODE_TEST_)/i.test(key) || ['NODE_OPTIONS','NODE_CHANNEL_FD','NODE_UNIQUE_ID','ELECTRON_RUN_AS_NODE'].includes(key)) delete env[key];
     env.DO_NOT_TRACK = '1'; if (this.configHome) env.LOCALHARNESS_DC_HOME = this.configHome;
     try {
       const worker = this.launch(this.nodePath, [path.join(this.workerDirectory, 'task-worker.cjs'), directory], {cwd: input.project_path, env, detached: true, windowsHide: true, stdio: 'ignore'});
@@ -69,7 +74,7 @@ class TaskStore {
   status(id, project) {
     const {directory, request} = this.request(id, project), saved = readJson(path.join(directory, 'state.json'));
     const stale = !FINAL.has(saved.state) && Date.now() - Date.parse(saved.updated_at) > 15000;
-    const state = stale ? {...saved, state: 'interrupted', execution_state: saved.operation_executed ? 'unknown' : 'not_started', next_action: 'Worker heartbeat is unavailable. Inspect artifacts and logs; this task will never be replayed automatically.'} : saved;
+    const state = stale ? {...saved, state: 'interrupted', execution_state: saved.operation_executed !== false ? 'unknown' : 'not_started', next_action: 'Worker heartbeat is unavailable. Inspect artifacts and logs; this task will never be replayed automatically.'} : saved;
     return {summary: `${id}: ${state.state}.`, ...state, command_summary: request.command.slice(0, 200), artifact_paths: request.artifact_paths,
       cancel_requested: fs.existsSync(path.join(directory, 'cancel.request')), terminal: FINAL.has(state.state)};
   }

@@ -373,6 +373,7 @@
           select.disabled = busy || allowAllTools;
           select.addEventListener('change', event => mcpPerform('policy', () => api.mcpSetToolPolicy({ serverId: server.id, toolName: tool.name, policy: event.target.value })));
           label.append(select); line.append(title, label); row.append(line);
+          if(tool.projectGrants?.length){row.append(make('p','mcp-caption',t('已记住 {count} 个项目的授权',{count:tool.projectGrants.length})),mcpDetails('项目授权范围',tool.projectGrants),mcpButton('清除项目授权',()=>mcpPerform('policy',()=>api.mcpSetToolPolicy({serverId:server.id,toolName:tool.name,policy:tool.savedPolicy||'ask'}))));}
           if (tool.description) row.append(make('p', 'mcp-tool-description', tool.description));
           row.append(mcpDetails('输入参数', tool.inputSchema || {}));
           if (tool.outputSchema) row.append(mcpDetails('返回格式', tool.outputSchema));
@@ -402,7 +403,14 @@
       row.append(make('h3', '', (approval.serverName || approval.serverId) + ' · ' + approval.toolName));
       const deadline = Number(approval.expiresAt) || Date.parse(approval.expiresAt);
       if (Number.isFinite(deadline)) row.append(make('p', 'mcp-caption', t('确认截止：{time}', { time: new Intl.DateTimeFormat(locale, { timeStyle: 'medium' }).format(deadline) })));
-      row.append(make('pre', 'code-example', JSON.stringify(approval.arguments ?? {}, null, 2)));
+      const details=make('details','mcp-tool-details');details.append(make('summary','',t('查看参数与确认来源')));
+      details.append(make('pre','code-example',JSON.stringify(approval.arguments??{},null,2)));
+      details.append(make('p','mcp-caption',t('这是 ChatToHarness 本机确认。ChatGPT、操作系统和外部服务可能另行确认。')));
+      if(approval.projectPath)details.append(make('p','mcp-caption',approval.projectPath),make('p','mcp-caption',t('项目授权用于复用确认，不会把终端或外部服务限制在该目录中。')));
+      row.append(details);
+      const remember=make('select');remember.setAttribute('aria-label',t('本机授权范围'));
+      for(const [value,label]of [['once','仅本次'],...(approval.projectPath?[['project','此项目内记住']]:[]),['tool','记住此工具']]){const option=make('option','',t(label));option.value=value;remember.append(option);}
+      remember.value='once';row.append(remember);
       const buttons = make('div', 'mcp-actions');
       for (const [allow, label] of [[false, '拒绝'], [true, '允许此次调用']]) {
         const button = make('button', 'button ' + (allow ? 'primary' : 'secondary'), t(label)); button.type = 'button';
@@ -410,7 +418,7 @@
         button.addEventListener('click', async () => {
           if (mcpApprovalPending.has(approval.id)) return;
           mcpApprovalPending.add(approval.id); renderMcpApprovals();
-          try { const state = await api.mcpResolveApproval({ id: approval.id, allow }); if (state?.mcp || state?.runtime) applyState(state); }
+          try { const state = await api.mcpResolveApproval({ id: approval.id, allow, ...(allow&&remember.value!=='once'?{remember:remember.value}:{}) }); if (state?.mcp || state?.runtime) applyState(state); }
           catch (error) { actionError = mcpErrorMessage(error); }
           finally { mcpApprovalPending.delete(approval.id); render(); }
         });

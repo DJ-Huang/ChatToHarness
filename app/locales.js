@@ -2,6 +2,17 @@
 // Chinese source messages, English and Japanese translations. Shared by renderer and main.
 (function(root){
   const messages = {
+  "查看参数与确认来源": ["Parameters and confirmation source", "パラメーターと確認元"],
+  "这是 ChatToHarness 本机确认。ChatGPT、操作系统和外部服务可能另行确认。": ["This is a local ChatToHarness confirmation. ChatGPT, the operating system and external services may ask separately.", "これは ChatToHarness のローカル確認です。ChatGPT、OS、外部サービスが別途確認する場合があります。"],
+  "项目授权用于复用确认，不会把终端或外部服务限制在该目录中。": ["Project grants reuse confirmation; they do not confine a terminal or external service to this directory.", "プロジェクト権限は確認を再利用します。端末や外部サービスのアクセス範囲をこのディレクトリに制限するものではありません。"],
+  "本机授权范围": ["Local permission scope", "ローカル権限の範囲"],
+  "仅本次": ["This call only", "今回のみ"],
+  "此项目内记住": ["Remember for this project", "このプロジェクトで記憶"],
+  "记住此工具": ["Remember this tool", "このツールを記憶"],
+  "已记住 {count} 个项目的授权": ["Permissions saved for {count} projects", "{count} 件のプロジェクト権限を保存済み"],
+  "项目授权范围": ["Project permission scope", "プロジェクト権限の範囲"],
+  "清除项目授权": ["Clear project permissions", "プロジェクト権限を解除"],
+
   "添加工作目录或 MCP 服务，保存连接配置，即可开始。": ["Add a working directory or MCP server, then save your connection settings to begin.", "作業ディレクトリまたは MCP サーバーを追加し、接続設定を保存して開始してください。"],
   "未启用文件工具": ["File tools disabled", "ファイルツールは無効です"],
   "已拒绝此次工具调用。": ["This tool call was rejected.", "今回のツール呼び出しを拒否しました。"],

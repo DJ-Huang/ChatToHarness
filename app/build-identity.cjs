@@ -10,8 +10,10 @@ function sourceIdentity(root) {
   }
   let commit = null, dirty = null;
   try {
-    commit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], {encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore']}).trim();
-    dirty = Boolean(execFileSync('git', ['--no-optional-locks', '-C', root, 'status', '--porcelain', '--untracked-files=normal'], {encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore']}).trim());
+    const env = {...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_/i.test(key))), GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0'};
+    const options = {encoding: 'utf8', env, timeout: 2000, stdio: ['ignore', 'pipe', 'ignore']};
+    commit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], options).trim();
+    dirty = Boolean(execFileSync('git', ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', root, 'status', '--porcelain', '--untracked-files=normal'], options).trim());
   } catch { /* Source archives may have no Git metadata. */ }
   return {schema: 1, version: JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version, commit, dirty, source_sha256: hash.digest('hex')};
 }

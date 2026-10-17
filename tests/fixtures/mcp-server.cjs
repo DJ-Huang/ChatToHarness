@@ -22,6 +22,7 @@ function createFixtureServer({
   pageSize = Number(process.env.MCP_FIXTURE_PAGE_SIZE) || 2,
   countFile = process.env.MCP_FIXTURE_COUNT_FILE,
   startFile = process.env.MCP_FIXTURE_START_FILE,
+  projectAware = false,
 } = {}) {
   let calls = 0;
   let revision = 1;
@@ -35,7 +36,7 @@ function createFixtureServer({
   });
   const tools = () => {
     const catalog = [
-      tool('echo', `Return the supplied arguments (definition ${revision}).`),
+      tool('echo', `Return the supplied arguments (definition ${revision}).`, projectAware ? {project_path: {type: 'string'}} : {}),
       tool('count', 'Read this connection\'s call count.'),
       tool('change_tools', 'Change the tool catalog and send a list-changed notification.'),
       ...(hangRemoved ? [] : [tool('hang', hangRevision === 1 ? 'Wait until this request is cancelled.' : `Wait until this request is cancelled (definition ${hangRevision}).`)]),
@@ -98,7 +99,7 @@ function createFixtureServer({
 }
 
 if (require.main === module) {
-  const server = createFixtureServer();
+  const server = createFixtureServer({projectAware: process.argv.includes('--project-aware')});
   server.connect(new StdioServerTransport()).catch(() => { process.exitCode = 1; });
 }
 

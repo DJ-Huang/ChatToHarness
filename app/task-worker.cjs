@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {pathToFileURL} = require('node:url');
 const {StringDecoder} = require('node:string_decoder');
-const {spawnManaged, stopTree, defaultShell} = require('./platform.cjs');
+const {spawnManaged, stopTree, defaultShell, taskShellArguments} = require('./platform.cjs');
 const {readJson, atomicJson} = require('./durable-files.cjs');
 const directory = process.argv[2];
 const now = () => new Date().toISOString();
@@ -40,7 +40,10 @@ async function main() {
     const shell = config.defaultShell || defaultShell();
     if (fs.existsSync(path.join(directory, 'cancel.request'))) reason = 'cancelled';
     if (reason) { state.state = reason; state.finished_at = now(); return; }
-    const argv = process.platform === 'win32' ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(request.command, 'utf16le').toString('base64')] : ['-lc', request.command];
+    const argv = taskShellArguments(shell, request.command);
+    // Persist uncertainty before crossing the spawn boundary. A process crash
+    // after launch must never leave a record claiming it was not executed.
+    state = {...state, state: 'launching', operation_executed: null, execution_state: 'unknown'}; save();
     child = spawnManaged(shell, argv, {processHost: request.process_host, cwd: request.project_path, env: process.env, stdio: ['ignore', 'pipe', 'pipe']});
     for (const [stream, output] of [['stdout', child.stdout], ['stderr', child.stderr]]) {
       const decoder = new StringDecoder('utf8'); output.on('data', bytes => log(stream, decoder.write(bytes))); output.on('end', () => { const tail = decoder.end(); if (tail) log(stream, tail); });
@@ -55,7 +58,8 @@ async function main() {
     state = {...state, ...result, state: reason || (result.exit_code === 0 ? 'succeeded' : 'failed'), execution_state: 'completed', finished_at: now(), log_bytes: logBytes};
   } catch (error) {
     if (child) await stopTree(child);
-    state = {...state, state: reason || 'failed', finished_at: now(), execution_state: state.operation_executed ? 'unknown' : 'not_started', error: {code: error.code || 'TASK_FAILED', message: String(error.message).slice(0, 1024)}};
+    const executed = state.operation_executed === true;
+    state = {...state, state: reason || 'failed', operation_executed: executed, finished_at: now(), execution_state: executed ? 'unknown' : 'not_started', error: {code: error.code || 'TASK_FAILED', message: String(error.message).slice(0, 1024)}};
   } finally {
     clearInterval(heartbeat); clearTimeout(deadline); fs.fsyncSync(logFd); fs.closeSync(logFd); save();
   }

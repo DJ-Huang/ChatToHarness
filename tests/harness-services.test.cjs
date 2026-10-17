@@ -68,6 +68,7 @@ test('artifact pages return exact bytes, checksum, and native image content', as
   const f = fixture(t); const bytes = Buffer.from('中文 bytes 012345'); const file = path.join(f.project, 'result.txt'); fs.writeFileSync(file, bytes);
   const first = await f.services.call('get_file_result', {project_path: f.project, path: 'result.txt', length: 7});
   const second = await f.services.call('get_file_result', {project_path: f.project, path: file, offset: 7});
+  assert.equal(first.structuredContent.text, '中文 ');
   assert.deepEqual(Buffer.concat([Buffer.from(first.structuredContent.data, 'base64'), Buffer.from(second.structuredContent.data, 'base64')]), bytes);
   assert.equal(first.structuredContent.sha256, crypto.createHash('sha256').update(bytes).digest('hex'));
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=', 'base64');
@@ -75,6 +76,14 @@ test('artifact pages return exact bytes, checksum, and native image content', as
   const image = await f.services.call('get_file_result', {project_path: f.project, path: 'pixel.png'});
   assert.equal(image.content[1].type, 'image'); assert.deepEqual(Buffer.from(image.content[1].data, 'base64'), png);
   const denied = await f.services.call('get_file_result', {project_path: f.project, path: '../outside'}); assert.equal(denied.isError, true); assert.ok(denied.structuredContent.next_action);
+});
+test('safe edits respect the explicitly disabled automatic-guidance setting', async t => {
+  const f = fixture(t); fs.writeFileSync(path.join(f.project, 'AGENTS.md'), 'Project guidance.');
+  f.services.configure({directories: [f.project], autoProjectContext: false});
+  const input = {project_path: f.project, file_path: 'new.txt', content: 'saved', expected_sha256: 'absent', idempotency_key: 'guidance-disabled'};
+  const result = await f.services.call('apply_project_edit', input); assert.equal(result.isError, undefined);
+  assert.equal(fs.readFileSync(path.join(f.project, 'new.txt'), 'utf8'), 'saved');
+  const overview = await f.services.call('get_project_overview', {project_path: f.project}); assert.equal(overview.structuredContent.guidance.agents.length, 1);
 });
 test('build identity persists the source fingerprint and never invents absent packaged metadata', t => {
   const f = fixture(t); fs.mkdirSync(path.join(f.project, 'app')); fs.writeFileSync(path.join(f.project, 'app', 'main.cjs'), 'module.exports = 1;'); fs.writeFileSync(path.join(f.project, 'package.json'), '{"version":"1.2.3"}');

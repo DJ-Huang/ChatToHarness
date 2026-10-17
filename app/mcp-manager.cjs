@@ -81,9 +81,10 @@ function redact(value,secrets=[]) {
 
 /** App-owned MCP clients. This class never accepts settings from model calls. */
 class McpManager extends EventEmitter {
-  constructor({settings,builtinFactory,services,enableContent=false,nodePath=process.execPath,processHost,fetcher=globalThis.fetch,log=()=>{},callTimeout=60000}={}) {
+  constructor({settings,builtinFactory,services,enableContent=false,enableProjectGrants=false,nodePath=process.execPath,processHost,fetcher=globalThis.fetch,log=()=>{},callTimeout=60000}={}) {
     super();Object.assign(this,{settings,builtinFactory,services,nodePath,processHost,fetcher,log,callTimeout});
     this.records=new Map();this.approvals=new Map();this.active=new Set();this.running=false;this.closed=false;this.epoch=0;
+    this.projectGrants=enableProjectGrants?new (require('./project-grants.cjs').ProjectGrants)(settings.directory):undefined;
     this.content=enableContent?new (require('./mcp-content.cjs').McpContent)(this):undefined;
     this.toolsVersion=0;this.visibleFingerprint='';this.visibleDefinitions=new Map();
   }
@@ -109,13 +110,13 @@ class McpManager extends EventEmitter {
     const servers=this.settings.list().map(config=>{
       const record=this.records.get(config.id);
       return {...config,phase:record?.phase||'stopped',error:record?.error||'',protocolVersion:record?.protocolVersion||'',
-        tools:(record?.tools||[]).map(item=>({...copy(item.tool),exposedName:item.alias,policy:this.policy(record,item),savedPolicy:this.settings.getToolPolicy(config.id,item.tool.name,item.fingerprint)}))};
+        tools:(record?.tools||[]).map(item=>({...copy(item.tool),exposedName:item.alias,policy:this.policy(record,item),savedPolicy:this.settings.getToolPolicy(config.id,item.tool.name,item.fingerprint),projectGrants:this.projectGrants?.projects(record,item)||[]}))};
     });
     const builtin=this.records.get(BUILTIN);
     return {servers,allowAllTools:this.settings.getAllowAllTools(),builtin:{phase:builtin?.phase||'stopped',error:builtin?.error||'',toolsCount:builtin?.tools.length||0},
       approvals:[...this.approvals.values()].map(value=>copy(value.public)),toolsVersion:this.toolsVersion};
   }
-  policy(record,item) {return record.id===BUILTIN||this.settings.getAllowAllTools()?'allow':this.settings.getToolPolicy(record.id,item.tool.name,item.fingerprint);}
+  policy(record,item,project) {if(record.id===BUILTIN||this.settings.getAllowAllTools())return 'allow';const policy=this.settings.getToolPolicy(record.id,item.tool.name,item.fingerprint);return policy==='ask'&&this.projectGrants?.matches(record,item,project)?'allow':policy;}
   available(record) {
     if(record.phase!=='ready')return false;
     if(record.id===BUILTIN)return true;
@@ -183,18 +184,18 @@ class McpManager extends EventEmitter {
   setToolPolicy({serverId,toolName,policy}) {
     const record=this.records.get(serverId),item=record?.tools.find(value=>value.tool.name===toolName);
     if(!item||!['deny','allow','ask'].includes(policy))throw issue('MCP_INVALID_TOOL_POLICY');
-    const previous=this.policy(record,item);
-    this.settings.setToolPolicy(serverId,toolName,policy,item.fingerprint);
-    if(this.policy(record,item)!==previous)for(const operation of this.active)if(operation.record===record&&operation.item===item)operation.controller.abort(issue('MCP_POLICY_CHANGED'));
+    const previous=new Map([...this.active].filter(operation=>operation.record===record&&operation.item===item).map(operation=>[operation,this.policy(record,item,operation.projectPath)]));
+    this.settings.setToolPolicy(serverId,toolName,policy,item.fingerprint);this.projectGrants?.remove(serverId,toolName);
+    for(const [operation,before]of previous)if(this.policy(record,item,operation.projectPath)!==before)operation.controller.abort(issue('MCP_POLICY_CHANGED'));
     this.changed();
   }
   setAllowAllTools(enabled) {
     if(typeof enabled!=='boolean')throw issue('MCP_INVALID_CONFIG');
     if(enabled===this.settings.getAllowAllTools())return;
-    const previous=new Map([...this.active].map(operation=>[operation,this.policy(operation.record,operation.item)]));
+    const previous=new Map([...this.active].map(operation=>[operation,this.policy(operation.record,operation.item,operation.projectPath)]));
     // Persist first so a failed save cannot change access or interrupt calls.
     this.settings.setAllowAllTools(enabled);
-    for(const [operation,policy] of previous)if(this.policy(operation.record,operation.item)!==policy)operation.controller.abort(issue('MCP_POLICY_CHANGED'));
+    for(const [operation,policy] of previous)if(this.policy(operation.record,operation.item,operation.projectPath)!==policy)operation.controller.abort(issue('MCP_POLICY_CHANGED'));
     this.log('mcp-tool-access',{allowAllTools:enabled});this.changed();
   }
   async connect(id,{testing=false}={}) {
@@ -309,27 +310,34 @@ class McpManager extends EventEmitter {
       // List ordering and changes to unrelated tools do not affect a grant.
       const previous=new Map(record.tools.map(item=>[item.alias,item])),next=new Map(tools.map(item=>[item.alias,item]));
       for(const operation of this.active)if(operation.record===record&&next.get(operation.item.alias)?.fingerprint!==operation.item.fingerprint)operation.controller.abort(issue('MCP_TOOLS_CHANGED'));
-      if(record.id!==BUILTIN)this.settings.reconcileTools(record.id,new Map(tools.map(item=>[item.tool.name,item.fingerprint])));
+      if(record.id!==BUILTIN){const fingerprints=new Map(tools.map(item=>[item.tool.name,item.fingerprint]));this.settings.reconcileTools(record.id,fingerprints);this.projectGrants?.reconcile(record,fingerprints);}
       // Preserve identity so later policy changes can still cancel unchanged
       // operations that were captured before this refresh.
       record.tools=tools.map(item=>previous.get(item.alias)?.fingerprint===item.fingerprint?previous.get(item.alias):item);this.changed();
     })().finally(()=>{record.refreshing=null;});
     return record.refreshing;
   }
-  approve({id,allow}) {
-    if(typeof id!=='string'||typeof allow!=='boolean')throw issue('MCP_INVALID_APPROVAL');
+  approve({id,allow,remember='once'}) {
+    if(typeof id!=='string'||typeof allow!=='boolean'||!['once','project','tool'].includes(remember))throw issue('MCP_INVALID_APPROVAL');
     const approval=this.approvals.get(id);
     if(!approval||Date.now()>=approval.public.expiresAt)throw issue('MCP_APPROVAL_EXPIRED');
-    approval.finish(allow);return this.status();
+    const operation=approval.operation;
+    if(allow&&remember==='project'){
+      if(!operation.projectPath||!this.projectGrants)throw issue('MCP_INVALID_APPROVAL');
+      this.projectGrants.remember(operation.record,operation.item,operation.projectPath);
+    }else if(allow&&remember==='tool')this.settings.setToolPolicy(operation.record.id,operation.item.tool.name,'allow',operation.item.fingerprint);
+    approval.finish(allow);
+    if(allow&&remember!=='once')for(const pending of [...this.approvals.values()])if(pending.operation.record===operation.record&&pending.operation.item===operation.item&&this.policy(pending.operation.record,pending.operation.item,pending.operation.projectPath)==='allow')pending.finish(true);
+    this.changed();return this.status();
   }
   requestApproval(operation,args,deadline) {
     return new Promise(resolve=>{
       const id=crypto.randomBytes(20).toString('hex');
       const signal=operation.controller.signal;
-      const publicValue={id,serverId:operation.record.id,serverName:this.settings.get(operation.record.id).name,toolName:operation.item.tool.name,arguments:redact(args,operation.record.secretValues),expiresAt:Math.min(deadline,Date.now()+30000)};
+      const publicValue={id,serverId:operation.record.id,serverName:this.settings.get(operation.record.id).name,toolName:operation.item.tool.name,arguments:redact(args,operation.record.secretValues),...(operation.projectPath?{projectPath:operation.projectPath}:{}),expiresAt:Math.min(deadline,Date.now()+30000)};
       const finish=allow=>{clearTimeout(timer);signal.removeEventListener('abort',cancel);this.approvals.delete(id);this.emit('state');resolve(allow);};
       const cancel=()=>finish(false),timer=setTimeout(cancel,Math.max(0,publicValue.expiresAt-Date.now()));timer.unref?.();
-      this.approvals.set(id,{public:publicValue,finish});signal.addEventListener('abort',cancel,{once:true});
+      this.approvals.set(id,{public:publicValue,finish,operation});signal.addEventListener('abort',cancel,{once:true});
       this.emit('approval');this.emit('state');if(signal.aborted)cancel();
     });
   }
@@ -352,11 +360,12 @@ class McpManager extends EventEmitter {
     let approval='not_required',result;
     try{
       boundedMessage({jsonrpc:'2.0',id:0,method:'tools/call',params:{name:item.tool.name,arguments:argumentsCopy}});
-      if(this.policy(record,item)==='ask'){
+      if(this.projectGrants)operation.projectPath=await require('./project-grants.cjs').approvalProject(argumentsCopy,item,this.desktopSettings?.directories||[]);
+      if(this.policy(record,item,operation.projectPath)==='ask'){
         approval=await this.requestApproval(operation,argumentsCopy,deadline)?'allowed':'denied';
         if(approval!=='allowed')return result=failed(controller.signal.aborted?(controller.signal.reason?.code||'MCP_CANCELLED'):'MCP_APPROVAL_DENIED');
       }
-      if(controller.signal.aborted||record.generation!==generation||record.client!==client||!this.available(record)||this.policy(record,item)==='deny')return result=failed('MCP_CANCELLED');
+      if(controller.signal.aborted||record.generation!==generation||record.client!==client||!this.available(record)||this.policy(record,item,operation.projectPath)==='deny')return result=failed('MCP_CANCELLED');
       operation.started=true;
       const params={name:item.tool.name,arguments:argumentsCopy};
       result=await client.request({method:'tools/call',params},CallToolResultSchema,{signal:controller.signal,timeout:Math.max(1,deadline-Date.now()),onprogress});
@@ -386,7 +395,7 @@ class McpManager extends EventEmitter {
     if(record.connecting)await record.connecting.catch(()=>{});
     record.secretValues=[];record.stopping=false;this.changed();
   }
-  async remove(id) {const record=this.records.get(id);if(record)await this.disconnect(record);this.settings.remove(id);this.records.delete(id);this.changed();}
+  async remove(id) {const record=this.records.get(id);if(record)await this.disconnect(record);this.settings.remove(id);this.projectGrants?.remove(id);this.records.delete(id);this.changed();}
   async stop() {
     ++this.epoch;this.running=false;
     await Promise.allSettled([...this.records.values()].map(record=>this.disconnect(record)));

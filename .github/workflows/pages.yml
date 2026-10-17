@@ -1,0 +1,49 @@
+name: Website
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', 'scripts/build-site.cjs', 'tests/site-release.test.cjs', 'tests/fixtures/**', '.github/workflows/pages.yml']
+  pull_request:
+    branches: [main]
+    paths: ['site/**', 'scripts/build-site.cjs', 'tests/site-release.test.cjs', 'tests/fixtures/**', '.github/workflows/pages.yml']
+  release:
+    types: [published, edited, released, deleted]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: website-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+      - run: node --test tests/site-release.test.cjs
+      - name: Build with published stable downloads
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/build-site.cjs
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist/site
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment

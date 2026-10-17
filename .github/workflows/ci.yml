@@ -1,0 +1,48 @@
+name: Application checks
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['site/**', 'README.md', 'ARCHITECTURE.md', 'VERIFICATION.md', 'docs/**']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['site/**', 'README.md', 'ARCHITECTURE.md', 'VERIFICATION.md', 'docs/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+          cache: npm
+      - name: Validate runner architecture
+        run: node -e "if(process.platform==='darwin' ? process.arch!=='arm64' : process.arch!=='x64')process.exit(1)"
+      - run: npm ci --no-audit --no-fund
+      - run: node scripts/release.cjs check
+      - run: npm test
+      - run: node scripts/build-site.cjs --fixture tests/fixtures/no-releases.json
+      - name: Package native application
+        run: npm run build
+      - name: Real tool engine, project rules and credential isolation
+        run: node scripts/mcp-smoke.cjs
+      - name: Shipped runtime and loopback control plane
+        run: node scripts/tunnel-smoke.cjs
+      - name: Packaged application and isolated channel acceptance
+        run: node scripts/ui-smoke.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: application-checks-${{ runner.os }}
+          path: .cache/acceptance/
+          if-no-files-found: warn

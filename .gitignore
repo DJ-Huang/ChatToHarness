@@ -1,0 +1,20 @@
+node_modules/
+resources/
+dist/
+.cache/
+.DS_Store
+*.log
+
+# Private state and signing material
+.env
+.env.*
+*.p12
+*.pfx
+*.pem
+*.key
+settings.json
+auth-token
+coverage/
+
+/node_modules
+/resources

@@ -1,0 +1,103 @@
+name: Desktop installers
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      signed:
+        description: Require production signing and Mac notarization
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+      - name: Validate version and protect published releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: node scripts/release.cjs check
+  package:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            signing: WINDOWS
+          - os: macos-15
+            signing: MAC
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CTH_SIGNED: ${{ inputs.signed && '1' || '0' }}
+      CSC_LINK: ${{ inputs.signed && secrets[format('{0}_CSC_LINK', matrix.signing)] || '' }}
+      CSC_KEY_PASSWORD: ${{ inputs.signed && secrets[format('{0}_CSC_KEY_PASSWORD', matrix.signing)] || '' }}
+      APPLE_ID: ${{ inputs.signed && secrets.APPLE_ID || '' }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ inputs.signed && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+      APPLE_TEAM_ID: ${{ inputs.signed && secrets.APPLE_TEAM_ID || '' }}
+      CSC_FOR_PULL_REQUEST: 'false'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+          cache: npm
+      - name: Validate native architecture
+        run: node -e "if(process.platform==='darwin' ? process.arch!=='arm64' : process.arch!=='x64')process.exit(1)"
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - name: Build verified native installers
+        run: npm run dist
+      - name: Real tool engine, project rules and credential isolation
+        run: node scripts/mcp-smoke.cjs
+      - name: Shipped runtime and loopback control plane
+        run: node scripts/tunnel-smoke.cjs
+      - name: Actual packaged window and synthetic channel
+        run: node scripts/ui-smoke.cjs
+      - name: Installer acceptance and retained user data
+        run: node scripts/installer-smoke.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ runner.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installer-checks-${{ runner.os }}
+          path: .cache/acceptance/
+          if-no-files-found: warn
+  release-draft:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [validate, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          path: dist/release
+          merge-multiple: true
+      - name: Assemble draft and verify uploaded checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          CTH_SIGNED: ${{ inputs.signed && '1' || '0' }}
+        run: node scripts/release.cjs draft

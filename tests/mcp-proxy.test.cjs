@@ -2,6 +2,10 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {PassThrough}=require('node:stream');
+const path=require('node:path');
+const projectA=path.resolve(path.sep,'project-a');
+const projectB=path.resolve(path.sep,'project-b');
+const inProject=(target,root)=>target===root||target.startsWith(root+path.sep);
 const {McpProxy,wireProtocol,toolPaths}=require('../app/mcp-proxy.cjs');
 
 function fixture(options={}) {
@@ -11,27 +15,27 @@ function fixture(options={}) {
     async validate(tokens,paths) {
       validations.push({tokens,paths});
       if (tokens.includes('stale')) throw Object.assign(new Error('Rules changed; reload context.'),{code:'context_stale'});
-      if (paths.some(target=>target.startsWith('/project-b')) && !tokens.includes('b')) throw Object.assign(new Error('Missing project B.'),{code:'context_scope_mismatch'});
-      if (paths.some(target=>target.startsWith('/project-a')) && !tokens.includes('a')) throw Object.assign(new Error('Missing project A.'),{code:'context_scope_mismatch'});
+      if (paths.some(target=>inProject(target,projectB)) && !tokens.includes('b')) throw Object.assign(new Error('Missing project B.'),{code:'context_scope_mismatch'});
+      if (paths.some(target=>inProject(target,projectA)) && !tokens.includes('a')) throw Object.assign(new Error('Missing project A.'),{code:'context_scope_mismatch'});
       return [];
     }
   };
-  const proxy=new McpProxy({contexts,defaultDirectory:'/default',sendClient:async value=>client.push(value),sendServer:async value=>server.push(value),...options});
+  const proxy=new McpProxy({contexts,defaultDirectory:path.resolve('/default'),sendClient:async value=>client.push(value),sendServer:async value=>server.push(value),...options});
   return {proxy,client,server,validations,contexts};
 }
 const call=(id,name,args)=>({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:args}});
 
 test('first write is blocked, context is delivered, explicit retry strips adapter fields',async()=>{
   const f=fixture();
-  await f.proxy.client(call(1,'write_file',{path:'/project-a/file.md',content:'hello'}));
+  await f.proxy.client(call(1,'write_file',{path:path.join(projectA,'file.md'),content:'hello'}));
   assert.equal(f.server.length,0);
   assert.equal(f.client[0].result.structuredContent.operation_executed,false);
   assert.equal(f.client[0].result.structuredContent.next_tool,'get_project_context');
-  await f.proxy.client(call(2,'get_project_context',{project_path:'/project-a',target_paths:['/project-a/file.md']}));
-  assert.equal(f.client[1].result.structuredContent.project_context_token,'token:/project-a');
+  await f.proxy.client(call(2,'get_project_context',{project_path:projectA,target_paths:[path.join(projectA,'file.md')]}));
+  assert.equal(f.client[1].result.structuredContent.project_context_token,`token:${projectA}`);
   assert.equal(f.server.length,0,'context loading never replays a blocked operation');
-  await f.proxy.client(call(3,'write_file',{path:'/project-a/file.md',content:'hello',project_context_tokens:['a']}));
-  assert.deepEqual(f.server[0].params.arguments,{path:'/project-a/file.md',content:'hello'});
+  await f.proxy.client(call(3,'write_file',{path:path.join(projectA,'file.md'),content:'hello',project_context_tokens:['a']}));
+  assert.deepEqual(f.server[0].params.arguments,{path:path.join(projectA,'file.md'),content:'hello'});
 });
 
 test('initialize and paginated discovery preserve protocol metadata and extend only tool schemas',async()=>{
@@ -56,17 +60,17 @@ test('initialize and paginated discovery preserve protocol metadata and extend o
 
 test('stale and cross-project tokens block operations without sharing a global active project',async()=>{
   const f=fixture();
-  await f.proxy.client(call('stale','read_file',{path:'/project-a/x',project_context_tokens:['stale']}));
+  await f.proxy.client(call('stale','read_file',{path:path.join(projectA,'x'),project_context_tokens:['stale']}));
   assert.equal(f.server.length,0);
   assert.equal(f.client[0].result.structuredContent.code,'context_stale');
   await Promise.all([
-    f.proxy.client(call('a','read_file',{path:'/project-a/x',project_context_tokens:['a']})),
-    f.proxy.client(call('b','read_file',{path:'/project-b/y',project_context_tokens:['b']}))
+    f.proxy.client(call('a','read_file',{path:path.join(projectA,'x'),project_context_tokens:['a']})),
+    f.proxy.client(call('b','read_file',{path:path.join(projectB,'y'),project_context_tokens:['b']}))
   ]);
   assert.equal(f.server.length,2);
-  await f.proxy.client(call('move-blocked','move_file',{source:'/project-a/x',destination:'/project-b/y',project_context_tokens:['a']}));
+  await f.proxy.client(call('move-blocked','move_file',{source:path.join(projectA,'x'),destination:path.join(projectB,'y'),project_context_tokens:['a']}));
   assert.equal(f.server.length,2);
-  await f.proxy.client(call('move-ok','move_file',{source:'/project-a/x',destination:'/project-b/y',project_context_tokens:['a','b']}));
+  await f.proxy.client(call('move-ok','move_file',{source:path.join(projectA,'x'),destination:path.join(projectB,'y'),project_context_tokens:['a','b']}));
   assert.equal(f.server.length,3);
 });
 
@@ -75,8 +79,8 @@ test('shell targets are declared without parsing command; continuations retain o
   await f.proxy.client(call(1,'start_process',{command:'opaque arbitrary shell',project_context_tokens:['a']}));
   assert.equal(f.client[0].result.structuredContent.code,'context_paths_required');
   assert.equal(f.server.length,0);
-  await f.proxy.client(call(2,'start_process',{command:'opaque arbitrary shell',timeout_ms:1000,context_paths:['/project-a/子目录/file'],project_context_tokens:['a']}));
-  assert.deepEqual(f.validations[0].paths,['/project-a/子目录/file']);
+  await f.proxy.client(call(2,'start_process',{command:'opaque arbitrary shell',timeout_ms:1000,context_paths:[path.join(projectA,'子目录/file')],project_context_tokens:['a']}));
+  assert.deepEqual(f.validations[0].paths,[path.join(projectA,'子目录/file')]);
   assert.deepEqual(f.server[0].params.arguments,{command:'opaque arbitrary shell',timeout_ms:1000});
   await f.proxy.server({jsonrpc:'2.0',id:2,result:{content:[],structuredContent:{pid:42}}});
   await f.proxy.client(call(3,'read_process_output',{pid:42,project_context_tokens:['b']}));
@@ -89,7 +93,7 @@ test('shell targets are declared without parsing command; continuations retain o
 
 test('search continuation validates the original target scope',async()=>{
   const f=fixture();
-  await f.proxy.client(call('s','start_search',{path:'/project-a',pattern:'hello',project_context_tokens:['a']}));
+  await f.proxy.client(call('s','start_search',{path:projectA,pattern:'hello',project_context_tokens:['a']}));
   await f.proxy.server({jsonrpc:'2.0',id:'s',result:{content:[],structuredContent:{sessionId:'search_123'}}});
   await f.proxy.client(call('page-b','get_more_search_results',{sessionId:'search_123',project_context_tokens:['b']}));
   assert.equal(f.server.length,1);
@@ -116,12 +120,12 @@ test('cancellation during asynchronous context/gate checks suppresses response a
   let finish;
   const f=fixture();
   f.contexts.getContext=()=>new Promise(resolve=>{finish=resolve;});
-  const loading=f.proxy.client(call('context','get_project_context',{project_path:'/project-a'}));
+  const loading=f.proxy.client(call('context','get_project_context',{project_path:projectA}));
   await f.proxy.client({jsonrpc:'2.0',method:'notifications/cancelled',params:{requestId:'context'}});
   finish({project_context_token:'a'});await loading;
   assert.equal(f.client.length,0);assert.equal(f.server.length,0);
   f.contexts.validate=()=>new Promise(resolve=>{finish=resolve;});
-  const checking=f.proxy.client(call('write','write_file',{path:'/project-a/x',content:'x',project_context_tokens:['a']}));
+  const checking=f.proxy.client(call('write','write_file',{path:path.join(projectA,'x'),content:'x',project_context_tokens:['a']}));
   await f.proxy.client({jsonrpc:'2.0',method:'notifications/cancelled',params:{requestId:'write'}});
   finish([]);await checking;
   assert.equal(f.server.length,0);
@@ -129,8 +133,8 @@ test('cancellation during asynchronous context/gate checks suppresses response a
 
 test('disabled gating keeps Desktop Commander behavior and strips fields',async()=>{
   const f=fixture({enabled:false});
-  await f.proxy.client(call(1,'write_file',{path:'/project-a/x',content:'x',project_context_tokens:['stale'],context_paths:['/x']}));
-  assert.deepEqual(f.server[0].params.arguments,{path:'/project-a/x',content:'x'});
+  await f.proxy.client(call(1,'write_file',{path:path.join(projectA,'x'),content:'x',project_context_tokens:['stale'],context_paths:['/x']}));
+  assert.deepEqual(f.server[0].params.arguments,{path:path.join(projectA,'x'),content:'x'});
   assert.equal(f.validations.length,0);
 });
 

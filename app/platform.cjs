@@ -8,13 +8,13 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 function storageDirectory({platform = process.platform, userHome = os.homedir(), appData, override} = {}) {
   if (override) return override;
   // Keep the legacy macOS path and keychain identity across the product rename.
-  if (platform === 'darwin') return path.join(userHome, 'Library', 'Application Support', 'LocalHarness');
+  if (platform === 'darwin') return path.posix.join(userHome, 'Library', 'Application Support', 'LocalHarness');
   if (platform === 'win32') return path.win32.join(appData || path.win32.join(userHome, 'AppData', 'Roaming'), 'ChatToHarness');
-  return path.join(userHome, '.config', 'ChatToHarness');
+  return path.posix.join(userHome, '.config', 'ChatToHarness');
 }
 
 function bundledPaths(resources, platform = process.platform) {
-  const join = platform === 'win32' ? path.win32.join : path.join;
+  const join = platform === 'win32' ? path.win32.join : path.posix.join;
   return {
     node: platform === 'win32' ? join(resources, 'node', 'node.exe') : join(resources, 'node', 'bin', 'node'),
     tunnel: join(resources, 'tunnel', 'tunnel-client-runtime' + (platform === 'win32' ? '.exe' : '')),

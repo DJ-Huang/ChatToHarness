@@ -8,7 +8,7 @@ const path = require('node:path');
 const { ProjectContexts, ContextError, MAX_BODY_BYTES } = require('../app/project-context.cjs');
 
 function fixture(t) {
-  const temporary = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'localharness-context-')));
+  const temporary = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'localharness-context-')));
   t.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
   const root = path.join(temporary, '中文 project with spaces');
   fs.mkdirSync(root);

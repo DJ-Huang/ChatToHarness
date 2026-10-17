@@ -68,6 +68,7 @@ function main() {
     smoke(path.join(app, 'Contents', 'MacOS', 'ChatToHarness'));
     fs.rmSync(app, { recursive: true });
   }
+  if (!fs.existsSync(path.join(state, 'settings.json'))) throw new Error('Application configuration was not preserved at the tested data location');
   if (!fs.existsSync(marker) || !fs.readFileSync(marker, 'utf8').startsWith('Installation')) throw new Error('User data was removed while uninstalling');
   report.uninstallRetainsData = true;
   console.log(JSON.stringify(report));

@@ -11,10 +11,10 @@ const platform=process.platform||'darwin';
 const product='ChatToHarness';
 // Electron safeStorage uses the application name for its macOS keychain item.
 // Keep that private identity; every visible title and menu uses the new brand.
-app.setName(platform==='darwin'?'LocalHarness':product);
+const testMode=process.env.LOCALHARNESS_TEST_MODE==='1'&&Boolean(process.env.LOCALHARNESS_HOME)&&path.isAbsolute(process.env.LOCALHARNESS_HOME);
+app.setName(testMode?'ChatToHarness Acceptance':platform==='darwin'?'LocalHarness':product);
 const home=storageDirectory({platform,userHome:os.homedir(),appData:process.env.APPDATA,override:process.env.LOCALHARNESS_HOME});
 app.setPath('userData',home);
-const testMode=process.env.LOCALHARNESS_TEST_MODE==='1'&&Boolean(process.env.LOCALHARNESS_HOME)&&path.isAbsolute(process.env.LOCALHARNESS_HOME);
 let window,tray,trayMenu,settings,runtime,fatal='',quitting=false,quitReady=false,queue=Promise.resolve(),actionEpoch=0;
 const indexURL=pathToFileURL(path.join(__dirname,'index.html')).href;
 const resources=(testMode&&process.env.LOCALHARNESS_RESOURCES)|| (app.isPackaged?process.resourcesPath:(process.env.LOCALHARNESS_RESOURCES||path.join(__dirname,'..','resources')));

@@ -4,6 +4,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const {pathToFileURL} = require('node:url');
+const {TaskStore} = require('./task-store.cjs');
 const {ProjectContexts, inside} = require('./project-context.cjs');
 const {ProjectInspector, integer, fail} = require('./project-inspect.cjs');
 
@@ -14,6 +15,15 @@ const readHints = {readOnlyHint: true, destructiveHint: false, idempotentHint: t
 function tool(name, title, description, properties, required = [], annotations = readHints) {
   return {name, title, description, inputSchema: {type: 'object', properties, required, additionalProperties: false}, outputSchema: {type: 'object', additionalProperties: true}, annotations};
 }
+const taskFields = {project_path: project, task_id: {type: 'string'}};
+const taskHints = {readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true};
+const TASK_TOOLS = [
+  tool('start_task', 'Start persistent task', 'Record an idempotent local shell task and return immediately. Reuse the same idempotency_key after a timeout or reconnect. The worker applies the official command policy; project_path supplies guidance and cwd, not a shell sandbox.', {project_path: project, command: {type: 'string', maxLength: 65536}, idempotency_key: {type: 'string', minLength: 1, maxLength: 128}, runtime_limit_ms: {type: 'integer', minimum: 1, maximum: 604800000}, artifact_paths: {type: 'array', items: {type: 'string'}, maxItems: 32}, context_paths: {type: 'array', items: {type: 'string'}, maxItems: 128}, project_context_tokens: {type: 'array', items: {type: 'string'}, maxItems: 128}}, ['project_path', 'command', 'idempotency_key'], taskHints),
+  ...['status', 'result'].map(kind => tool(`get_task_${kind}`, `Task ${kind}`, 'Read a durable task record after disconnect or app restart. Interrupted tasks are reported with unknown execution state and are never replayed.', taskFields, ['project_path', 'task_id'])),
+  tool('get_task_logs', 'Task logs', 'Read bounded saved stdout/stderr entries. A cursor remains valid after reconnect or app restart; offsets never consume or delete logs.', {...taskFields, ...pagination}, ['project_path', 'task_id']),
+  tool('list_tasks', 'Project tasks', 'Find persistent tasks and results for an authorized project.', {project_path: project, ...pagination}, ['project_path']),
+  tool('cancel_task', 'Cancel task', 'Record cancellation of a task owned by this project. Query its status until the worker confirms termination; no arbitrary PID is accepted.', taskFields, ['project_path', 'task_id'], {...taskHints, openWorldHint: false})
+];
 const TOOLS = [
   tool('get_harness_status', 'Harness status', 'Read the running build, device, connection and current capability inventory. Tool names are paginated; availability is distinct from acceptance evidence.', {...pagination}),
   tool('get_project_overview', 'Project overview', 'Read a bounded directory summary, Git status, AGENTS and on-demand rule/skill indexes in one call.', {project_path: project, depth: {type: 'integer', minimum: 1, maximum: 3}, target_paths: {type: 'array', items: {type: 'string'}, maxItems: 128}, task: {type: 'string', maxLength: 4096}}, ['project_path']),
@@ -26,8 +36,9 @@ function errorResult(error) {
   return {...response(value), isError: true};
 }
 class HarnessServices {
-  constructor({home, build = {}, versions = {}, runtime = () => ({}), catalog = () => [], mcp = () => ({}), nodePath = process.execPath, processHost} = {}) {
+  constructor({home, build = {}, versions = {}, runtime = () => ({}), catalog = () => [], mcp = () => ({}), nodePath = process.execPath, processHost, engineEntry, configHome} = {}) {
     Object.assign(this, {home, build, versions, runtime, catalog, mcp, nodePath, processHost});
+    this.tasks = new TaskStore({home,nodePath,processHost,engineEntry,configHome});
     this.configure({directories: []});
   }
   configure(settings) {
@@ -36,7 +47,7 @@ class HarnessServices {
     this.contexts = new ProjectContexts({defaultDirectory: this.directories[0] || this.home, allowedDirectories: this.directories.length ? this.directories : [this.home]});
     this.inspector = new ProjectInspector(this.contexts);
   }
-  tools() { return TOOLS; }
+  tools() { return [...TOOLS, ...TASK_TOOLS]; }
   has(name) { return this.tools().some(tool => tool.name === name); }
   async call(name, args, options = {}) {
     try {
@@ -44,6 +55,7 @@ class HarnessServices {
       options.signal?.throwIfAborted();
       if (name === 'get_harness_status') return response(this.status(args));
       if (!this.directories.length) throw fail('PATH_NOT_ALLOWED', 'Choose a project folder in the desktop app before using project tools.');
+      if (TASK_TOOLS.some(tool => tool.name === name)) return response(await this.task(name,args,options));
       if (name === 'get_project_overview') return response(await this.inspector.overview(args, options));
       if (['git_status', 'git_diff', 'git_log'].includes(name)) return response(await this.inspector.git(name.slice(4), args, options));
       if (name === 'get_file_result') return await this.file(args, options);
@@ -58,9 +70,29 @@ class HarnessServices {
       app: {version: this.versions.app || this.build.version || null, build: this.build}, components: {node: this.versions.node || process.versions.node, tunnel: this.versions.tunnel || null, desktop_commander: this.versions.desktopCommander || null},
       device: {platform: process.platform, arch: process.arch, os_release: os.release(), name: os.hostname()},
       connection: {state: runtime.state || 'unknown', local_ready: Boolean(runtime.localReady), gateway: 'app-owned', tools_version: mcp.toolsVersion ?? null},
-      capabilities: {project_overview: true, git_reads: true, artifact_return: true, persistent_tasks: false, shell_is_sandboxed: false},
+      capabilities: {project_overview: true, git_reads: true, artifact_return: true, persistent_tasks: true, shell_is_sandboxed: false},
       desktop_commander: {expected_tools: DC_TOOLS.length, available_tools: DC_TOOLS.filter(name => available.has(name)), missing_tools: DC_TOOLS.filter(name => !available.has(name)), verification: 'Availability only; consult the platform acceptance report for tested behavior.'},
       tool_catalog: page};
+  }
+  async task(name, args, {signal} = {}) {
+    const root = await this.inspector.root(args);
+    if (name === 'start_task') {
+      const requested = args.artifact_paths || [];
+      if (!Array.isArray(requested) || requested.length > 32 || requested.some(item=>typeof item!=='string'||!item||item.includes('\0'))) throw fail('INVALID_ARGUMENT','artifact_paths must contain at most 32 filenames.');
+      const artifacts = [];
+      for (const item of requested) { const file = await this.contexts.authorize(path.resolve(root,item)); if (!inside(root,file)) throw fail('TARGET_OUTSIDE_PROJECT','Artifacts must be inside the selected project.'); artifacts.push(file); }
+      const related = args.context_paths || [root];
+      if (!Array.isArray(related) || related.length > 128 || related.some(item=>typeof item!=='string'||!item||item.includes('\0'))) throw fail('INVALID_ARGUMENT','context_paths must contain at most 128 related project paths.');
+      const targets = [...new Set([...related.map(item=>path.resolve(root,item)),...artifacts])];
+      const guidance = await this.contexts.prepare(args.project_context_tokens,targets,{projectPath:root,signal,writing:true});
+      if (guidance.needsDelivery) throw fail('PROJECT_CONTEXT_REFRESH_REQUIRED','Read the returned project instructions, then retry with the same idempotency_key and supplied tokens.',{contexts:guidance.contexts,next_action:'read_contexts_then_retry'});
+      signal?.throwIfAborted();
+      return {...this.tasks.start({...args,project_path:root,artifact_paths:artifacts}),project_contexts:guidance.contexts};
+    }
+    if (name === 'list_tasks') return this.inspector.page('tasks',root,this.tasks.list(root),{project_path:root,summary:'Saved tasks for this project.'},args);
+    if (name === 'get_task_logs') return this.tasks.logs(args.task_id,root,args);
+    if (name === 'cancel_task') return this.tasks.cancel(args.task_id,root);
+    return this.tasks.status(args.task_id,root);
   }
   async file(args, {signal} = {}) {
     const root = await this.inspector.root(args), file = await this.contexts.authorize(path.resolve(root, args.path), true);

@@ -20,4 +20,6 @@
 
 アプリとサイトも同じ3言語に対応しています。
 
-[v0.6.0 公開準備中の更新情報（3 言語・未公開）](../../release-notes/v0.6.0.md) · [現在の公開安定版 v0.5.0](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.5.0)
+[v0.6.0 公開版・ダウンロード](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.6.0) · [現在の公開状況の根拠](VERIFICATION.md#v060-public-status-check-2026-10-18)
+
+[公開準備時のソース内更新情報](../../release-notes/v0.6.0.md) には公開前の表現が残っています。確認済みの公開状況は日付付きの検証記録を参照してください。新たな実行テストの成功を意味するものではありません。

@@ -20,4 +20,6 @@
 
 软件与官网同样支持三种语言。
 
-[v0.6.0 待发布版本说明（三语，尚未正式发布）](../../release-notes/v0.6.0.md) · [当前已发布稳定版 v0.5.0](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.5.0)
+[v0.6.0 公开版本与下载](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.6.0) · [当前发布状态证据](VERIFICATION.md#v060-public-status-check-2026-10-18)
+
+[发布准备阶段的源码说明](../../release-notes/v0.6.0.md) 保留了发布前措辞。实际观察到的发布状态请查看带日期的验证记录；该记录不代表新增运行测试。

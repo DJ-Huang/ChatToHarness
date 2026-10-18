@@ -7,6 +7,7 @@ const projectA=path.resolve(path.sep,'project-a');
 const projectB=path.resolve(path.sep,'project-b');
 const inProject=(target,root)=>target===root||target.startsWith(root+path.sep);
 const {McpProxy,wireProtocol,toolPaths}=require('../app/mcp-proxy.cjs');
+const {AjvJsonSchemaValidator}=require('@modelcontextprotocol/sdk/validation/ajv');
 
 function fixture(options={}) {
   const client=[],server=[],validations=[];
@@ -67,6 +68,66 @@ test('initialize and paginated discovery preserve protocol metadata and extend o
   await f.proxy.client({jsonrpc:'2.0',id:2,method:'tools/list',params:{cursor:'next'}});
   await f.proxy.server({jsonrpc:'2.0',id:2,result:{tools:[]}});
   assert.equal(f.client[2].result.tools[0].name,'get_project_context');
+});
+
+test('terminal response delivers original output alongside project guidance in both result formats',async t=>{
+  const f=fixture();t.after(()=>f.proxy.dispose());
+  const contexts=[{project_path:projectA,diagnostics:[]}];
+  f.contexts.prepare=async()=>({contexts,needsDelivery:false});
+  await f.proxy.client(call('terminal','start_process',{command:'connection check',timeout_ms:1000,context_paths:[projectA]}));
+  const text='Process started with PID 42 (shell: /bin/zsh)\nInitial output:\nCHAT2HARNESS_CONNECTION_OK\nDarwin\n';
+  const upstream={content:[{type:'text',text}],isError:false,_meta:{preserved:true}},original=structuredClone(upstream);
+  await f.proxy.server({jsonrpc:'2.0',id:'terminal',result:upstream});
+  const result=f.client.at(-1).result;
+  assert.deepEqual(result.structuredContent._harness_result.content,upstream.content);
+  assert.equal(result.structuredContent._harness_result.isError,false);
+  assert.deepEqual(result.structuredContent.project_contexts,contexts);
+  assert.deepEqual(result.content,[...upstream.content,{type:'text',text:JSON.stringify({project_contexts:contexts})}]);
+  assert.equal(result.isError,false);assert.deepEqual(result._meta,upstream._meta);
+  assert.ok(f.proxy.processes.has('42'),'Text-only upstream replies still bind process handles');
+  assert.deepEqual(upstream,original,'Response decoration must not mutate the upstream result');
+  const tool=f.proxy.decorateTool({name:'start_process',inputSchema:{type:'object'}});
+  const validate=new AjvJsonSchemaValidator().getValidator(tool.outputSchema);
+  assert.equal(validate(result.structuredContent).valid,true);
+  assert.equal(tool.outputSchema.properties._harness_result.type,'object');
+});
+
+test('forwarded responses match their output schema without guidance, including disabled context and empty output',async t=>{
+  for(const enabled of [true,false])for(const text of ['CHAT2HARNESS_CONNECTION_OK\nDarwin\n','']){
+    const f=fixture({enabled});t.after(()=>f.proxy.dispose());
+    await f.proxy.client(call('read','read_file',{path:path.join(projectA,'file.txt')}));
+    const content=text?[{type:'text',text}]:[];
+    await f.proxy.server({jsonrpc:'2.0',id:'read',result:{content}});
+    const result=f.client.at(-1).result;
+    assert.deepEqual(result.structuredContent._harness_result.content,content);
+    assert.equal(result.structuredContent._harness_result.isError,false);
+    assert.deepEqual(result.content,content);
+    assert.deepEqual(result.structuredContent.project_contexts,[]);
+    const tool=f.proxy.decorateTool({name:'read_file',inputSchema:{type:'object'}});
+    assert.equal(new AjvJsonSchemaValidator().getValidator(tool.outputSchema)(result.structuredContent).valid,true);
+  }
+});
+
+test('structured output preserves native fields, media, schemas and tool error flags',async t=>{
+  for(const isError of [false,true]){
+    const f=fixture({enabled:false});t.after(()=>f.proxy.dispose());
+    const tool={name:'read_file',inputSchema:{type:'object'},outputSchema:{type:'object',properties:{details:{type:'object'}},required:['details'],additionalProperties:false}};
+    const originalTool=structuredClone(tool),schema=f.proxy.decorateTool(tool).outputSchema;
+    await f.proxy.client(call('read','read_file',{path:path.join(projectA,'file.png')}));
+    const upstream={content:[{type:'text',text:'First 中文\n'},{type:'image',mimeType:'image/png',data:'cGl4ZWxz'},{type:'text',text:'Last line'},{type:'resource_link',uri:'https://example.test/asset',name:'asset'}],
+      structuredContent:{details:{values:[null,false,0]}},isError,_meta:{preserved:true}};
+    const original=structuredClone(upstream);
+    await f.proxy.server({jsonrpc:'2.0',id:'read',result:upstream});
+    const result=f.client.at(-1).result;
+    assert.deepEqual(result.structuredContent._harness_result.content,upstream.content);
+    assert.equal(result.structuredContent._harness_result.isError,isError);
+    assert.deepEqual(result.structuredContent.details,upstream.structuredContent.details);
+    assert.deepEqual(result.content,upstream.content);assert.equal(result.isError,isError);assert.deepEqual(result._meta,upstream._meta);
+    assert.deepEqual(upstream,original);assert.deepEqual(tool,originalTool);
+    assert.deepEqual(schema.required,['details']);assert.equal(schema.additionalProperties,false);
+    assert.equal(schema.properties._harness_result.type,'object');
+    assert.equal(new AjvJsonSchemaValidator().getValidator(schema)(result.structuredContent).valid,true);
+  }
 });
 
 test('stale and cross-project tokens block operations without sharing a global active project',async()=>{

@@ -130,9 +130,10 @@ function desktopHarness(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'localharness-desktop-test-'));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const handlers = new Map();
-  const image = () => ({ representations: [], resize() { return this; }, isEmpty() { return false; }, toPNG() { return Buffer.from('fixture'); }, addRepresentation(value) { this.representations.push(value); }, setTemplateImage(value) { this.template = value; } });
+  const image = () => ({ representations: [], resize() { return this; }, isEmpty() { return false; }, toDataURL() { return 'data:image/png;base64,Zml4dHVyZQ=='; }, addRepresentation(value) { this.representations.push(value); }, setTemplateImage(value) { this.template = value; } });
   class FakeTray extends EventEmitter {
     constructor(icon) { super(); this.icon = icon; this.destroyed = false; }
+    setTitle(text) { this.title = text; }
     setToolTip(text) { this.tooltip = text; }
     popUpContextMenu(menu) { this.menu = menu; }
     destroy() { this.destroyed = true; }
@@ -197,8 +198,13 @@ test('PNG menu bar icon has Retina representations and separate left and right c
   const { harness, runtime, window } = desktopHarness(t);
   harness.createTray();
   const tray = harness.getTray();
+  assert.equal(tray.title,'CTH');
   assert.equal(tray.icon.template, true);
   assert.deepEqual(Array.from(tray.icon.representations, entry => entry.scaleFactor), [1, 2]);
+  for(const entry of tray.icon.representations){
+    assert.match(entry.dataURL,/^data:image\/png;base64,/);
+    assert.equal(entry.buffer,undefined,'Encoded PNGs must not be passed as raw pixel buffers');
+  }
   tray.emit('click');
   assert.equal(window.restores, 1);
   assert.equal(window.shows, 1);

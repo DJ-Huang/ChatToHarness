@@ -83,8 +83,14 @@ async function main(){
    assert.equal((await raw('write_file',{path:file,content:'stale write',project_context_tokens:[a2.project_context_token]})).isError,true);assert.equal(fs.existsSync(file),false);
    a=await context(project,[file],['rules/output.md']);
    const command=process.platform==='win32' ? 'Write-Output ("CTH_HOME="+$env:USERPROFILE); if (!(Test-Path Env:CONTROL_PLANE_API_KEY)) { Write-Output "RUNTIME_KEY_REMOVED" }; git --version' : 'printf "CTH_HOME=%s\\n" "$HOME"; if [ -z "${CONTROL_PLANE_API_KEY+x}" ]; then printf "RUNTIME_KEY_REMOVED\\n"; fi; git --version';
-   const output=await call('start_process',{command,timeout_ms:5000,context_paths:[file],project_context_tokens:[a.project_context_token]});
+   const processResult=await raw('start_process',{command,timeout_ms:5000,context_paths:[file],project_context_tokens:[a.project_context_token]});
+   assert.notEqual(processResult.isError,true,asText(processResult));
+   const output=asText(processResult);
    assert.ok(output.includes('CTH_HOME='+os.homedir()),'Shell user home changed');assert.ok(output.includes('RUNTIME_KEY_REMOVED'),'Runtime key reached Shell');assert.ok(output.includes('git version'));
+   assert.equal(processResult.structuredContent._harness_result.content[0].text,processResult.content[0].text,'Structured output must retain the original terminal response');
+   assert.equal(processResult.structuredContent._harness_result.isError,false);
+   assert.ok(processResult.structuredContent.project_contexts.length,'Project guidance must accompany terminal output');
+   assert.equal(tools.tools.find(tool=>tool.name==='start_process').outputSchema.properties._harness_result.type,'object');
    console.log(JSON.stringify({realDesktopCommander:true,tools:tools.tools.length,blockedBeforeContext:true,readsWithoutPrerequisite:true,noAgentsWrite:true,boundedSearch:true,fileRoundTrip:true,nested:true,selectedRules:true,ruleChanges:true,crossProject:true,concurrentContexts:true,shellHomePreserved:true,runtimeKeyRemoved:true}));
   }finally{clearTimeout(timeout);}
  }finally{if(child)await stopTree(child);await manager.close();fs.rmSync(home,{recursive:true,force:true,maxRetries:10,retryDelay:100});}

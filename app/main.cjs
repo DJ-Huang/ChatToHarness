@@ -68,7 +68,8 @@ function createTray(){
     for(const [scaleFactor,file] of [[1,'tray.png'],[2,'tray@2x.png']]){
       const representation=nativeImage.createFromBuffer(fs.readFileSync(path.join(__dirname,file))).resize({width:18*scaleFactor,height:18*scaleFactor});
       if(representation.isEmpty())throw new Error('后台图标无法读取。');
-      icon.addRepresentation({scaleFactor,buffer:representation.toPNG()});
+      // Preserve the encoded PNG and its explicit Retina scale.
+      icon.addRepresentation({scaleFactor,dataURL:representation.toDataURL()});
     }
     icon.setTemplateImage(true);
   }else{
@@ -76,7 +77,9 @@ function createTray(){
     icon=nativeImage.createFromPath(path.join(__dirname,'tray-color.png'));
     if(icon.isEmpty())throw new Error('后台图标无法读取。');
   }
+  if(icon.isEmpty())throw new Error('后台图标无法读取。');
   tray=new Tray(icon);
+  if(platform==='darwin')tray.setTitle('CTH');
   tray.on('click',show);tray.on('double-click',show);tray.on('right-click',()=>{refreshTray();tray.popUpContextMenu(trayMenu);});refreshTray();
 }
 async function action(fn){
@@ -185,6 +188,8 @@ else{
   installExitHandlers({app,host:process});
   app.whenReady().then(async()=>{
     if(quitting)return;
+    // Source launches use Electron.app, so macOS otherwise shows its default icon.
+    if(platform==='darwin')app.dock?.setIcon(path.join(__dirname,'tray-color.png'));
     locale=normalize((app.getPreferredSystemLanguages?.()||[app.getLocale()])[0]);
     if(testMode&&process.env.LOCALHARNESS_TEST_LOCALE)locale=normalize(process.env.LOCALHARNESS_TEST_LOCALE);
     preferences=new Preferences(home,locale);locale=preferences.locale;

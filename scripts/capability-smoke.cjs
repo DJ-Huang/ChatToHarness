@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
 const {RuntimeManager} = require('../app/runtime.cjs');
 const {McpManager} = require('../app/mcp-manager.cjs');
@@ -28,9 +29,14 @@ async function main() {
     const result = await manager.call(name, {project_path: project, ...args});
     assert.notEqual(result.isError, true, `${name}: ${text(result)}`); record(name, 'verified', 'Synthetic native invocation succeeded.'); return result;
   };
-  const command = code => process.platform === 'win32'
-    ? `& '${runtime.paths.node.replace(/'/g, "''")}' -e '${code.replace(/'/g, "''")}'`
-    : `'${runtime.paths.node.replace(/'/g, "'\\''")}' -e '${code.replace(/'/g, "'\\''")}'`;
+  const command = code => {
+    const name = '.capability-' + crypto.createHash('sha256').update(code).digest('hex').slice(0, 16) + '.cjs';
+    const script = path.join(project, name);
+    if (!fs.existsSync(script)) fs.writeFileSync(script, code);
+    return process.platform === 'win32'
+      ? `& '${runtime.paths.node.replace(/'/g, "''")}' '${script.replace(/'/g, "''")}'`
+      : `'${runtime.paths.node.replace(/'/g, "'\\''")}' '${script.replace(/'/g, "'\\''")}'`;
+  };
   try {
     await manager.start({directories: [directory], autoProjectContext: true});
     const catalog = manager.visibleTools(), names = new Set(catalog.map(item => item.name));

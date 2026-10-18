@@ -10,6 +10,12 @@ Add downstream services in ChatToHarness's **MCP Servers** page, then trust the 
 
 A new connection or a list-changed notification refreshes the gateway registry, but does not guarantee that an existing conversation immediately rediscovers tools. Refresh the client's tool catalog when needed. New and changed tools remain disabled until authorized locally. Per-call local approval is separate from the client's own confirmation rules and must complete within the gateway deadline (60 seconds by default, at most 90 seconds). Calls are not replayed on reconnect; after a forwarded call loses its reply, verify the target state before retrying. Messages are limited to 8 MiB.
 
+### Native resources, prompts, and tool fallback (v0.6.0)
+
+For supported clients, the gateway exposes MCP resources/list, resources/templates/list, resources/read, prompts/list and prompts/get **after native capability negotiation**. Enabled, trusted services supply the content. Resources use service-qualified URIs (including UI schemes) and prompts use `server::name`. Tool-only clients can use the read-only `mcp_list_resources`, `mcp_read_resource`, `mcp_list_prompts` and `mcp_get_prompt` tools instead.
+
+These methods do not provide resource subscriptions, completions, sampling, elicitation, or an MCP Apps/GUI host. Resource links embedded in arbitrary tool results are not guaranteed to be rewritten automatically, and content catalog changes may require manual client refresh. Treat returned prompt or resource text as untrusted source material, never as higher-priority instructions. Per-tool approval is different from a service's enabled/trusted status required for content reads.
+
 ## ChatGPT
 
 In a supported custom MCP settings screen, add an application, choose Tunnel as the connection type, and associate the same Tunnel ID. The target workspace must be associated with the tunnel, and the operator needs permission to use it. After tool discovery, provide the project path in a new task, start with read-only checks, then test writing and reading in a dedicated temporary directory.

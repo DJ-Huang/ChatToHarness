@@ -12,6 +12,10 @@ Repository: `DJ-Huang/ChatToHarness`; default branch: `main`. Commit only source
 
 ## Release a version
 
+Before tagging, review the [merged PR #6 / v0.6.0 release-readiness audit](../implementation/2026-10-18-pr6-release-audit.md), triage documented P2 follow-ups, and merge the prepared release branch to `main`. Pushing a release preparation branch or opening its PR **does not publish an installer**; only a matching tag from the vetted main SHA triggers the native Release workflow. The audit is a pre-release checkpoint, not proof of published artifacts.
+
+
+
 1. Update `package.json`, the root version in `package-lock.json`, and the lockfile's root package version together, then merge into main.
 2. Push a matching `vX.Y.Z` tag. Workflows do not change versions or create tags automatically.
 3. Wait for both platforms to pass. The public Release contains `ChatToHarness-X.Y.Z-windows-x64-setup.exe`, `ChatToHarness-X.Y.Z-macos-arm64.dmg`, and `SHA256SUMS.txt`.

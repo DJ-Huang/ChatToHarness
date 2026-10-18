@@ -20,4 +20,4 @@
 
 アプリとサイトも同じ3言語に対応しています。
 
-[0.3.1 更新情報（3言語）](../../release-notes/v0.3.1.md)
+[v0.6.0 公開準備中の更新情報（3 言語・未公開）](../../release-notes/v0.6.0.md) · [現在の公開安定版 v0.5.0](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.5.0)

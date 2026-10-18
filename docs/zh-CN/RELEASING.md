@@ -12,6 +12,10 @@
 
 ## 发布一个版本
 
+正式打标签前先查阅[PR #6 合并审查及 v0.6.0 发布检查清单](../implementation/2026-10-18-pr6-release-audit.md)，明确待跟踪 P2 风险的处理方式，将发布准备分支审查后合入 `main`。**仅推送发布分支或创建 PR 不会发布安装包**，必须在验证后的 main 正确提交上打匹配版本的标签，才会触发原生 Release 工作流。发布前清单不等于产物已经通过验证。
+
+
+
 1. 同时更新 `package.json`、`package-lock.json` 根版本及包版本，合并到 main。
 2. 推送与应用版本一致的 `vX.Y.Z` 标签。工作流不会自动改版本或创建标签。
 3. 等待双平台检查通过。正式 Release 包含 `ChatToHarness-X.Y.Z-windows-x64-setup.exe`、`ChatToHarness-X.Y.Z-macos-arm64.dmg` 和 `SHA256SUMS.txt`。

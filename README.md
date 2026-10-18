@@ -46,6 +46,11 @@ Application screenshots use an isolated demonstration configuration. The app, we
 - Local files, shell, Git, and existing development commands through Desktop Commander.
 - Optional AGENTS.md guidance and shared rules on demand; reads stay available when guidance has problems.
 - Bounded ripgrep searches with line context, pagination and cancellation.
+- Application-owned MCP integrations, version-bound per-tool/project approvals, and optional allow-all for enabled trusted services.
+- Project/build status, Git read-only inspection, AGENTS/Rules/Skills discovery, idempotent background tasks, and safe SHA-checked text editing/undo.
+- Native MCP resources/prompts when supported by the client, plus tool fallbacks for content reads; no built-in GUI automation.
+- Live logs and execution history with independent execution/transport states, filtering, limited storage and opt-in temporary diagnostics.
+
 - Manual and automatic update checks, with verified installer downloads.
 - Menu bar/system tray controls, background operation, encrypted credential storage, and reconnection without replaying tool operations.
 

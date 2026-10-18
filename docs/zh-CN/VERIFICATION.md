@@ -1,4 +1,4 @@
-# ChatToHarness 0.3.0 验证记录
+# ChatToHarness 验证记录（历史与当前）
 
 [English](../en/VERIFICATION.md) | [简体中文](../zh-CN/VERIFICATION.md) | [日本語](../ja/VERIFICATION.md)
 
@@ -84,3 +84,15 @@ Mac 隔离检查已覆盖四个页面的三种语言、原生菜单、重启后�
 - 真实 ChatGPT 客户端验收通过：在 ChatToHarness 设置中添加临时 stdio 服务 `tunnel_probe`，仅授权 `echo`，刷新既有插件目录后，通过个人真实 Tunnel 调用 `tunnel_probe__echo` 一次。返回 nonce `cth-live-20261017-1207`、`calls: 1`、`server: fixture`，中文、日文、嵌套数组及 `project_path` 原样往返；本机脱敏审计记录执行完成。验收后停用并删除临时服务，刷新客户端目录。此项不等同于 Responses API 或 Unity 验收。
 - [双平台原生 CI](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39031317049) 全部通过，验证代码提交 `dd56576`。Windows x64：202 项中 196 通过、6 项按平台／资源可用性跳过；Mac arm64：197 通过、5 项跳过，均无失败。两平台均完成原生打包、27 项真实工具、私有网关与 Tunnel 本地控制面、三语打包窗口、MCP-only 设置与授权、加密保存及进程清理验收。Windows 首轮暴露的退出后临时目录占用已用有上限的删除重试修正；未跳过失败检查。CI 采用隔离配置与合成凭据，真实个人 Tunnel 调用由上一项单独验证。
 - 未发布新 Release，也未替换已安装应用。
+
+## v0.6.0 合并 PR #6 审查与发布分支准备（2026-10-18）
+
+**源码范围：** [PR #6](https://github.com/DJ-Huang/ChatToHarness/pull/6) 已合入 `main`，合并提交为 `b518a00c8cbc5ca4caf60f7fca09a0c0a9e4f6be`。相对第一父提交 `07bc8b5` 的差异包含 **67 个文件（+4,550／−144 行）**。[源码与功能验收审查](../implementation/2026-10-18-pr6-release-audit.md) 将实现、证据、边界和遗留问题分别记录。此处是发布前证据，**不代表 v0.6.0 已正式发布**。
+
+- [合并后 main 的 Application checks](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39119237872) 在 `macos-15`（arm64）和 `windows-2025`（x64）均通过。流水线包含单元测试、原生打包、Desktop Commander 真实引擎、能力与文件格式、125 秒持久任务／断线、Tunnel 回环控制面以及隔离配置的打包 UI。它是 CI 证据，**不能**替代这一提交在个人真实 ChatGPT Tunnel、Unity 或 Responses API 上的端到端验收。
+- 独立的 `release/v0.6.0` 工作树基于合并后的 `main`，`package.json` 与 `package-lock.json` 两个版本字段均已同步。使用固定 Node **24.22.0**，`node scripts/release.cjs check` 通过；本机 `npm test` 共 **275 项，273 通过、2 跳过、0 失败**。跳过项与平台有关，这是源码验证，不是新版本安装包验收。
+- 源码与测试涵盖 AGENTS／Rules／Skills 交付与 Token、工程／Git／产物只读查询、幂等任务与 worker claim／取消、安全文本编辑和条件撤销、项目／工具授权及 allow-all、第三方原生结果保真、资源／提示词原生与回退读取、执行记录的容量限制、实时日志与默认折叠子导航。
+- 先前的 `continuation-evidence.json` 记录了旧 Mac 开发提交上 125 秒任务及续传的成功证据；不能直接算作 v0.6.0 公开安装包的验收。
+- **当前尚未完成或发布：** `v0.6.0` Tag、新版 Windows／Mac 原生安装包及其公有 SHA256SUMS 校验、实际签名状态、新稳定版官网下载链接以及该版本真实客户端验收。完成标签流程前最新已公开稳定版仍为 `v0.5.0`。
+
+**发布风险待跟踪：** 高频日志轮询可能漏掉部分中间记录；worker 启动失败时执行历史状态可能滞后；工具结果中的任意资源链接不一定自动重写；内容目录变化可能需要手动刷新；Harness／内容工具与普通转发工具的总超时路径不同。安全文本编辑的哈希校验也不构成防止任意外部并发写入的原子事务。这些是源码审查发现的待跟踪项，**并未因更新文档而修复**。正式打 Tag 前应明确发布阻断级别与处置方案，详见审查文档。

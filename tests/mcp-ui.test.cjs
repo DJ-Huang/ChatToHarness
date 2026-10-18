@@ -293,7 +293,7 @@ test('home and sidebar open a live log page; filtering, pause, search and clear 
   const f=await rendererFixture(initialState(),{readLiveLogs:async query=>{
     calls.push(query);return {entries:calls.length===1?entries:[],cursor:{file:'app.log',identity:'123',offset:80},reset:false,more:false};
   }});
-  assert.equal(f.node('nav-logs').attributes['aria-controls'],'panel-logs');
+  assert.deepEqual(f.node('nav-logs').attributes['aria-controls'].split(' '),['panel-logs','nav-log-submenu']);
   assert.equal(f.node('overview-open-logs').dataset.navigate,'logs');
   assert.equal(calls.length,0,'reading logs must be lazy');
   await f.node('overview-open-logs').emit('click');await settled();
@@ -339,31 +339,70 @@ test('log pages share a labelled group, with nested history icon and accessible 
   assert.equal(i18n.translate('en','日志'),'Logs');
   assert.equal(i18n.translate('ja','日志'),'ログ');
 
+  let logReads=0;
   const f=await rendererFixture(initialState(),{
-    readLiveLogs:async()=>({entries:[],cursor:null,reset:false,more:false}),
+    readLiveLogs:async()=>{logReads++;return {entries:[],cursor:null,reset:false,more:false};},
     executionList:async()=>({records:[],total:0,usage:0,diagnostics:{enabled:false}}),
   });
   const groupNode=f.node('nav-log-group');
+  const submenu=f.node('nav-log-submenu');
+  const parent=f.node('nav-logs');
+  const child=f.node('nav-history');
   assert.equal(groupNode.dataset.active,'false');
-  await f.node('nav-logs').emit('click');await settled();
-  assert.equal(groupNode.dataset.active,'true');
-  assert.equal(f.node('nav-logs').attributes['aria-selected'],'true');
-  assert.equal(f.node('nav-history').attributes['aria-selected'],'false');
+  assert.equal(groupNode.dataset.expanded,'false','menu is collapsed by default');
+  assert.equal(submenu.hidden,true,'child is hidden by default');
+  assert.equal(parent.attributes['aria-expanded'],'false');
+  assert.equal(child.attributes.tabindex,'-1');
+  assert.match(group,/id="nav-log-submenu"[^>]*hidden/,'child markup is collapsed before renderer loads');
+  assert.match(group,/class="nav-log-chevron"/,'parent has a disclosure arrow');
 
-  await f.node('nav-logs').emit('keydown',{key:'ArrowDown'});await settled();
-  assert.equal(f.node('nav-history').attributes['aria-selected'],'true');
-  assert.equal(f.node('panel-history').hidden,false);
+  await parent.emit('click');await settled();
   assert.equal(groupNode.dataset.active,'true');
-  assert.match(f.node('nav-history').className, /selected/);
-  assert.equal(f.node('nav-logs').attributes['aria-selected'],'false');
+  assert.equal(groupNode.dataset.expanded,'true');
+  assert.equal(submenu.hidden,false);
+  assert.equal(parent.attributes['aria-expanded'],'true');
+  assert.equal(parent.attributes['aria-selected'],'true');
+  assert.equal(child.attributes['aria-selected'],'false');
 
-  await f.node('nav-history').emit('keydown',{key:'ArrowDown'});
-  assert.equal(f.node('nav-connection').attributes['aria-selected'],'true');
+  const callsWhileOpen=logReads;
+  await parent.emit('click');await settled();
+  assert.equal(logReads,callsWhileOpen,'folding the menu must not reload the log stream');
+  assert.equal(groupNode.dataset.expanded,'false','clicking parent again closes its child');
+  assert.equal(submenu.hidden,true);
+  assert.equal(f.node('panel-logs').hidden,false,'collapsing does not close the log page');
+
+  await parent.emit('keydown',{key:'ArrowDown'});
+  assert.equal(f.node('nav-connection').attributes['aria-selected'],'true','collapsed child is skipped by keyboard navigation');
   assert.equal(groupNode.dataset.active,'false');
 
   await f.node('nav-connection').emit('keydown',{key:'ArrowUp'});
-  assert.equal(f.node('nav-history').attributes['aria-selected'],'true');
+  assert.equal(parent.attributes['aria-selected'],'true');
+  assert.equal(submenu.hidden,true);
+  await parent.emit('keydown',{key:'ArrowRight'});
+  assert.equal(parent.attributes['aria-expanded'],'true','right arrow expands');
+  await parent.emit('keydown',{key:'ArrowDown'});await settled();
+  assert.equal(child.attributes['aria-selected'],'true');
+  assert.equal(f.node('panel-history').hidden,false);
+  assert.equal(submenu.hidden,false);
   assert.equal(groupNode.dataset.active,'true');
+  assert.match(child.className,/selected/);
+
+  await child.emit('keydown',{key:'ArrowLeft'});
+  assert.equal(parent.attributes['aria-selected'],'true');
+  assert.equal(submenu.hidden,true,'left arrow collapses');
+  assert.equal(parent.attributes['aria-expanded'],'false');
+
+  // In-page shortcuts to history expand the menu even when it is folded.
+  const shortcut=f.node('logs-history-shortcut');
+  assert.equal(shortcut.dataset.navigate,'history','history shortcut exists in live log page');
+  await shortcut.emit('click');await settled();
+  assert.equal(submenu.hidden,false);
+  assert.equal(child.attributes['aria-selected'],'true');
+  await parent.emit('click');
+  assert.equal(submenu.hidden,true,'clicking parent from history navigates to logs and closes');
+  assert.equal(f.node('panel-logs').hidden,false);
+
   await f.node('nav-overview').emit('click');
   assert.equal(groupNode.dataset.active,'false');
+  assert.equal(submenu.hidden,true);
 });

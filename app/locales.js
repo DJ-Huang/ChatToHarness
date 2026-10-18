@@ -3,6 +3,7 @@
 (function(root){
   const messages = {
   "日志": ["Logs", "ログ"],
+  "日志子菜单": ["Log submenu", "ログのサブメニュー"],
   "实时日志": ["Live logs", "リアルタイムログ"],
   "持续查看本机连接、工具调用与异常日志。": ["Follow local connections, tool calls and errors as they happen.", "ローカル接続・ツール呼び出し・エラーをリアルタイムで確認します。"],
   "直接查看本机工具、连接和异常，自动滚动更新。": ["View local tools, connections and errors in a live scrolling feed.", "ローカルのツール・接続・エラーを自動スクロールで表示します。"],

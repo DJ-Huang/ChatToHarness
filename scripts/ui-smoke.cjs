@@ -123,6 +123,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   assert.deepEqual(initial.settings.directories, []);
   assert.equal(await page.title(), 'ChatToHarness');
   await page.screenshot({ path: path.join(output, 'console-initial.png'), fullPage: true });
+  assert.equal(await page.locator('#nav-history').isVisible(),false,'fresh app starts with collapsed log navigation');
 
   // The homepage button opens the same read-only rolling log panel as the
   // sidebar. Verify it in a disposable Electron profile, never the live app.
@@ -140,24 +141,44 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   await page.locator('#log-pause').click();
   await page.locator('#log-reload').click();
   await page.screenshot({path: path.join(output, 'console-live-logs.png'), fullPage: true});
-  await tab(page, 'history');
   const logGroup=page.locator('#nav-log-group');
   const mainLog=page.locator('#nav-logs');
   const historyLog=page.locator('#nav-history');
+  const logSubmenu=page.locator('#nav-log-submenu');
+  assert.equal(await logGroup.getAttribute('data-expanded'),'false','menu starts collapsed');
+  assert.equal(await mainLog.getAttribute('aria-expanded'),'false');
+  assert.equal(await historyLog.isVisible(),false,'child is hidden by default');
+  await mainLog.click();
+  assert.equal(await logGroup.getAttribute('data-expanded'),'true');
+  assert.equal(await mainLog.getAttribute('aria-expanded'),'true');
+  assert.equal(await historyLog.isVisible(),true);
+  await tab(page,'history');
   assert.equal(await logGroup.getAttribute('data-active'),'true');
   assert.equal(await mainLog.getAttribute('aria-selected'),'false');
-  assert.equal(await historyLog.locator('svg').count(),1,'history has the missing document icon');
+  assert.equal(await historyLog.locator('svg').count(),1,'history retains its document icon');
   const parentBox=await mainLog.boundingBox(),childBox=await historyLog.boundingBox();
   assert.ok(parentBox&&childBox&&childBox.x>=parentBox.x+12,'history is indented under live logs');
   assert.ok(childBox.y>=parentBox.y+parentBox.height,'history follows live logs vertically');
-  await page.screenshot({path:path.join(output,'console-log-navigation.png'),fullPage:true});
+  await page.screenshot({path:path.join(output,'console-log-navigation-expanded.png'),fullPage:true});
   await tab(page,'logs');
+  assert.equal(await historyLog.isVisible(),false,'clicking parent collapses its child');
+  assert.equal(await mainLog.getAttribute('aria-expanded'),'false');
+  await page.screenshot({path:path.join(output,'console-log-navigation-collapsed.png'),fullPage:true});
+  await mainLog.press('ArrowDown');
+  assert.equal(await page.locator('#nav-connection').getAttribute('aria-selected'),'true','keyboard skips hidden submenu');
+  await page.locator('#nav-connection').press('ArrowUp');
+  assert.equal(await mainLog.getAttribute('aria-selected'),'true');
+  await mainLog.press('ArrowRight');
+  assert.equal(await historyLog.isVisible(),true,'right arrow expands submenu');
   await mainLog.press('ArrowDown');
   assert.equal(await historyLog.getAttribute('aria-selected'),'true');
-  await historyLog.press('ArrowDown');
-  assert.equal(await page.locator('#nav-connection').getAttribute('aria-selected'),'true');
-  assert.equal(await logGroup.getAttribute('data-active'),'false');
-  await tab(page, 'overview');
+  await historyLog.press('ArrowLeft');
+  assert.equal(await historyLog.isVisible(),false,'left arrow collapses submenu');
+  assert.equal(await mainLog.getAttribute('aria-selected'),'true');
+  await page.locator('#panel-logs [data-navigate="history"]').click();
+  assert.equal(await historyLog.isVisible(),true,'history shortcut expands submenu');
+  await tab(page,'overview');
+  assert.equal(await logSubmenu.isVisible(),false,'leaving log section collapses submenu');
 
 
   // All seven navigation entries select real, separate panels; keyboard navigation

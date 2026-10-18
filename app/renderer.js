@@ -114,8 +114,20 @@
     return mcpErrors[code] || (code ? 'MCP 操作未完成，请检查配置后重试。' : message);
   }
 
+  // Menu expansion is UI state, independent from the current log page. Start
+  // collapsed; the parent tab toggles its child without leaving the log viewer.
+  let logMenuExpanded = false;
+  function setLogMenuExpanded(expanded) {
+    logMenuExpanded = Boolean(expanded);
+    byId('nav-log-group').dataset.expanded = String(logMenuExpanded);
+    byId('nav-log-submenu').hidden = !logMenuExpanded;
+    byId('nav-logs').setAttribute('aria-expanded', String(logMenuExpanded));
+    if (!logMenuExpanded) byId('nav-history').setAttribute('tabindex', '-1');
+  }
   function showTab(name, focus = false) {
     if (!Object.hasOwn(pages, name)) return;
+    if (name === 'history') setLogMenuExpanded(true);
+    else if (name !== 'logs') setLogMenuExpanded(false);
     activeTab = name;
     // Keep the logs category highlighted for either of its two pages.
     byId('nav-log-group').dataset.active = String(name === 'logs' || name === 'history');
@@ -764,16 +776,37 @@
     });
   });
   document.querySelectorAll('[data-tab]').forEach((button) => {
-    button.addEventListener('click', () => showTab(button.dataset.tab));
+    button.addEventListener('click', () => {
+      if (button.dataset.tab === 'logs') {
+        const nextExpanded = !logMenuExpanded;
+        // A disclosure click on the already-visible viewer must not reload
+        // the log stream (or reset its scroll position/pause state).
+        if (activeTab !== 'logs') showTab('logs');
+        setLogMenuExpanded(nextExpanded);
+      } else showTab(button.dataset.tab);
+    });
     button.addEventListener('keydown', (event) => {
-      let index = tabNames.indexOf(activeTab);
-      if (event.key === 'ArrowDown') index = (index + 1) % tabNames.length;
-      else if (event.key === 'ArrowUp') index = (index + tabNames.length - 1) % tabNames.length;
+      if (event.key === 'ArrowRight' && button.dataset.tab === 'logs') {
+        event.preventDefault();
+        setLogMenuExpanded(true);
+        return;
+      }
+      if (event.key === 'ArrowLeft' && (button.dataset.tab === 'logs' || button.dataset.tab === 'history')) {
+        event.preventDefault();
+        showTab('logs', true);
+        setLogMenuExpanded(false);
+        return;
+      }
+      // A collapsed submenu must never be reachable via roving tabindex.
+      const visibleTabs = tabNames.filter(tab => tab !== 'history' || logMenuExpanded);
+      let index = visibleTabs.indexOf(activeTab);
+      if (event.key === 'ArrowDown') index = (index + 1) % visibleTabs.length;
+      else if (event.key === 'ArrowUp') index = (index + visibleTabs.length - 1) % visibleTabs.length;
       else if (event.key === 'Home') index = 0;
-      else if (event.key === 'End') index = tabNames.length - 1;
+      else if (event.key === 'End') index = visibleTabs.length - 1;
       else return;
       event.preventDefault();
-      showTab(tabNames[index], true);
+      showTab(visibleTabs[index], true);
     });
   });
   // Only the active log panel polls the bounded main-process JSONL tail.

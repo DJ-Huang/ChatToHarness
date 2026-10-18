@@ -34,10 +34,16 @@ ChatGPT：通过 `@` 选择已连接插件，再描述任务和工程路径。�
 
 ## 快速开始
 
+下载前，先确认账户可以使用支持 Tunnel 的 ChatGPT 自定义 MCP 或 Codex 接入入口。创建或编辑 Tunnel 需要 **Tunnels Read + Manage**；运行通道及在客户端选择通道需要 **Read + Use**。请关联目标 Platform 组织与 ChatGPT 工作区，并检查工作区的自定义 MCP 权限。[权限检查清单](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels#permissions-and-access)
+
+先阅读 Release 的签名说明：当前 Windows 安装包未签名，Mac 应用为临时签名且未公证，系统可能提示或阻止安装。下载后请核对 `SHA256SUMS.txt`。
+
 1. 从正式发布的 Release 下载适用于 macOS 14+ Apple 芯片或 Windows 11 x64 的安装包。
 2. 在服务控制台准备 Tunnel ID 与 Runtime API Key，填入本机应用，并选择工作目录。
 3. 保存并连接。通道就绪后，按客户端指引接入 ChatGPT 或 Codex。
 4. 先尝试只读任务，再在专用临时目录验证文件写入。
+
+首次只读检查可使用：“用 `get_harness_status` 报告实际运行版本，再用 `get_project_overview` 查看 `<工程绝对路径>`，不要修改文件。”请选择已在应用中授权的目录。只有客户端返回真实工具结果后，才算接入验证成功；随后在专用临时目录测试一个新的标记文件，不要使用已有工程文件。客户端确认仍独立于本机应用权限。
 
 [OpenAI Tunnel](https://platform.openai.com/settings/organization/tunnels) · [客户端接入](docs/zh-CN/CLIENTS.md)
 

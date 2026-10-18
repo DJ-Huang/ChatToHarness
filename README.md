@@ -34,10 +34,16 @@ Application screenshots use an isolated demonstration configuration. The app, we
 
 ## Get started
 
+Before downloading, check that your account can use a supported ChatGPT custom MCP or Codex tunnel connection. Creating or editing a Tunnel needs **Tunnels Read + Manage**; running it and selecting it in a client needs **Read + Use**. Associate the intended Platform organization and ChatGPT workspace, and check the workspace's custom MCP permissions. [Access checklist](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels#permissions-and-access)
+
+Read the Release's signing notes first: current Windows installers are unsigned; Mac apps are ad-hoc signed and not notarized. Your OS may warn or block installation. Verify the download against `SHA256SUMS.txt`.
+
 1. Install the package for macOS 14+ Apple Silicon or Windows 11 x64 from a published Release.
 2. Prepare a Tunnel ID and Runtime API Key in the service console, enter them in the application, and select work directories.
 3. Save and connect. When the tunnel is ready, follow the client guide for ChatGPT or Codex.
 4. First try a read-only task, then verify file writing in a dedicated temporary directory.
+
+For a first read-only check, ask: “Use `get_harness_status` to report the running version, then use `get_project_overview` for `<absolute project path>` without changing files.” Choose a folder already authorized in the app. Count setup as verified only after the client returns the actual tool result. Then test a new marker file in a dedicated temporary directory; do not use an existing project file. Client confirmations remain independent of local app permissions.
 
 [OpenAI Tunnel](https://platform.openai.com/settings/organization/tunnels) · [Client connections](docs/en/CLIENTS.md)
 

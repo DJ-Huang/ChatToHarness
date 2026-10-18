@@ -4,6 +4,18 @@
 
 この記録では、自動チェック、各 OS での動作、実際のクライアント呼び出しを区別します。未完了の項目は未検証のままとし、コードが存在するだけで成功とは扱いません。
 
+<a id="v060-public-status-check-2026-10-18"></a>
+## v0.6.0 公開状況の確認（2026-10-18）
+
+この日付付きの更新を、以下に残る「v0.6.0 は未公開」という過去の状態記述より優先してください。過去のテスト結果と既知の制約は変更していません。
+
+- [GitHub Release](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.6.0) は公開済みで、`draft=false`、`prerelease=false`、公開日時は **2026-10-18 11:46 UTC** です。確認時点の最新安定版 API は v0.6.0 を返しました。
+- Release のメタデータには Mac arm64 DMG、Windows x64 インストーラー、`SHA256SUMS.txt` が掲載されています。リンク先の[タグワークフロー](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39123941413) は **completed / success** です。
+- [ホームページ](https://dj-huang.github.io/ChatToHarness/)と[英語の入口](https://dj-huang.github.io/ChatToHarness/en/)への読み取り専用 HTTP 確認は **200** を返し、HTML に v0.6.0 のインストーラーとチェックサムへのリンクが含まれていました。
+- 公開 Release には Windows は未署名、Mac はアドホック署名・未公証と記載されています。本文には公開準備時の表現が残っているため、公開メタデータとこの日付付き更新で実際の公開状況を区別します。
+
+**検証範囲：**今回は公開メタデータとページ HTML の確認のみです。インストーラーのダウンロードやハッシュ再計算、署名の独立検証、アプリのインストール・起動、描画レイアウトの確認、新たな ChatGPT・Codex・Responses API・AgentKit・第三者 MCP 呼び出しは行っていません。ワークフローの成功は既存の報告であり、新たなローカル検証ではありません。以下の公開準備チェックリストは、それぞれの当時の観測を記録したものです。
+
 ## 記録済みの結果
 
 - ローカル Mac の単体チェックは 68 件中 66 件が成功し、Windows ネイティブの Job Object 2 件を Mac ではスキップしました。この 2 件は、その後 Windows CI で成功しています。

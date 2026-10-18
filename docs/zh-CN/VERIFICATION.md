@@ -4,6 +4,18 @@
 
 本记录区分自动检查、平台运行和真实客户端调用。首次实现时未完成的项目保持待验证，不以代码存在代替实际通过。
 
+<a id="v060-public-status-check-2026-10-18"></a>
+## v0.6.0 公开状态检查（2026-10-18）
+
+此带日期的状态更新取代下文“v0.6.0 尚待发布”的旧状态描述。历史测试结果及已知限制保持不变。
+
+- [GitHub Release](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.6.0) 已公开，`draft=false`、`prerelease=false`，发布时间为 **2026-10-18 11:46 UTC**。检查时最新稳定版 API 返回 v0.6.0。
+- Release 元数据列出 Mac arm64 DMG、Windows x64 安装包和 `SHA256SUMS.txt`。所链接的[标签工作流](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39123941413) 状态为 **completed / success**。
+- 只读 HTTP 检查确认[主页](https://dj-huang.github.io/ChatToHarness/)和[英文入口](https://dj-huang.github.io/ChatToHarness/en/)均返回 **200**，HTML 含有 v0.6.0 安装包及校验文件链接。
+- 公开 Release 报告 Windows 未签名、Mac 临时签名且未公证。发布说明正文仍含准备阶段的措辞；公开元数据和本次带日期的更新用于明确实际发布状态。
+
+**证据边界：**本次仅检查公开元数据与页面 HTML；未下载安装包或重新计算其哈希，未独立验证签名，未安装或启动应用，未检查浏览器渲染布局，也未新增 ChatGPT、Codex、Responses API、AgentKit 或第三方 MCP 调用。工作流成功是已报告证据，不是新做的本机验收。下文发布准备检查清单描述的是其原始观察时点。
+
 ## 当前轮次
 
 - 自动单元检查：68 项，66 通过，2 项 Windows Job Object 原生检查在 Mac 跳过；后续 Windows CI 已验证通过。

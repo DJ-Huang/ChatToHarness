@@ -20,4 +20,6 @@ Keep translations aligned when updating behavior, configuration, or verification
 
 The app and website support the same three languages.
 
-[v0.6.0 prepared release notes (three languages; not published yet)](../../release-notes/v0.6.0.md) · [Current public stable v0.5.0](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.5.0)
+[v0.6.0 public release and downloads](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.6.0) · [Current release-status evidence](VERIFICATION.md#v060-public-status-check-2026-10-18)
+
+The [prepared source notes](../../release-notes/v0.6.0.md) retain pre-publication wording. Use the dated verification entry for the observed publication status; it does not claim new runtime tests.

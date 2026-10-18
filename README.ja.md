@@ -34,10 +34,16 @@ ChatGPT：`@` で接続済みプラグインを選び、タスクとプロジェ
 
 ## はじめに
 
+ダウンロード前に、アカウントで Tunnel 対応の ChatGPT カスタム MCP または Codex の接続機能を使えることを確認してください。Tunnel の作成・編集には **Tunnels Read + Manage**、実行とクライアントでの選択には **Read + Use** が必要です。対象の Platform 組織と ChatGPT ワークスペースを関連付け、ワークスペースのカスタム MCP 権限も確認してください。[権限チェックリスト](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels#permissions-and-access)
+
+先に Release の署名情報を確認してください。現在の Windows インストーラーは未署名、Mac アプリはアドホック署名・未公証のため、OS が警告や制限を出す場合があります。ダウンロード後は `SHA256SUMS.txt` と照合してください。
+
 1. 公開済み Release から macOS 14+ Apple Silicon または Windows 11 x64 用のインストーラーを入手します。
 2. サービス管理画面で Tunnel ID と Runtime API Key を用意し、アプリに入力して作業フォルダーを選びます。
 3. 保存して接続します。トンネルの準備ができたら、クライアントガイドに従って ChatGPT または Codex を接続します。
 4. まず読み取り専用のタスクを試し、その後、専用の一時フォルダーでファイルの書き込みを確認します。
+
+最初の読み取り確認では、次のように依頼します。「`get_harness_status` で実行中のバージョンを報告し、`get_project_overview` で `<プロジェクトの絶対パス>` を確認してください。ファイルは変更しないでください。」アプリで許可済みのフォルダーを指定し、クライアントに実際のツール結果が返ってから接続確認済みとします。その後、専用の一時フォルダーに新しい確認用ファイルを作成して読み戻してください。既存のプロジェクトファイルは使わないでください。クライアント側の確認はローカルアプリの権限とは独立しています。
 
 [OpenAI Tunnel](https://platform.openai.com/settings/organization/tunnels) · [クライアント接続](docs/ja/CLIENTS.md)
 

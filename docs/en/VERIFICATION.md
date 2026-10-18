@@ -4,6 +4,18 @@
 
 This record separates automated checks, platform execution, and real client calls. Unfinished items remain unverified; the existence of implementation code is not evidence that a check passed.
 
+<a id="v060-public-status-check-2026-10-18"></a>
+## v0.6.0 public-status check (2026-10-18)
+
+This dated status update supersedes earlier statements that v0.6.0 publication was pending. Historical test results and known limitations below remain unchanged.
+
+- The [GitHub Release](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.6.0) is public, with `draft=false`, `prerelease=false`, and publication time **2026-10-18 11:46 UTC**. The latest-stable API returned v0.6.0 when checked.
+- Release metadata lists the Mac arm64 DMG, Windows x64 installer and `SHA256SUMS.txt`. The linked [tag workflow](https://github.com/DJ-Huang/ChatToHarness/actions/runs/39123941413) reports **completed / success**.
+- Read-only HTTP checks of the [homepage](https://dj-huang.github.io/ChatToHarness/) and [English route](https://dj-huang.github.io/ChatToHarness/en/) returned **200** and HTML containing v0.6.0 installer and checksum links.
+- The published Release reports unsigned Windows and ad-hoc-signed, non-notarized Mac installers. Its prepared narrative still contains pre-publication wording; publication metadata and this dated update distinguish the actual public status.
+
+**Evidence boundary:** this update inspected public metadata and page HTML. It did not download or hash installers, independently verify signatures, install or launch the app, inspect rendered layouts, or make new ChatGPT, Codex, Responses API, AgentKit or third-party MCP calls. Workflow success is reported evidence, not a new local acceptance run. Earlier pre-release checklists describe their original observation time.
+
 ## Recorded results
 
 - Local Mac unit checks: 68 total, 66 passed, and 2 Windows-native Job Object checks skipped on Mac. Those two checks subsequently passed in Windows CI.

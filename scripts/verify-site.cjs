@@ -12,7 +12,9 @@ function validatePage(html,version){
   const badges=[...html.matchAll(/<span>v([0-9.]+)\s/g)].map(match=>match[1]);
   if(badges.length<2||badges.some(value=>value!==version)||!displayed)throw new Error(`Missing or stale displayed version; expected v${version}.`);
 }
-async function verifySite(version,{request=fetch,attempts=20,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms)),report=console.log}={}){
+// GitHub Pages can serve cached HTML for up to ten minutes after a successful deployment.
+// Retry for about eleven minutes so a healthy published release is not marked failed by CDN propagation.
+async function verifySite(version,{request=fetch,attempts=44,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms)),report=console.log}={}){
   let failures=[];
   for(let attempt=0;attempt<attempts;attempt++){
     failures=[];

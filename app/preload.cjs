@@ -2,7 +2,10 @@
 const {contextBridge,ipcRenderer}=require('electron');
 const call=async(method,...args)=>{try{return await ipcRenderer.invoke('localharness:'+method,...args);}catch(error){throw new Error(String(error.message||'操作未完成，请重试。').replace(/^Error invoking remote method '[^']+': (?:(?:Error|SettingsError|McpSettingsError): )?/,''));}};
 contextBridge.exposeInMainWorld('localHarness',Object.freeze({
+  executionList:input=>call('execution-list',input),executionDetail:id=>call('execution-detail',id),
+  executionExport:ids=>call('execution-export',ids),executionDiagnostics:enabled=>call('execution-diagnostics',enabled),
   getState:()=>call('get-state'),saveSettings:value=>call('save-settings',value),
+  readLiveLogs:input=>call('live-logs-read',input),
   chooseDirectories:()=>call('choose-directories'),connect:()=>call('connect'),disconnect:()=>call('disconnect'),
   check:()=>call('check'),clearCredentials:()=>call('clear-credentials'),openLogs:()=>call('open-logs'),
   openExternal:id=>call('open-external',id),setLanguage:locale=>call('set-language',locale),

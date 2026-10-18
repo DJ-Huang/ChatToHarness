@@ -36,12 +36,14 @@
   const mcpApprovalPending = new Set();
   const mcpOpenTools = new Set();
   const cancelled = Symbol('cancelled');
-  const tabNames = ['overview', 'connection', 'directories', 'mcp', 'help'];
+  const tabNames = ['overview', 'logs', 'connection', 'directories', 'mcp', 'history', 'help'];
   const pages = {
     overview: ['工作空间概览', '将 AI 对话连接到本机执行环境。'],
+    logs: ['实时日志', '持续查看本机连接、工具调用与异常日志。'],
     connection: ['连接配置', '为这个工作空间建立一条安全通道。'],
     directories: ['工作目录', '选择协作范围，自动交付工程规范。'],
     mcp: ['MCP Servers', '配置本应用的工具服务，再通过安全通道提供给客户端。'],
+    history: ['执行记录', '按需查看本机工具执行与响应写入状态。'],
     help: ['接入与帮助', '连接客户端，开始第一次本机工具调用。'],
   };
   const stateNames = {
@@ -115,6 +117,8 @@
   function showTab(name, focus = false) {
     if (!Object.hasOwn(pages, name)) return;
     activeTab = name;
+    if(name==='history')void loadHistory();
+    if(name==='logs')void loadLiveLogs(true);
     for (const tab of tabNames) byId('panel-' + tab).hidden = tab !== name;
     document.querySelectorAll('[data-tab]').forEach((button) => {
       const selected = button.dataset.tab === name;
@@ -770,6 +774,133 @@
       showTab(tabNames[index], true);
     });
   });
+  // Only the active log panel polls the bounded main-process JSONL tail.
+  // Search/filter are local over the last 400 already sanitized log summaries.
+  let liveCursor=null,liveEntries=[],liveFilter='all',livePaused=false,liveFollowing=true;
+  let liveLoadSerial=0,liveBusy=false;
+  const liveCategories={tool:'工具',connection:'连接',system:'系统'};
+  function renderLiveLogs(){
+    const needle=byId('log-search').value.trim().toLowerCase();
+    const filtered=liveEntries.filter(entry=>
+      (liveFilter==='all'||liveFilter==='error'&&entry.severity==='error'||entry.category===liveFilter)&&
+      (!needle||[entry.at,entry.event,entry.message,entry.category].join(' ').toLowerCase().includes(needle)));
+    const viewport=byId('log-stream'),previousScroll=viewport.scrollTop||0;
+    const body=byId('log-entries');body.replaceChildren();
+    for(const entry of filtered){
+      const line=document.createElement('div');line.className='live-log-line';
+      if(entry.severity==='error')line.className+=' live-log-line-error';
+      const time=document.createElement('time');time.className='live-log-time';
+      const parsed=Date.parse(entry.at);
+      time.textContent=Number.isFinite(parsed)?new Date(parsed).toLocaleTimeString(locale,{hour12:false}):'--:--:--';
+      const kind=document.createElement('span');kind.className='live-log-kind';
+      kind.textContent=t(liveCategories[entry.category]||'系统');
+      const message=document.createElement('span');message.className='live-log-message';message.textContent=entry.message;
+      line.append(time,kind,message);body.append(line);
+    }
+    if(!filtered.length){
+      const empty=document.createElement('p');empty.className='live-log-empty';
+      empty.textContent=t(liveEntries.length?'没有符合筛选条件的日志。':'等待新日志…');
+      body.append(empty);
+    }
+    byId('log-count').textContent=t('已显示 {count} 条日志，内存最多保留 400 条。',{count:filtered.length});
+    byId('log-live-state').textContent=t(livePaused?'已暂停':'自动更新');
+    byId('log-pause').textContent=t(livePaused?'继续':'暂停');
+    byId('log-pause').setAttribute('aria-pressed',String(livePaused));
+    if(liveFollowing)viewport.scrollTop=viewport.scrollHeight;
+    else viewport.scrollTop=previousScroll;
+  }
+  async function loadLiveLogs(reload=false){
+    if(activeTab!=='logs'||livePaused&&!reload||liveBusy&&!reload)return;
+    const serial=++liveLoadSerial;
+    liveBusy=true;
+    try{
+      const result=await api.readLiveLogs({cursor:reload?null:liveCursor,limit:200});
+      if(serial!==liveLoadSerial||activeTab!=='logs')return;
+      if(reload||result.reset)liveEntries=[];
+      const seen=new Set(liveEntries.map(entry=>entry.id));
+      for(const entry of result.entries||[])if(!seen.has(entry.id)){
+        liveEntries.push(entry);seen.add(entry.id);
+      }
+      if(liveEntries.length>400)liveEntries=liveEntries.slice(-400);
+      liveCursor=result.cursor??null;
+      byId('log-error').textContent='';
+      renderLiveLogs();
+      if(result.more&&typeof setTimeout==='function')setTimeout(()=>void loadLiveLogs(),100);
+    }catch(error){
+      if(serial===liveLoadSerial)byId('log-error').textContent=safeMessage(error);
+    }finally{if(serial===liveLoadSerial)liveBusy=false;}
+  }
+  document.querySelectorAll('[data-log-filter]').forEach(button=>{
+    button.addEventListener('click',()=>{
+      liveFilter=button.dataset.logFilter;
+      document.querySelectorAll('[data-log-filter]').forEach(option=>{
+        option.setAttribute('aria-pressed',String(option===button));
+        option.className='live-log-filter'+(option===button?' selected':'');
+      });
+      renderLiveLogs();
+    });
+  });
+  byId('log-search').addEventListener('input',renderLiveLogs);
+  byId('log-pause').addEventListener('click',()=>{
+    livePaused=!livePaused;renderLiveLogs();
+    if(!livePaused)void loadLiveLogs();
+  });
+  byId('log-follow').addEventListener('change',event=>{
+    liveFollowing=event.target.checked;renderLiveLogs();
+  });
+  byId('log-stream').addEventListener('scroll',()=>{
+    if(liveFollowing&&byId('log-stream').scrollHeight-byId('log-stream').scrollTop-byId('log-stream').clientHeight>40){
+      liveFollowing=false;byId('log-follow').checked=false;
+    }
+  });
+  byId('log-clear').addEventListener('click',()=>{liveEntries=[];renderLiveLogs();});
+  byId('log-reload').addEventListener('click',()=>void loadLiveLogs(true));
+  byId('log-open-folder').addEventListener('click',()=>{
+    Promise.resolve(api.openLogs()).catch(error=>{byId('log-error').textContent=safeMessage(error);});
+  });
+  if(typeof setInterval==='function')setInterval(()=>{
+    if(activeTab==='logs'&&!document.hidden&&!livePaused)void loadLiveLogs();
+  },2000);
+
+  let historyFilter='all',historyOffset=0,historySequence=0,historyDetail=null,historySearchTimer;
+  const historySelected=new Set();
+  const executionLabels={received:'已接收',waiting_approval:'等待批准',submitted:'任务已提交',running:'执行中',succeeded:'成功',failed:'失败',interrupted:'已中断',unknown:'未知',cancelling:'正在取消',local_write_succeeded:'本机写入成功',local_write_failed:'本机写入失败'};
+  async function loadHistory(){
+    const sequence=++historySequence;
+    try{
+      const result=await api.executionList({tab:historyFilter,search:byId('history-search').value,offset:historyOffset,limit:50});
+      if(sequence!==historySequence)return;
+      byId('history-error').textContent='';
+      byId('history-usage').textContent=`${(result.usage/1048576).toFixed(1)} / 50 MiB`;
+      byId('history-diagnostics').checked=Boolean(result.diagnostics?.enabled);
+      byId('history-page').textContent=`${result.total?historyOffset+1:0}–${Math.min(historyOffset+50,result.total)} / ${result.total}`;
+      byId('history-prev').disabled=historyOffset===0;byId('history-next').disabled=historyOffset+50>=result.total;
+      const body=byId('history-rows');body.replaceChildren();
+      for(const record of result.records){
+        const row=document.createElement('tr'),cell=document.createElement('td'),check=document.createElement('input');check.type='checkbox';check.checked=historySelected.has(record.request_id);check.setAttribute('aria-label',record.request_id);
+        check.addEventListener('change',()=>{if(check.checked&&historySelected.size<100)historySelected.add(record.request_id);else{historySelected.delete(record.request_id);check.checked=false;}});cell.append(check);row.append(cell);
+        for(const value of [new Date(record.last_received_at||record.received_at).toLocaleString(locale),record.tool+' · '+record.operation,record.project||record.service,t(executionLabels[record.state]||record.state)+(record.delivery==='local_write_failed'?' · '+t('本机写入失败'):''),record.duration_ms===undefined?'—':record.duration_ms+' ms']){
+          const td=document.createElement('td');td.textContent=value;row.append(td);
+        }
+        const button=document.createElement('button');button.type='button';button.className='inline-link';button.textContent=row.children[2].textContent;row.children[2].replaceChildren(button);
+        button.addEventListener('click',async()=>{try{historyDetail=await api.executionDetail(record.request_id);byId('history-detail').hidden=false;byId('history-detail-text').textContent=JSON.stringify(historyDetail,null,2);}catch(error){byId('history-error').textContent=safeMessage(error);}});
+        body.append(row);
+      }
+    }catch(error){byId('history-error').textContent=safeMessage(error);}
+  }
+  document.querySelectorAll('[data-history-filter]').forEach(button=>button.addEventListener('click',()=>{historyFilter=button.dataset.historyFilter;historyOffset=0;document.querySelectorAll('[data-history-filter]').forEach(tab=>tab.setAttribute('aria-selected',String(tab===button)));void loadHistory();}));
+  byId('history-search').addEventListener('input',()=>{clearTimeout(historySearchTimer);historySearchTimer=setTimeout(()=>{historyOffset=0;void loadHistory();},250);});
+  byId('history-refresh').addEventListener('click',()=>void loadHistory());
+  byId('history-prev').addEventListener('click',()=>{historyOffset=Math.max(0,historyOffset-50);void loadHistory();});
+  byId('history-next').addEventListener('click',()=>{historyOffset+=50;void loadHistory();});
+  byId('history-diagnostics').addEventListener('change',async event=>{try{await api.executionDiagnostics(event.target.checked);await loadHistory();}catch(error){byId('history-error').textContent=safeMessage(error);}});
+  byId('history-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(JSON.stringify(historyDetail,null,2));}catch(error){byId('history-error').textContent=safeMessage(error);}});
+  byId('history-export').addEventListener('click',async()=>{try{
+    const records=await api.executionExport([...historySelected]);const url=URL.createObjectURL(new Blob([JSON.stringify(records,null,2)],{type:'application/json'}));
+    const link=document.createElement('a');link.href=url;link.download='execution-records.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch(error){byId('history-error').textContent=safeMessage(error);}});
+  if(typeof setInterval==='function')setInterval(()=>{if(activeTab==='history'&&!document.hidden)void loadHistory();},5000);
+
   document.querySelectorAll('[data-navigate]').forEach((button) => {
     button.addEventListener('click', () => showTab(button.dataset.navigate));
   });

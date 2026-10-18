@@ -150,7 +150,7 @@ function desktopHarness(t) {
   const context = { require(name) {
     if (name === 'electron') return electron;
     if (name === './settings.cjs' || name === './runtime.cjs') return {};
-    if (['./platform.cjs','./preferences.cjs','./i18n.js','./updater.cjs','./dev-lifecycle.cjs'].includes(name)) return require('../app/'+name.slice(2));
+    if (['./platform.cjs','./preferences.cjs','./i18n.js','./updater.cjs','./dev-lifecycle.cjs','./execution-history.cjs','./live-logs.cjs','./diagnostic-budget.cjs','./durable-files.cjs'].includes(name)) return require('../app/'+name.slice(2));
     return require(name);
   }, __dirname: path.dirname(mainPath), process: { platform: 'darwin', env: { LOCALHARNESS_HOME: home } }, Buffer, Promise, setTimeout };
   vm.runInNewContext(fs.readFileSync(mainPath, 'utf8') + `

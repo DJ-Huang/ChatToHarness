@@ -75,7 +75,22 @@ class McpGateway {
       if(!expected.length||expected.length!==provided.length||!crypto.timingSafeEqual(expected,provided)){socket.destroy();return;}
       const remaining=buffer.subarray(end+1);buffer=Buffer.alloc(0);if(remaining.length)socket.unshift(remaining);
       socket.write('{"ready":true}\n');
-      const transport=new LineTransport(socket,socket,{close:async()=>socket.destroy()});
+      const executionIds=new Map();
+      const transport=new LineTransport(socket,socket,{close:async()=>socket.destroy(),onMessage:message=>{
+        if(message.method==='tools/call'&&message.id!==undefined&&this.manager.history){
+          if(executionIds.size>=128){const [key,id]=executionIds.entries().next().value;this.manager.history.update(id,{state:'unknown',finished_at:this.manager.history.now()});executionIds.delete(key);}
+          const service=[...this.manager.records?.values()||[]].find(r=>r.tools.some(t=>t.alias===message.params?.name));
+          const id=this.manager.history.begin(message.params?.name,message.params?.arguments,service?.id||'Harness',service?.secretValues||[]);executionIds.set(message.id,id);
+        }
+      }});
+      const send=transport.send.bind(transport);
+      transport.send=async message=>{
+        const id=executionIds.get(message.id);
+        if(id&&message.error&&this.manager.history?.get(id)?.state==='received')this.manager.history?.complete(id,null,{code:message.error.code,message:'MCP request rejected'});
+        try{await send(message);if(id)this.manager.history?.update(id,{delivery:'local_write_succeeded'});}
+        catch(error){if(id)this.manager.history?.update(id,{delivery:'local_write_failed'});throw error;}
+        finally{if(id)executionIds.delete(message.id);}
+      };
       const server=new Server({name:'ChatToHarness',version:appVersion},{capabilities:{tools:{listChanged:true},...(this.manager.content?{resources:{listChanged:true},prompts:{listChanged:true}}:{})},instructions:'ChatToHarness provides authorized local tools and configured MCP extensions. Start with get_harness_status and get_project_overview; use git_status, git_diff and git_log for Git reads. Prefer apply_project_edit for UTF-8 project edits with a current SHA-256, stable idempotency_key and undo record. Use start_task for work that may outlive a plugin call; query the original task_id after a timeout or reconnect and reuse its idempotency_key. Use get_file_result to retrieve artifacts. Legacy Desktop Commander tools remain available for their full format and terminal capabilities. Resource/prompt tools provide fallbacks for clients without a resource browser. Tool access is managed in the desktop application. Interrupted calls are never automatically replayed.'});
       const session=++this.nextSession;let initializations=0;
       this.sessions.add(server);
@@ -84,7 +99,7 @@ class McpGateway {
         this.initializedSessions.add(server);
         this.manager.log?.('mcp-session',{session,phase:'initialized',initializations:++initializations,toolsVersion:this.manager.toolsVersion});
       };
-      server.onerror=()=>{};server.onclose=()=>{this.sessions.delete(server);this.manager.log?.('mcp-session',{session,phase:'closed',initializations});};
+      server.onerror=()=>{};server.onclose=()=>{for(const id of executionIds.values()){const row=this.manager.history?.get(id);if(row&&['received','running','waiting_approval'].includes(row.state))this.manager.history.update(id,{state:'unknown',finished_at:this.manager.history.now()});}executionIds.clear();this.sessions.delete(server);this.manager.log?.('mcp-session',{session,phase:'closed',initializations});};
       server.setRequestHandler(ListToolsRequestSchema,request=>{
         try{
           const result=this.manager.listTools(request.params?.cursor);
@@ -93,7 +108,7 @@ class McpGateway {
         }catch{throw new McpError(ErrorCode.InvalidParams,'MCP_CURSOR_EXPIRED');}
       });
       server.setRequestHandler(CallToolRequestSchema,(request,extra)=>this.manager.call(request.params.name,request.params.arguments||{},
-        {signal:extra.signal,onprogress:progress=>{
+        {executionId:executionIds.get(extra.requestId),signal:extra.signal,onprogress:progress=>{
           const token=request.params._meta?.progressToken;
           if(token!==undefined)void server.notification({method:'notifications/progress',params:{...progress,progressToken:token}}).catch(()=>{});
         }}));

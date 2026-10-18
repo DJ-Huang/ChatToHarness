@@ -341,9 +341,20 @@ class McpManager extends EventEmitter {
       this.emit('approval');this.emit('state');if(signal.aborted)cancel();
     });
   }
-  async call(name,args={}, {signal,onprogress}={}) {
-    if(this.content?.has(name))return this.running?this.content.call(name,args,{signal,onprogress}):failed('MCP_STOPPED');
-    if(this.services?.has(name))return this.running?this.services.call(name,args,{signal,onprogress}):failed('MCP_STOPPED');
+  async call(name,args={}, options={}) {
+    const history=this.history;
+    if(!history)return this.dispatch(name,args,options);
+    const service=[...this.records.values()].find(r=>r.tools.some(t=>t.alias===name));
+    const id=options.executionId||history.begin(name,args,service?.id||(this.content?.has(name)?'MCP content':'Harness'),service?.secretValues||[]);
+    history.update(id,{service:redact(service?.id||(this.content?.has(name)?'MCP content':'Harness'),service?.secretValues||[])});
+    const cancel=()=>history.update(id,{state:'cancelling'});options.signal?.addEventListener('abort',cancel,{once:true});
+    try{const result=await this.dispatch(name,args,{...options,executionId:id});history.complete(id,result,null,service?.secretValues||[]);return result;}
+    catch(error){history.complete(id,null,error,service?.secretValues||[]);throw error;}
+    finally{options.signal?.removeEventListener('abort',cancel);}
+  }
+  async dispatch(name,args={}, {signal,onprogress,executionId}={}) {
+    if(this.content?.has(name)){this.history?.update(executionId,{state:'running',started_at:this.history.now()});return this.running?this.content.call(name,args,{signal,onprogress}):failed('MCP_STOPPED');}
+    if(this.services?.has(name)){this.history?.update(executionId,{state:'running',started_at:this.history.now()});return this.running?this.services.call(name,args,{signal,onprogress}):failed('MCP_STOPPED');}
     let record,item;
     for(const candidate of this.records.values()){
       const match=candidate.tools.find(value=>value.alias===name);
@@ -362,11 +373,12 @@ class McpManager extends EventEmitter {
       boundedMessage({jsonrpc:'2.0',id:0,method:'tools/call',params:{name:item.tool.name,arguments:argumentsCopy}});
       if(this.projectGrants)operation.projectPath=await require('./project-grants.cjs').approvalProject(argumentsCopy,item,this.desktopSettings?.directories||[]);
       if(this.policy(record,item,operation.projectPath)==='ask'){
+        this.history?.update(executionId,{state:'waiting_approval'});
         approval=await this.requestApproval(operation,argumentsCopy,deadline)?'allowed':'denied';
         if(approval!=='allowed')return result=failed(controller.signal.aborted?(controller.signal.reason?.code||'MCP_CANCELLED'):'MCP_APPROVAL_DENIED');
       }
       if(controller.signal.aborted||record.generation!==generation||record.client!==client||!this.available(record)||this.policy(record,item,operation.projectPath)==='deny')return result=failed('MCP_CANCELLED');
-      operation.started=true;
+      operation.started=true;this.history?.update(executionId,{state:'running',started_at:this.history.now()});
       const params={name:item.tool.name,arguments:argumentsCopy};
       result=await client.request({method:'tools/call',params},CallToolResultSchema,{signal:controller.signal,timeout:Math.max(1,deadline-Date.now()),onprogress});
       boundedMessage({jsonrpc:'2.0',id:0,result});return result;

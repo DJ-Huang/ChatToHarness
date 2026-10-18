@@ -55,7 +55,7 @@ function documentFixture() {
     node.checked = /(?:^|\s)checked(?:\s|$)/.test(match[2]);
     for (const attribute of match[2].matchAll(/([\w-]+)="([^"]*)"/g)) {
       node.attributes[attribute[1]] = attribute[2];
-      if (attribute[1].startsWith('data-')) node.dataset[attribute[1].slice(5)] = attribute[2];
+      if (attribute[1].startsWith('data-')) node.dataset[attribute[1].slice(5).replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase())] = attribute[2];
       if (['value', 'type'].includes(attribute[1])) node[attribute[1]] = attribute[2];
     }
     nodes.set(match[3], node);
@@ -270,4 +270,59 @@ test('all MCP error messages have Chinese, English and Japanese translations wit
       if (locale === 'en') assert.doesNotMatch(translated, /[\u3400-\u9fff]/u);
     }
   }
+});
+
+test('execution page loads only on navigation, paginates and renders hostile records as text',async()=>{
+  const calls=[];const record={request_id:'exec_'+ 'a'.repeat(36),received_at:'2026-01-01T00:00:00Z',tool:'<img onerror=alert(1)>',operation:'<script>private</script>',service:'test',state:'succeeded',duration_ms:3};
+  const f=await rendererFixture(initialState(),{executionList:async query=>{calls.push(query);return {records:[record],total:80,usage:1024,diagnostics:{enabled:false}};},executionDetail:async()=>({...record,error_summary:'<script>detail</script>'})});
+  assert.equal(calls.length,0);await f.node('nav-history').emit('click');await settled();assert.equal(calls.length,1);assert.equal(calls[0].limit,50);
+  const rows=f.node('history-rows');assert.equal(rows.children.length,1);assert.match(rows.textContent,/<img onerror/);
+  await rows.children[0].children[2].children[0].emit('click');assert.match(f.node('history-detail-text').textContent,/<script>detail/);
+  await f.node('history-next').emit('click');await settled();assert.equal(calls.at(-1).offset,50);
+  await f.node('history-errors').emit('click');await settled();assert.equal(calls.at(-1).tab,'errors');assert.equal(calls.at(-1).offset,0);
+  for(const [method,channel]of Object.entries({executionList:'execution-list',executionDetail:'execution-detail',executionExport:'execution-export',executionDiagnostics:'execution-diagnostics'})){assert.ok(source('preload.cjs').includes(method));assert.ok(source('main.cjs').includes("bind('"+channel+"'"));}
+});
+
+
+test('home and sidebar open a live log page; filtering, pause, search and clear never interpret log text as HTML',async()=>{
+  const entries=[
+    {id:'1:1',at:'2026-10-18T08:00:00Z',event:'execution',category:'tool',severity:'error',message:'<img src=x onerror=alert(1)> · failed'},
+    {id:'1:2',at:'2026-10-18T08:00:01Z',event:'runtime',category:'connection',severity:'info',message:'Tunnel ready'},
+  ];
+  const calls=[];
+  const f=await rendererFixture(initialState(),{readLiveLogs:async query=>{
+    calls.push(query);return {entries:calls.length===1?entries:[],cursor:{file:'app.log',identity:'123',offset:80},reset:false,more:false};
+  }});
+  assert.equal(f.node('nav-logs').attributes['aria-controls'],'panel-logs');
+  assert.equal(f.node('overview-open-logs').dataset.navigate,'logs');
+  assert.equal(calls.length,0,'reading logs must be lazy');
+  await f.node('overview-open-logs').emit('click');await settled();
+  assert.equal(f.node('panel-logs').hidden,false);
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].cursor,null);
+  assert.equal(f.node('log-entries').children.length,2);
+  assert.match(f.node('log-entries').textContent,/<img src=x/);
+
+  await f.node('log-filter-error').emit('click');
+  assert.equal(f.node('log-entries').children.length,1);
+  assert.match(f.node('log-entries').textContent,/failed/);
+  assert.doesNotMatch(f.node('log-entries').textContent,/Tunnel ready/);
+  await f.node('log-filter-connection').emit('click');
+  assert.match(f.node('log-entries').textContent,/Tunnel ready/);
+  assert.doesNotMatch(f.node('log-entries').textContent,/failed/);
+
+  f.node('log-search').value='not present';await f.node('log-search').emit('input');
+  assert.match(f.node('log-entries').textContent,/没有符合筛选条件/);
+  f.node('log-search').value='';await f.node('log-search').emit('input');
+  await f.node('log-pause').emit('click');
+  assert.equal(f.node('log-pause').textContent,'继续');
+  await f.node('log-pause').emit('click');await settled();
+  assert.equal(calls.length,2,'resuming catches up with a cursor');
+  assert.deepEqual(calls[1].cursor,{file:'app.log',identity:'123',offset:80});
+  await f.node('log-clear').emit('click');
+  assert.match(f.node('log-entries').textContent,/等待新日志/);
+  await f.node('log-reload').emit('click');await settled();
+  assert.equal(calls.at(-1).cursor,null,'reload reads the bounded tail again');
+  assert.ok(source('main.cjs').includes("bind('live-logs-read'"));
+  assert.ok(source('preload.cjs').includes("readLiveLogs:input=>call('live-logs-read',input)"));
 });

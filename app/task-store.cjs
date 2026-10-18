@@ -17,7 +17,7 @@ class TaskStore {
   }
   initialize() {
     privateDirectory(this.directory);
-    const names = ['task-worker.cjs', 'platform.cjs', 'durable-files.cjs'];
+    const names = ['task-worker.cjs', 'platform.cjs', 'durable-files.cjs', 'diagnostic-budget.cjs', 'task-output.cjs'];
     const revision = sha(names.map(name => fs.readFileSync(path.join(this.workerSource, name))).join('\n')).slice(0, 24);
     this.workerDirectory = path.join(this.home, 'task-runtime', revision); privateDirectory(this.workerDirectory);
     for (const name of names) { const file = path.join(this.workerDirectory, name); if (!fs.existsSync(file)) fs.writeFileSync(file, fs.readFileSync(path.join(this.workerSource, name)), {flag: 'wx', mode: 0o600}); }
@@ -88,6 +88,7 @@ class TaskStore {
   }
   logs(id, project, args = {}) {
     const {directory} = this.request(id, project); let offset = 0;
+    if (fs.existsSync(path.join(directory,'output.expired'))) throw fail('TASK_LOG_EXPIRED', 'Saved task output has expired under diagnostic retention.');
     if (args.cursor !== undefined) { const match = new RegExp(`^${id}:(\\d+)$`).exec(args.cursor); if (!match || !Number.isSafeInteger(Number(match[1]))) throw fail('INVALID_CURSOR', 'Use the log cursor returned for this task.'); offset = Number(match[1]); }
     const limit = integer(args.limit, 60, 200), file = path.join(directory, 'output.jsonl');
     let bytes = Buffer.alloc(0), size = 0;
@@ -99,6 +100,7 @@ class TaskStore {
     }
     const entries = []; let consumed = 0, start = 0;
     for (;;) { const end = bytes.indexOf(10, start); if (end < 0 || entries.length >= limit) break; entries.push(JSON.parse(bytes.subarray(start, end).toString('utf8'))); consumed = end + 1; start = end + 1; }
+    if (fs.existsSync(path.join(directory,'output.expired'))) throw fail('TASK_LOG_EXPIRED', 'Saved task output has expired under diagnostic retention.');
     return {summary: `${entries.length} saved log entries.`, task_id: id, entries, has_more: offset + consumed < size, next_cursor: `${id}:${offset + consumed}`, incomplete_tail: bytes.length > 0 && consumed === 0, task: this.status(id, project)};
   }
   cancel(id, project) {

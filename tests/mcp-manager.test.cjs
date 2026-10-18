@@ -596,3 +596,23 @@ test('allow-all changes revoke affected calls transactionally without replaying 
   assert.equal(readCount(f.starts('one')), 1);
   controller.abort(); await unaffected;
 });
+
+test('execution history includes policy/approval rejection, validation, success, upstream error and timeout in one stable record', {timeout:10000}, async t=>{
+  const f=fixture(t);const {ExecutionHistory}=require('../app/execution-history.cjs');
+  const history=new ExecutionHistory(path.join(f.directory,'history'));t.after(()=>history.close());f.manager.history=history;
+  await f.connect('recorded');const tool=name=>alias('recorded',name);
+  await f.manager.call(tool('echo'),{});
+  assert.equal(history.rows()[0].state,'failed');
+  f.policy('recorded','echo','ask');const denied=f.manager.call(tool('echo'),{label:'safe'});await until(()=>f.manager.approvals.size===1);
+  assert.ok(history.rows().some(r=>r.state==='waiting_approval'));
+  f.manager.approve({id:f.manager.status().approvals[0].id,allow:false});await denied;
+  f.policy('recorded','echo');await f.manager.call(tool('echo'),null);await f.manager.call(tool('echo'),{label:'ok'});
+  assert.equal(history.rows().length,4);assert.equal(history.rows().filter(r=>r.state==='succeeded').length,1);
+  assert.ok(history.rows().every(r=>r.service==='[redacted]'&&r.delivery==='unknown'));
+  f.policy('recorded','tool_error');await f.manager.call(tool('tool_error'),{});
+  f.policy('recorded','protocol_error');await assert.rejects(f.manager.call(tool('protocol_error'),{}));
+  f.policy('recorded','hang');f.manager.records.get('recorded').timeoutMs=20;await f.manager.call(tool('hang'),{});
+  assert.equal(history.rows().length,7);assert.ok(history.rows().some(r=>r.tool.endsWith('__hang')&&r.state==='unknown'),JSON.stringify(history.rows().map(({tool,state,error_code})=>({tool,state,error_code}))));
+  assert.ok(history.rows().some(r=>r.tool.endsWith('__tool_error')&&r.state==='failed'));
+
+});

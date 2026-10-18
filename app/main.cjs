@@ -4,6 +4,9 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
+const {ExecutionHistory}=require('./execution-history.cjs');
+const {LiveLogs}=require('./live-logs.cjs');
+const {writeBudgeted,sanitize,regular,safeFields}=require('./diagnostic-budget.cjs');
 const {Settings}=require('./settings.cjs');
 const {RuntimeManager}=require('./runtime.cjs');
 const {storageDirectory}=require('./platform.cjs');
@@ -23,6 +26,7 @@ const testMode=process.env.LOCALHARNESS_TEST_MODE==='1'&&Boolean(process.env.LOC
 const home=storageDirectory({platform,userHome:os.homedir(),appData:process.env.APPDATA,override:process.env.LOCALHARNESS_HOME});
 app.setName(testMode?'ChatToHarness Acceptance '+require('node:crypto').createHash('sha256').update(home).digest('hex').slice(0,12):platform==='darwin'?'LocalHarness':product);
 app.setPath('userData',home);
+let history;
 let window,tray,trayMenu,settings,runtime,updater,mcpSettings,mcpManager,fatal='',quitting=false,installing=false,quitReady=false,queue=Promise.resolve(),actionEpoch=0;
 const indexURL=pathToFileURL(path.join(__dirname,'index.html')).href;
 const resources=(testMode&&process.env.LOCALHARNESS_RESOURCES)|| (app.isPackaged?process.resourcesPath:(process.env.LOCALHARNESS_RESOURCES||path.join(__dirname,'..','resources')));
@@ -36,12 +40,27 @@ const links=Object.freeze({
   repository:'https://github.com/DJ-Huang/ChatToHarness',
 });
 let versions={app:app.getVersion(),node:'—',tunnel:'—',desktopCommander:'—'};
+const recentLogs=new Map();
+const seenExecutionStates=new Map();
 function log(event,detail={}){
   try{
-    const directory=path.join(home,'logs');fs.mkdirSync(directory,{recursive:true,mode:0o700});
-    const file=path.join(directory,'app.log');if(fs.existsSync(file)&&fs.statSync(file).size>1024*1024)fs.renameSync(file,file+'.previous');
-    fs.appendFileSync(file,JSON.stringify({time:new Date().toISOString(),event,...detail})+'\n',{mode:0o600});
+    let fields=safeFields(detail);if(Buffer.byteLength(JSON.stringify(fields))>2048)fields={summary:sanitize(JSON.stringify(fields),2048)};
+    const signature=sanitize(event,256)+JSON.stringify(fields);const previous=recentLogs.get(signature);if(previous&&Date.now()-previous<60000)return;recentLogs.set(signature,Date.now());if(recentLogs.size>128)recentLogs.delete(recentLogs.keys().next().value);
+    const directory=path.join(home,'logs');require('./durable-files.cjs').privateDirectory(directory);
+    const file=path.join(directory,'app.log');if(regular(file)?.size>1024*1024)fs.renameSync(file,file+'.previous');
+    const row=JSON.stringify({time:new Date().toISOString(),event:sanitize(event,256),...fields})+'\n';
+    writeBudgeted(home,Buffer.byteLength(row),()=>{const fd=fs.openSync(file,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_APPEND|fs.constants.O_NOFOLLOW,0o600);try{if(fs.fstatSync(fd).nlink===1)fs.writeSync(fd,row);}finally{fs.closeSync(fd);}});
   }catch{}
+}
+// Store only state transitions; maintain() can repeatedly write identical task
+// snapshots, and tail readers should not turn them into an endless log flood.
+function executionToLog(row){
+  const signature=[row.state,row.delivery,row.error_code,row.task_finished].join('|');
+  if(seenExecutionStates.get(row.request_id)===signature)return;
+  seenExecutionStates.set(row.request_id,signature);
+  if(seenExecutionStates.size>1024)seenExecutionStates.delete(seenExecutionStates.keys().next().value);
+  log('execution',{request_id:row.request_id,tool:row.tool,service:row.service,
+    state:row.state,delivery:row.delivery,error_code:row.error_code||undefined});
 }
 function state(){return {settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
 function publish(){const value=state();if(window&&!window.isDestroyed())window.webContents.send('localharness:state',value);refreshTray();}
@@ -105,7 +124,7 @@ async function stopConnection(){
   try{await stopping;}finally{publish();}
   return state();
 }
-async function openLogs(){const directory=path.join(home,'logs');fs.mkdirSync(directory,{recursive:true,mode:0o700});const error=await shell.openPath(directory);if(error)throw new Error('日志文件夹暂时无法打开。');}
+async function openLogs(){const directory=path.join(home,'logs');require('./durable-files.cjs').privateDirectory(directory);const error=await shell.openPath(directory);if(error)throw new Error('日志文件夹暂时无法打开。');}
 async function checkUpdate(){if(!quitting&&updater)await updater.check();return state();}
 async function installUpdate(){
   if(quitting||installing||!updater)return state();
@@ -130,6 +149,11 @@ function registerIPC(){
     return handler(...args);
   });
   bind('get-state',()=>state());
+  bind('execution-list',input=>history?.list(input)||{records:[],total:0,usage:0});
+  bind('live-logs-read',input=>new LiveLogs(home).read(input));
+  bind('execution-detail',id=>history?.detail(id));
+  bind('execution-export',ids=>history?.export(ids)||[]);
+  bind('execution-diagnostics',enabled=>history?.diagnostics(enabled));
   bind('set-language',value=>{
     preferences.setLocale(value);locale=preferences.locale;
     Menu.setApplicationMenu(applicationMenu());publish();return state();
@@ -183,7 +207,7 @@ else{
   app.on('activate',show);app.on('window-all-closed',()=>{});
   app.on('before-quit',event=>{
     if(quitReady)return;event.preventDefault();if(quitting)return;quitting=true;++actionEpoch;updater?.dispose();
-    void Promise.resolve(runtime?.close()).finally(()=>{tray?.destroy();tray=null;log('quit');quitReady=true;app.quit();});
+    void Promise.resolve(runtime?.close()).finally(()=>{history?.close();tray?.destroy();tray=null;log('quit');quitReady=true;app.quit();});
   });
   installExitHandlers({app,host:process});
   app.whenReady().then(async()=>{
@@ -202,6 +226,7 @@ else{
       settings=new Settings(home,safeStorage);
       const tunnelScript=testMode&&process.env.LOCALHARNESS_TEST_TUNNEL_SCRIPT;
       if(tunnelScript&&(!path.isAbsolute(tunnelScript)||!fs.statSync(tunnelScript).isFile()))throw new Error();
+      history=new ExecutionHistory(home,{version:app.getVersion(),onChange:executionToLog});
       runtime=new RuntimeManager({home,resources,log,tunnelScript});runtime.on('state',publish);
       const {McpSettings}=require('./mcp-settings.cjs');
       const {McpManager}=require('./mcp-manager.cjs');
@@ -216,6 +241,7 @@ else{
           runtime.prepare(desktopSettings);
           return {transport:'stdio',command:runtime.paths.node,args:[runtime.launcher,runtime.paths.desktopCommander,String(process.pid)],cwd:desktopSettings.directories[0],env:runtime.childEnvironment(desktopSettings)};
         }});
+      mcpManager.history=history;
       mcpManager.broker=new McpGateway(mcpManager);runtime.gateway=mcpManager;
       mcpManager.on('state',()=>{const toolsCount=mcpManager.visibleTools().length;runtime.update({toolsCount,localReady:toolsCount>0});publish();});
       mcpManager.on('approval',()=>{if(!quitting&&!installing)show();});

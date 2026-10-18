@@ -78,7 +78,7 @@ async function tab(page, name) {
   await page.locator('#nav-' + name).click();
   assert.equal(await page.locator('#panel-' + name).isVisible(), true);
   assert.equal(await page.locator('#nav-' + name).getAttribute('aria-selected'), 'true');
-  for (const other of ['overview', 'connection', 'directories', 'mcp', 'help']) {
+  for (const other of ['overview', 'logs', 'history', 'connection', 'directories', 'mcp', 'help']) {
     if (other !== name) assert.equal(await page.locator('#panel-' + other).isVisible(), false);
   }
 }
@@ -123,6 +123,26 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   assert.deepEqual(initial.settings.directories, []);
   assert.equal(await page.title(), 'ChatToHarness');
   await page.screenshot({ path: path.join(output, 'console-initial.png'), fullPage: true });
+
+  // The homepage button opens the same read-only rolling log panel as the
+  // sidebar. Verify it in a disposable Electron profile, never the live app.
+  assert.equal(await page.locator('#overview-open-logs').isVisible(), true);
+  await page.locator('#overview-open-logs').click();
+  assert.equal(await page.locator('#panel-logs').isVisible(), true);
+  await page.waitForFunction(() => document.querySelectorAll('#log-entries .live-log-line').length > 0);
+  await page.locator('#log-filter-connection').click();
+  assert.equal(await page.locator('#log-filter-connection').getAttribute('aria-pressed'), 'true');
+  await page.locator('#log-search').fill('not-a-real-log-event');
+  assert.ok((await page.locator('#log-entries').textContent()).includes('没有符合筛选条件'));
+  await page.locator('#log-search').fill('');
+  await page.locator('#log-pause').click();
+  assert.equal(await page.locator('#log-pause').textContent(), '继续');
+  await page.locator('#log-pause').click();
+  await page.locator('#log-reload').click();
+  await page.screenshot({path: path.join(output, 'console-live-logs.png'), fullPage: true});
+  await tab(page, 'history');
+  await tab(page, 'overview');
+
 
   // All five navigation entries select real, separate panels; keyboard navigation
   // follows the vertical tab pattern. No client branding leaks into the overview.
@@ -379,7 +399,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   const report = { ui: true, platform: process.platform, architecture: process.arch, packaged: launchArgs.length === 0,
     realLocalTools: checked.runtime.toolsCount, languages:['zh-CN','en','ja'], languagePersistence:true, languagePreservesCredentialsAndConnection:true, navigation: true, unicodeSpaceDirectory: true, encryptedSaveAndReplace: true,
     restartAutoConnect: true, windowHide: true, singleInstance: true, ownedProcessCleanup: true,
-    appMcpManagement: true, mcpWithoutWorkspace: true, mcpDefaultDeny: true, mcpEncryptedEnvironment: true,
+    liveLogs: true, appMcpManagement: true, mcpWithoutWorkspace: true, mcpDefaultDeny: true, mcpEncryptedEnvironment: true,
     harnessBuildIdentity: true, localProjectApprovalRemembered: true, localProjectApprovalRevoked: true, localToolApprovalRemembered: true, globalAllowAllPreserved: true,
     authErrorAndRecovery: true, clearPreservesWorkspace: true, remoteTunnel: 'not tested: isolated fixture' };
   fs.writeFileSync(path.join(output, 'ui-report.json'), JSON.stringify(report, null, 2) + '\n');

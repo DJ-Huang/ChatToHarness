@@ -5,6 +5,8 @@ const {pathToFileURL} = require('node:url');
 const {StringDecoder} = require('node:string_decoder');
 const {spawnManaged, stopTree, defaultShell, taskShellArguments} = require('./platform.cjs');
 const {readJson, atomicJson} = require('./durable-files.cjs');
+const {TaskOutput}=require('./task-output.cjs');
+const {sanitize}=require('./diagnostic-budget.cjs');
 const directory = process.argv[2];
 const now = () => new Date().toISOString();
 async function main() {
@@ -14,16 +16,10 @@ async function main() {
   // replay a command whose execution state may already be unknown.
   let lock; try { lock = fs.openSync(path.join(directory, 'worker.claim'), 'wx', 0o600); } catch (error) { if (error.code === 'EEXIST') return; throw error; }
   fs.writeFileSync(lock, String(process.pid)); fs.fsyncSync(lock); fs.closeSync(lock);
-  let state = {...readJson(path.join(directory, 'state.json')), state: 'starting', worker_pid: process.pid, updated_at: now()}, child, reason, logBytes = 0, heartbeat, deadline;
+  let state = {...readJson(path.join(directory, 'state.json')), state: 'starting', worker_pid: process.pid, updated_at: now()}, child, reason, heartbeat, deadline;
   const save = () => { state.updated_at = now(); atomicJson(path.join(directory, 'state.json'), state); };
-  const logFd = fs.openSync(path.join(directory, 'output.jsonl'), fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW, 0o600);
-  const log = (stream, text) => {
-    for (let at = 0; at < text.length; at += 2048) {
-      const row = JSON.stringify({at: now(), stream, text: text.slice(at, at + 2048)}) + '\n';
-      if (logBytes + Buffer.byteLength(row) > 4 * 1024 * 1024) { state.log_truncated = true; return; }
-      fs.writeSync(logFd, row); logBytes += Buffer.byteLength(row);
-    }
-  };
+  const outputLog=new TaskOutput({home:path.dirname(path.dirname(directory)),file:path.join(directory,'output.jsonl'),secrets:Object.entries(process.env).filter(([key])=>/token|secret|password|key|authorization/i.test(key)).map(([,value])=>value)});
+  const log=(stream,text)=>{outputLog.append(stream,text);};
   const stop = why => { if (reason) return; reason = why; if (child) void stopTree(child); };
   process.on('SIGTERM', () => stop('cancelled')); process.on('SIGINT', () => stop('cancelled'));
   save();
@@ -46,7 +42,15 @@ async function main() {
     state = {...state, state: 'launching', operation_executed: null, execution_state: 'unknown'}; save();
     child = spawnManaged(shell, argv, {processHost: request.process_host, cwd: request.project_path, env: process.env, stdio: ['ignore', 'pipe', 'pipe']});
     for (const [stream, output] of [['stdout', child.stdout], ['stderr', child.stderr]]) {
-      const decoder = new StringDecoder('utf8'); output.on('data', bytes => log(stream, decoder.write(bytes))); output.on('end', () => { const tail = decoder.end(); if (tail) log(stream, tail); });
+      const decoder = new StringDecoder('utf8');let pending='',omitted=false;
+      const consume=text=>{
+        for(const part of text.split(/(?<=\n)/)){
+          if(!omitted){pending+=part;if(pending.length>16384){pending='';omitted=true;state.log_truncated=true;log(stream,'[long output line omitted]\n');}}
+          if(part.endsWith('\n')){if(pending)log(stream,pending);pending='';omitted=false;}
+        }
+      };
+      output.on('data',bytes=>{consume(decoder.write(bytes));outputLog.flush();});
+      output.on('end',()=>{consume(decoder.end());if(pending)log(stream,pending);outputLog.flush();});
     }
     const result = await new Promise((resolve, reject) => {
       child.once('error', reject);
@@ -55,13 +59,13 @@ async function main() {
       deadline = setTimeout(() => stop('timed_out'), request.runtime_limit_ms);
     });
     if (child.localHarnessStopping) await child.localHarnessStopping;
-    state = {...state, ...result, state: reason || (result.exit_code === 0 ? 'succeeded' : 'failed'), execution_state: 'completed', finished_at: now(), log_bytes: logBytes};
+    state = {...state, ...result, state: reason || (result.exit_code === 0 ? 'succeeded' : 'failed'), execution_state: 'completed', finished_at: now(), log_bytes: outputLog.bytes};
   } catch (error) {
     if (child) await stopTree(child);
     const executed = state.operation_executed === true;
-    state = {...state, state: reason || 'failed', operation_executed: executed, finished_at: now(), execution_state: executed ? 'unknown' : 'not_started', error: {code: error.code || 'TASK_FAILED', message: String(error.message).slice(0, 1024)}};
+    state = {...state, state: reason || 'failed', operation_executed: executed, finished_at: now(), execution_state: executed ? 'unknown' : 'not_started', error: {code: error.code || 'TASK_FAILED', message: sanitize(error.message,1024,outputLog.secrets)}};
   } finally {
-    clearInterval(heartbeat); clearTimeout(deadline); fs.fsyncSync(logFd); fs.closeSync(logFd); save();
+    clearInterval(heartbeat); clearTimeout(deadline); outputLog.close();state.log_bytes=outputLog.bytes;state.log_truncated=outputLog.truncated||state.log_truncated;save();
   }
 }
 main().then(() => process.exit(0), () => process.exit(1));

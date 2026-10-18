@@ -87,3 +87,22 @@ test('runtime deadline terminates a task and reports a saved timeout', {timeout:
   await until(() => f.store.status(job.task_id, f.project).terminal);
   assert.equal(f.store.status(job.task_id, f.project).state, 'timed_out');
 });
+
+test('worker launch failures are durable terminal not-started states', t => {
+  const f=fixture(t,{launch:()=>{throw new Error('synthetic start failure')}});
+  const job=f.start('console.log("not executed")','launch-error');
+  assert.equal(job.state,'failed');
+  assert.equal(job.error.code,'TASK_START_FAILED');
+  assert.ok(job.finished_at);
+  assert.equal(job.operation_executed,false);
+  assert.equal(job.execution_state,'not_started');
+});
+test('asynchronous worker launch errors are terminal',t=>{
+  let worker;
+  const f=fixture(t,{launch:()=>{worker=new EventEmitter();worker.unref=()=>{};return worker;}});
+  const job=f.start('console.log("not executed")','async-error');
+  worker.emit('error',new Error('synthetic error'));
+  const state=f.store.status(job.task_id,f.project);
+  assert.equal(state.state,'failed');
+  assert.ok(state.finished_at);
+});

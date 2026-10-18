@@ -99,6 +99,19 @@ class McpManager extends EventEmitter {
       this.log('mcp-catalog',{version:this.toolsVersion,count:tools.length,fingerprint:version,added,removed,changed});
       this.emit('toolsChanged');
     }
+    if(this.content){
+      const resources = [...this.records.values()].filter(record => this.available(record) && record.capabilities?.resources).map(record => [record.id, record.generation]);
+      const prompts = [...this.records.values()].filter(record => this.available(record) && record.capabilities?.prompts).map(record => [record.id, record.generation]);
+      for(const [kind, value] of [['resources', resources], ['prompts', prompts]]){
+        const snapshot = JSON.stringify(value);
+        if(this.contentVisibility?.[kind] !== snapshot){
+          if(!this.contentVisibility)this.contentVisibility = {};
+          this.contentVisibility[kind] = snapshot;
+          this.content.pages.clear();
+          this.emit(kind + 'Changed');
+        }
+      }
+    }
     this.emit('state');
   }
   logConnection(record,phase,details={}) {this.log('mcp-connection',{server:record.id,phase,generation:record.generation,...details});}
@@ -381,6 +394,7 @@ class McpManager extends EventEmitter {
       operation.started=true;this.history?.update(executionId,{state:'running',started_at:this.history.now()});
       const params={name:item.tool.name,arguments:argumentsCopy};
       result=await client.request({method:'tools/call',params},CallToolResultSchema,{signal:controller.signal,timeout:Math.max(1,deadline-Date.now()),onprogress});
+      if(this.content && result?.content)result={...result,content:result.content.map(block=>this.content.rewriteBlock(record.id,block))};
       boundedMessage({jsonrpc:'2.0',id:0,result});return result;
     }catch(error){
       if(error instanceof McpError&&![ErrorCode.ConnectionClosed,ErrorCode.RequestTimeout].includes(error.code)){

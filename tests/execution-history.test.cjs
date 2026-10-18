@@ -118,3 +118,14 @@ test('execution updates coalesce through shared-lock contention with a bounded r
   const task='task_'+'f'.repeat(64),dir=path.join(home,'tasks',task);fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'output.jsonl'),JSON.stringify({stream:'stdout',text:'token="private" safe stdout'})+'\n');
   history.update(id,{task_id:task});const detail=history.detail(id);assert.ok(detail.stdout.includes('safe stdout'));assert.ok(!detail.stdout.includes('private'));
 });
+
+test('legacy failed task without a finished_at is still terminal',t=>{
+ const {history,home}=fixture(t),task='task_'+'a'.repeat(64),dir=path.join(home,'tasks',task);
+ fs.mkdirSync(dir,{recursive:true});
+ const id=history.begin('start_task',{});history.complete(id,{structuredContent:{task_id:task}});
+ fs.writeFileSync(path.join(dir,'state.json'),JSON.stringify({state:'failed',updated_at:history.now(),error:{code:'TASK_START_FAILED'}}));
+ history.maintain();
+ assert.equal(history.get(id).state,'failed');
+ assert.equal(history.get(id).task_finished,true);
+ assert.equal(history.get(id).error_code,'TASK_START_FAILED');
+});

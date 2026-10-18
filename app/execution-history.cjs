@@ -65,9 +65,11 @@ class ExecutionHistory{
   maintain(){
     for(const row of this.rows())if(row.tool==='start_task'&&row.task_id&&!row.task_finished)try{
       const task=readJson(path.join(this.home,'tasks',row.task_id,'state.json'));
-      const stale=!task.finished_at&&this.clock()-Date.parse(task.updated_at)>15000;
-      const state=stale?'unknown':task.finished_at?(['succeeded','failed','interrupted'].includes(task.state)?task.state:task.state==='cancelled'?'interrupted':'unknown'):fs.existsSync(path.join(this.home,'tasks',row.task_id,'cancel.request'))?'cancelling':task.state==='running'?'running':'submitted';
-      this.update(row.request_id,{state,...(task.started_at?{started_at:task.started_at}:{}),...(task.finished_at?{finished_at:task.finished_at,task_finished:true,error_code:sanitize(task.error?.code||'',256),error_summary:sanitize(task.error?.message||'',16384)}:stale?{finished_at:this.now(),error_code:'TASK_HEARTBEAT_UNAVAILABLE'}:{finished_at:undefined,error_code:''})});
+      const terminal=['succeeded','failed','interrupted','cancelled','timed_out'].includes(task.state);
+      const finishedAt=task.finished_at||(terminal?task.updated_at||this.now():undefined);
+      const stale=!terminal&&this.clock()-Date.parse(task.updated_at)>15000;
+      const state=stale?'unknown':finishedAt?(['succeeded','failed','interrupted'].includes(task.state)?task.state:task.state==='cancelled'?'interrupted':task.state==='timed_out'?'failed':'unknown'):fs.existsSync(path.join(this.home,'tasks',row.task_id,'cancel.request'))?'cancelling':task.state==='running'?'running':'submitted';
+      this.update(row.request_id,{state,...(task.started_at?{started_at:task.started_at}:{}),...(finishedAt?{finished_at:finishedAt,task_finished:true,error_code:sanitize(task.error?.code||'',256),error_summary:sanitize(task.error?.message||'',16384)}:stale?{finished_at:this.now(),error_code:'TASK_HEARTBEAT_UNAVAILABLE'}:{finished_at:undefined,error_code:''})});
     }catch{this.update(row.request_id,{state:'unknown',error_code:'TASK_RECORD_UNAVAILABLE'});}
     locked(this.home,()=>cleanup(this.home,{now:this.clock()}));
   }

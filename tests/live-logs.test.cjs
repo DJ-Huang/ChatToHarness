@@ -104,3 +104,24 @@ test('execution transitions are observable without reading raw MCP response cont
   assert.equal(transitions.every(entry => entry.request_id === id), true);
   assert.ok(!JSON.stringify(transitions).includes('sensitive-content'));
 });
+
+test('incremental pages never skip events across a rotated log', t => {
+  const dir = home(t), feed = new LiveLogs(dir);
+  append(dir, row('runtime', {tool: 'seed'}));
+  const first = feed.read();
+  for (let i=0;i<37;i++) append(dir,row('mcp-call',{tool:'old_'+i}));
+  fs.renameSync(path.join(dir,'logs','app.log'),path.join(dir,'logs','app.log.previous'));
+  for (let i=0;i<41;i++) append(dir,row('mcp-call',{tool:'new_'+i}));
+  let cursor=first.cursor, collected=[];
+  for(let page=0;page<100;page++){
+    const result=feed.read({cursor,limit:5});
+    assert.ok(result.entries.length<=5);
+    collected.push(...result.entries.map(e=>e.message));
+    cursor=result.cursor;
+    if(!result.more)break;
+  }
+  assert.equal(collected.length,78);
+  assert.equal(collected.filter(s=>s.includes('old_')).length,37);
+  assert.equal(collected.filter(s=>s.includes('new_')).length,41);
+  assert.equal(new Set(collected).size,78);
+});

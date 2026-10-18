@@ -2,9 +2,10 @@
 const crypto = require('node:crypto');
 const types = require('@modelcontextprotocol/sdk/types.js');
 const {boundedMessage} = require('./mcp-transport.cjs');
+const CONTENT_TOTAL_TIMEOUT = 90000;
 
 // MCP Apps requires the ui:// scheme even after service namespacing.
-const wrapUri = (server, uri) => uri.startsWith('ui://') ? `ui://cth/${server}/${uri.slice(5)}` : `cth-resource://${server}/${uri}`;
+const wrapUri = (server, uri) => uri.startsWith('ui://cth/' + server + '/') || uri.startsWith('cth-resource://' + server + '/') ? uri : uri.startsWith('ui://') ? `ui://cth/${server}/${uri.slice(5)}` : `cth-resource://${server}/${uri}`;
 function unwrapUri(uri) {
   if (typeof uri !== 'string' || uri.length > 32768 || uri.includes('\0')) throw problem('MCP_INVALID_ARGUMENTS', 'Pass a resource URI returned by this gateway.');
   const ui = /^ui:\/\/cth\/([a-z][a-z0-9_-]{0,31})\/([\s\S]+)$/.exec(uri);
@@ -64,6 +65,8 @@ class McpContent {
     const method = kind === 'prompts' ? 'prompts/list' : kind === 'resourceTemplates' ? 'resources/templates/list' : 'resources/list';
     const schema = kind === 'prompts' ? types.ListPromptsResultSchema : kind === 'resourceTemplates' ? types.ListResourceTemplatesResultSchema : types.ListResourcesResultSchema;
     let bytes = 0;
+    const budget = AbortSignal.timeout(CONTENT_TOTAL_TIMEOUT);
+    options = {...options, signal: AbortSignal.any([budget, ...(options?.signal ? [options.signal] : [])])};
     for (const record of [...this.manager.records.values()].sort((a, b) => a.id.localeCompare(b.id))) {
       if (!this.manager.available(record) || !record.capabilities?.[capability]) continue;
       let cursor; const seen = new Set();

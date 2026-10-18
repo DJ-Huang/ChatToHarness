@@ -9,4 +9,64 @@
 /* Application-wide MCP services and local call approvals. */
 textarea,select{font:inherit}textarea:focus-visible,select:focus-visible,input[type=number]:focus-visible{outline:3px solid #98b4fa;outline-offset:2px}
 .mcp-card,.mcp-approvals{padding:23px 25px;margin-bottom:17px}.mcp-card .card-header{margin-bottom:14px}.mcp-caption{font-size:10px;color:#8191a5;line-height:1.9;margin:8px 0 14px;overflow-wrap:anywhere}.mcp-server-list{display:grid;gap:14px}.mcp-server{border:1px solid #e3eaf3;border-radius:8px;padding:17px;background:#fcfdff;min-width:0}.mcp-server-heading,.mcp-tool-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.mcp-server-copy{min-width:0;overflow-wrap:anywhere}.mcp-server h3,.mcp-approval h3{font-size:12px;font-weight:600;line-height:1.6;margin:0 0 3px;color:#4e6787;overflow-wrap:anywhere}.mcp-server-id{display:block;font-size:10px;font-weight:400;color:#8d9db2;line-height:1.8;overflow-wrap:anywhere}.mcp-server-status{font-size:9px;line-height:1.6;flex-shrink:0;padding:4px 8px;border:1px solid #e3e9f1;border-radius:20px;color:#7f92ac;background:#f5f8fc}.mcp-server-status[data-phase=connected],.mcp-server-status[data-phase=ready]{color:#527f6a;background:#eff7f2;border-color:#dfede5}.mcp-server-status[data-phase=failed],.mcp-server-status[data-phase=error]{color:#a67b60;background:#fff5ee;border-color:#f0e0d4}.mcp-target{font:10px/1.8 ui-monospace,"SFMono-Regular",Consolas,monospace;color:#778ea8;white-space:pre-wrap;overflow-wrap:anywhere;max-height:130px;overflow:auto;margin:9px 0}.mcp-actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:14px 0 0}.mcp-server-error{font-size:10px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;color:#ad7d5e;margin:9px 0}.mcp-tools{border-top:1px solid #e9eef5;padding-top:13px;margin-top:15px}.mcp-tools>summary,.mcp-advanced>summary,.mcp-tool-details>summary{cursor:pointer;font-size:10px;color:#6c84a3;line-height:1.9}.mcp-tool{margin-top:13px;padding-top:13px;border-top:1px solid #e9eef5;min-width:0}.mcp-tool-heading strong{font-size:11px;color:#5e7491;line-height:1.7}.mcp-tool-description{font-size:10px;line-height:1.8;color:#8393a8;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}.mcp-policy{display:flex;align-items:flex-end;flex-direction:column;gap:5px;flex-shrink:0;font-size:9px;color:#8798ae}.mcp-policy select,.mcp-form-grid select{border:1px solid #dde5ee;border-radius:5px;color:#526c8c;background:#fff;padding:7px 9px;max-width:100%;font-size:10px}.mcp-tool-details{margin-top:8px}.mcp-tool-details .code-example{max-height:240px;overflow:auto}.mcp-form-grid{display:grid;gap:18px;margin-top:18px}.mcp-form-grid.field-grid{grid-template-columns:1fr 1fr;margin-top:0}.mcp-card .field input[type=number],.mcp-card .field select{display:block;margin-top:9px;width:100%;height:41px;border:1px solid #dde5ee;border-radius:6px;background:#fcfdff;padding:0 12px;font-size:11px;color:#465c77}.mcp-card .field textarea{display:block;width:100%;margin-top:9px;min-height:76px;resize:vertical;border:1px solid #dde5ee;border-radius:6px;padding:10px 12px;font:11px/1.8 ui-monospace,"SFMono-Regular",Consolas,monospace;background:#fcfdff;color:#465c77}.mcp-card .field textarea::placeholder{color:#a9b5c3}.mcp-advanced{padding:12px 0 0;border-top:1px solid #edf1f6}.mcp-advanced[open] summary{margin-bottom:13px}.mcp-trust{border-color:#e5d9bd;background:#fffdf8}.mcp-trust .code-example{background:#fff;border-color:#eee5d4;color:#796f5d}.mcp-approvals{border-color:#cad9f3;background:#f9fbff}.mcp-approval{margin-top:16px;padding-top:16px;border-top:1px solid #e1e9f6}.mcp-approval .code-example{max-height:260px;overflow:auto}.mcp-import-preview,.mcp-export-panel{border-top:1px solid #e8edf4;margin-top:18px;padding-top:18px}.mcp-import-preview h3{font-size:11px;font-weight:550;color:#627c9a;margin:0 0 13px}.mcp-import-server{margin:12px 0}.mcp-import-server strong{font-size:11px;color:#627c9a}.mcp-export-panel button{margin-top:10px}.mcp-delete-review{width:100%;display:flex;align-items:center;flex-wrap:wrap;gap:9px}.mcp-delete-review .mcp-caption{flex-basis:100%;margin:0}.mcp-card input:disabled,.mcp-card textarea:disabled,.mcp-card select:disabled{opacity:.6}
+.mcp-access{padding-bottom:14px;margin-bottom:12px;border-bottom:1px solid #e9eef5}.mcp-access p{max-width:660px}
 @media(max-width:850px){.mcp-card,.mcp-approvals{padding:21px}.mcp-tool-heading{flex-wrap:wrap}.mcp-policy{align-items:flex-start}.mcp-form-grid.field-grid{grid-template-columns:1fr}}@media(max-width:680px){.mcp-server{padding:13px}.mcp-server-heading{flex-wrap:wrap;gap:7px}.mcp-card,.mcp-approvals{padding:18px}}
+
+.history-scroll { overflow-x: auto; margin-block: 18px; }
+.history-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.history-table td, .history-table th { padding: 10px 6px; border-bottom: 1px solid var(--border, #dce1e7); vertical-align: top; }
+.history-table .inline-link { text-align: left; overflow-wrap: anywhere; max-width: 300px; }
+#history-detail-text { max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Read-only rolling application log viewer. */
+.overview-log-link{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:17px 0;padding:17px 22px}
+.overview-log-copy{display:flex;align-items:center;gap:13px;min-width:0}
+.overview-log-copy h2{font-size:12px;font-weight:600;color:#526e91;margin:0 0 4px}
+.overview-log-copy p{font-size:10px;line-height:1.7;color:#91a0b4;margin:0}
+.live-log-dot{width:10px;height:10px;flex-shrink:0;border-radius:50%;background:#62a88d;box-shadow:0 0 0 4px #62a88d19}
+.live-log-card{padding:24px 25px;min-width:0}
+.live-log-card>.card-header{margin-bottom:18px}
+.live-log-card>.card-header p{font-size:10px;line-height:1.8;color:#8a9aaf;margin:6px 0 0}
+.log-live-state{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;font-size:10px;color:#6c907f}
+.log-live-state::before{content:"";width:7px;height:7px;background:#69ae90;border-radius:50%;box-shadow:0 0 0 3px #69ae901c}
+.live-log-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:0 0 12px}
+.live-log-filters{display:flex;align-items:center;gap:3px;padding:3px;background:#f1f5f9;border:1px solid #e4ebf2;border-radius:7px}
+.live-log-filter{font:inherit;font-size:10px;color:#788ba4;background:transparent;border:0;border-radius:5px;cursor:pointer;padding:7px 12px;min-width:42px}
+.live-log-filter:hover{color:#426ca7}
+.live-log-filter.selected{background:#fff;color:#37649f;box-shadow:0 1px 4px #27487216;font-weight:600}
+.live-log-search{flex:1;min-width:160px;max-width:300px;height:34px;border:1px solid #dfe7f2;border-radius:7px;padding:0 12px;background:#fff;color:#506a88;font-size:11px}
+.live-log-search:focus-visible,.live-log-filter:focus-visible,.live-log-stream:focus-visible{outline:2px solid #7c9dd0;outline-offset:2px}
+.live-log-options{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 12px}
+.live-log-follow{display:inline-flex;align-items:center;gap:7px;color:#788da8;font-size:10px;margin-right:auto;cursor:pointer}
+.live-log-follow input{accent-color:#426bad}
+.live-log-stream{height:clamp(305px,52vh,560px);min-height:305px;overflow:auto;overscroll-behavior:contain;border:1px solid #233149;border-radius:9px;background:#121c2a;color:#e1eaf6;font:11px/1.65 ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",monospace;scrollbar-color:#4c5b70 #121c2a}
+.live-log-entries{padding:10px 0}
+.live-log-line{display:grid;grid-template-columns:77px 52px minmax(0,1fr);align-items:baseline;gap:10px;padding:5px 17px;border-bottom:1px solid #ffffff08;min-height:26px;overflow-wrap:anywhere}
+.live-log-line:hover{background:#ffffff07}
+.live-log-line-error{background:#8b504215;border-left:2px solid #b98166;padding-left:15px}
+.live-log-time{font-variant-numeric:tabular-nums;color:#879eb8;white-space:nowrap}
+.live-log-kind{color:#8db0d5;white-space:nowrap}
+.live-log-line-error .live-log-kind{color:#e6ad8a}
+.live-log-message{white-space:pre-wrap;word-break:break-word}
+.live-log-empty{padding:28px 20px;margin:0;text-align:center;color:#91a6bf}
+.live-log-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:10px;color:#8a9bb0}
+.live-log-footer>div{display:flex;align-items:center;gap:19px;flex-wrap:wrap}
+.live-log-footer .inline-link{font-size:10px}
+@media(max-width:850px){.live-log-card{padding:19px}.overview-log-link{padding:16px}.live-log-line{grid-template-columns:70px 42px minmax(0,1fr);gap:6px;padding:5px 10px;font-size:10px}.live-log-line-error{padding-left:8px}}
+@media(max-width:680px){.overview-log-link{align-items:flex-start;flex-direction:column}.live-log-toolbar{align-items:stretch}.live-log-search{max-width:none;width:100%}.live-log-options{gap:7px}.live-log-line{grid-template-columns:62px minmax(0,1fr)}.live-log-kind{display:none}}
+
+/* Compact log navigation: closed by default, expandable from its parent tab. */
+.nav-log-group{display:flex;flex-direction:column;gap:2px;position:relative;border-radius:9px}
+.nav-log-group[data-expanded="true"]{background:#f7f9fd}
+.nav-log-submenu{display:flex;flex-direction:column;gap:2px}
+.nav-log-submenu[hidden]{display:none}
+.nav-log-group .nav-item[data-nav-level="child"]{width:calc(100% - 17px);height:37px;min-height:37px;margin-left:17px;padding-left:10px;gap:9px;font-size:11px;border-radius:6px}
+.nav-log-group .nav-item[data-nav-level="child"] svg{width:16px;height:16px}
+.nav-log-group .nav-item[data-nav-level="child"].selected{background:#e9f0fb;border-color:#dae5f7;color:#315ba6;font-weight:600}
+.nav-log-group[data-expanded="true"] .nav-item[data-tab="logs"]:not(.selected){color:#496a9b;font-weight:550}
+.nav-log-group .nav-log-chevron{width:13px;height:13px;margin-left:auto;opacity:.6;transition:transform .18s ease}
+.nav-log-group[data-expanded="true"] .nav-log-chevron{transform:rotate(90deg)}
+.nav-log-group[data-expanded="true"]::after{content:"";position:absolute;left:13px;top:49px;bottom:11px;width:1px;background:#e2e9f3;pointer-events:none}
+.nav-log-group[data-active="true"][data-expanded="true"]::after{background:#c3d5ef}
+@media(prefers-reduced-motion:reduce){.nav-log-group .nav-log-chevron{transition:none}}
+@media(max-width:850px){.nav-log-group .nav-item[data-nav-level="child"]{margin-left:15px;width:calc(100% - 15px);padding-left:9px}.nav-log-group[data-expanded="true"]::after{left:11px}}

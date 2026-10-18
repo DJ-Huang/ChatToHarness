@@ -31,12 +31,21 @@ async function main(){
    assert.ok(initialized.instructions.includes('get_project_context'));
    child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
    const tools=await rpc('tools/list',{});const names=new Set(tools.tools.map(x=>x.name));
-   assert.ok(tools.tools.every(tool=>!tool._meta?.['openai/outputTemplate']&&!tool._meta?.['ui/resourceUri']&&!tool._meta?.ui?.resourceUri),'Unsupported preview template leaked');
+   assert.ok(initialized.capabilities?.resources || tools.tools.every(tool=>!tool._meta?.['openai/outputTemplate']&&!tool._meta?.['ui/resourceUri']&&!tool._meta?.ui?.resourceUri),'Preview templates require advertised resource support');
    for(const name of ['get_project_context','search_project','start_process','read_file','write_file'])assert.ok(names.has(name));
    assert.equal(tools.tools.find(tool=>tool.name==='start_process').annotations.readOnlyHint,false);
    const raw=(name,args)=>rpc('tools/call',{name,arguments:args});
    const asText=result=>(result.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n');
-   const call=async(name,args)=>{const result=await raw(name,args);assert.notEqual(result.isError,true,`${name}: ${asText(result)}`);return asText(result);};
+   const call=async(name,args)=>{
+    const result=await raw(name,args);assert.notEqual(result.isError,true,`${name}: ${asText(result)}`);
+    if(tools.tools.find(tool=>tool.name===name)?.outputSchema?.properties?._harness_result){
+     const visible=result.structuredContent?._harness_result;
+     assert.ok(visible,`${name}: structured-first clients must receive the actual result`);
+     assert.equal(visible.isError,false);assert.deepEqual(visible.content,result.content.slice(0,visible.content.length));
+     assert.ok(visible.content.length,`${name}: the native engine returned public content`);
+    }
+    return asText(result);
+   };
    const context=async(project_path,target_paths,rule_paths)=>{const result=await raw('get_project_context',{project_path,target_paths,rule_paths});assert.notEqual(result.isError,true,asText(result));const data=result.structuredContent||JSON.parse(asText(result));assert.equal(typeof data.project_context_token,'string');return data;};
    const file=path.join(project,'hello 中文.txt'),content='hello localharness\n真实工具验收';
    const blocked=await raw('write_file',{path:file,content,mode:'rewrite'});assert.equal(blocked.isError,true);assert.equal(fs.existsSync(file),false);
@@ -46,6 +55,15 @@ async function main(){
    await call('write_file',{path:file,content,mode:'rewrite',project_context_tokens:tokens});assert.equal(fs.readFileSync(file,'utf8'),content);
    assert.ok((await call('read_file',{path:file})).includes(content),'reads need no prerequisite context call');
    assert.ok((await call('read_file',{path:file,project_context_tokens:tokens})).includes(content));
+   const imagePath=path.join(project,'synthetic-preview.png');
+   fs.writeFileSync(imagePath,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC','base64'));
+   const imageReply=await raw('read_file',{path:imagePath});assert.notEqual(imageReply.isError,true,asText(imageReply));
+   const imageBlock=imageReply.content.find(item=>item.type==='image');assert.ok(imageBlock?.data&&imageBlock.mimeType.startsWith('image/'));
+   assert.deepEqual(imageReply.structuredContent._harness_result.content.find(item=>item.type==='image'),imageBlock);
+   const missingReply=await raw('read_file',{path:path.join(project,'missing-synthetic-file.txt')});
+   assert.equal(missingReply.isError,true);assert.equal(missingReply.structuredContent._harness_result.isError,true);
+   assert.ok(asText(missingReply.structuredContent._harness_result).length,'the original read failure must remain visible');
+   console.log('Structured-first native text/image/error delivery: passed');
    const searchResult=await raw('search_project',{project_path:project,pattern:'真实工具验收'});
    assert.notEqual(searchResult.isError,true,asText(searchResult));
    const canonicalFile=fs.realpathSync.native(file);
@@ -65,8 +83,14 @@ async function main(){
    assert.equal((await raw('write_file',{path:file,content:'stale write',project_context_tokens:[a2.project_context_token]})).isError,true);assert.equal(fs.existsSync(file),false);
    a=await context(project,[file],['rules/output.md']);
    const command=process.platform==='win32' ? 'Write-Output ("CTH_HOME="+$env:USERPROFILE); if (!(Test-Path Env:CONTROL_PLANE_API_KEY)) { Write-Output "RUNTIME_KEY_REMOVED" }; git --version' : 'printf "CTH_HOME=%s\\n" "$HOME"; if [ -z "${CONTROL_PLANE_API_KEY+x}" ]; then printf "RUNTIME_KEY_REMOVED\\n"; fi; git --version';
-   const output=await call('start_process',{command,timeout_ms:5000,context_paths:[file],project_context_tokens:[a.project_context_token]});
+   const processResult=await raw('start_process',{command,timeout_ms:5000,context_paths:[file],project_context_tokens:[a.project_context_token]});
+   assert.notEqual(processResult.isError,true,asText(processResult));
+   const output=asText(processResult);
    assert.ok(output.includes('CTH_HOME='+os.homedir()),'Shell user home changed');assert.ok(output.includes('RUNTIME_KEY_REMOVED'),'Runtime key reached Shell');assert.ok(output.includes('git version'));
+   assert.equal(processResult.structuredContent._harness_result.content[0].text,processResult.content[0].text,'Structured output must retain the original terminal response');
+   assert.equal(processResult.structuredContent._harness_result.isError,false);
+   assert.ok(processResult.structuredContent.project_contexts.length,'Project guidance must accompany terminal output');
+   assert.equal(tools.tools.find(tool=>tool.name==='start_process').outputSchema.properties._harness_result.type,'object');
    console.log(JSON.stringify({realDesktopCommander:true,tools:tools.tools.length,blockedBeforeContext:true,readsWithoutPrerequisite:true,noAgentsWrite:true,boundedSearch:true,fileRoundTrip:true,nested:true,selectedRules:true,ruleChanges:true,crossProject:true,concurrentContexts:true,shellHomePreserved:true,runtimeKeyRemoved:true}));
   }finally{clearTimeout(timeout);}
  }finally{if(child)await stopTree(child);await manager.close();fs.rmSync(home,{recursive:true,force:true,maxRetries:10,retryDelay:100});}

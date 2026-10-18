@@ -1,0 +1,253 @@
+{
+  "schema": 1,
+  "checked_at": "2026-10-18T01:00:24.398715+00:00",
+  "branch": "codex/harness-continuity",
+  "source_commit": "d52193d03c563ef9105407c5a33db7958627ee14",
+  "resumed_from": "9a6949f3f5f26830c869cd1b77f5767c8ad4a99c",
+  "application": {
+    "schema": 1,
+    "version": "0.5.0",
+    "commit": "d52193d03c563ef9105407c5a33db7958627ee14",
+    "dirty": false,
+    "source_sha256": "564094672c5ce7f9513ecbaee5a742d7f89fad830d28d29c24c2c6be0b4b588e",
+    "built_at": "2026-10-18T00:54:09.030Z"
+  },
+  "packaged_proxy_matches_source": true,
+  "packaged_sdk_verified": true,
+  "baseline": {
+    "tests": 241,
+    "pass": 239,
+    "fail": 0,
+    "skipped": 2
+  },
+  "regression_before_patch": {
+    "tests": 9,
+    "pass": 1,
+    "fail": 8,
+    "skipped": 0
+  },
+  "focused_after_patch": {
+    "tests": 26,
+    "pass": 26,
+    "fail": 0,
+    "skipped": 0
+  },
+  "final_tests": {
+    "tests": 250,
+    "pass": 248,
+    "fail": 0,
+    "skipped": 2
+  },
+  "native_mcp_text_image_error": "passed",
+  "official_engine_version": "0.3.0",
+  "official_tools": {
+    "get_config": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "set_config_value": {
+      "status": "partial",
+      "detail": "Ordinary configuration works. Authorized-folder expansion through a tool is intentionally unsupported; use desktop settings."
+    },
+    "read_file": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "read_multiple_files": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "write_file": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "write_pdf": {
+      "status": "verified",
+      "detail": "Synthetic Markdown PDF creation and native readback."
+    },
+    "create_directory": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "list_directory": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "move_file": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "start_search": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "get_more_search_results": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "stop_search": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "list_searches": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "get_file_info": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "edit_block": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "start_process": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "read_process_output": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "interact_with_process": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "force_terminate": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "list_sessions": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "list_processes": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "kill_process": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "get_usage_stats": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "get_recent_tool_calls": {
+      "status": "verified",
+      "detail": "Synthetic native invocation succeeded."
+    },
+    "give_feedback_to_desktop_commander": {
+      "status": "partial",
+      "detail": "Official definition and annotations preserved. Browser/form submission intentionally not exercised."
+    }
+  },
+  "formats": {
+    "xlsx": {
+      "status": "verified",
+      "bytes": 6453
+    },
+    "docx": {
+      "status": "verified",
+      "bytes": 1757
+    },
+    "pdf": {
+      "status": "verified",
+      "bytes": 25936
+    }
+  },
+  "continuity": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "started_at": "2026-10-18T00:50:33.545Z",
+    "failures": [],
+    "project_read_edit": true,
+    "start_call_ms": 23,
+    "session_reconnect": true,
+    "manager_restart": true,
+    "duration_ms": 125063,
+    "single_execution": true,
+    "artifact_sha256": "08a0e7afc020275d9396e682a49e90dc80cf64ccf0870caae06c0dd5f960a3de",
+    "saved_logs": true,
+    "undo": true,
+    "finished_at": "2026-10-18T00:52:41.124Z"
+  },
+  "ui": {
+    "ui": true,
+    "platform": "darwin",
+    "architecture": "arm64",
+    "packaged": true,
+    "realLocalTools": 45,
+    "languages": [
+      "zh-CN",
+      "en",
+      "ja"
+    ],
+    "languagePersistence": true,
+    "languagePreservesCredentialsAndConnection": true,
+    "navigation": true,
+    "unicodeSpaceDirectory": true,
+    "encryptedSaveAndReplace": true,
+    "restartAutoConnect": true,
+    "windowHide": true,
+    "singleInstance": true,
+    "ownedProcessCleanup": true,
+    "appMcpManagement": true,
+    "mcpWithoutWorkspace": true,
+    "mcpDefaultDeny": true,
+    "mcpEncryptedEnvironment": true,
+    "harnessBuildIdentity": true,
+    "localProjectApprovalRemembered": true,
+    "localProjectApprovalRevoked": true,
+    "localToolApprovalRemembered": true,
+    "globalAllowAllPreserved": true,
+    "authErrorAndRecovery": true,
+    "clearPreservesWorkspace": true,
+    "remoteTunnel": "not tested: isolated fixture"
+  },
+  "ui_execution": {
+    "exit_code": 0,
+    "duration_seconds": 30.384,
+    "outside_repository_cwd": true,
+    "isolated_profile": true,
+    "log": "/Users/djhuang/AI/LocalHarness/.cache/worktrees/harness-upgrade-20261018/.cache/acceptance/continuation-20261018/ui.log"
+  },
+  "build": {
+    "commit": "d52193d03c563ef9105407c5a33db7958627ee14",
+    "exit_code": 0,
+    "duration_seconds": 34.241,
+    "log": "/Users/djhuang/AI/LocalHarness/.cache/worktrees/harness-upgrade-20261018/.cache/acceptance/continuation-20261018/build.log"
+  },
+  "tunnel": "passed: isolated loopback fixture, not the live ChatGPT tunnel",
+  "original_workspace": {
+    "branch": "codex/mcp-tool-access-stability",
+    "head": "6f9583d7ed73b6e63b3a129c72b547943d865496",
+    "status": "M app/mcp-proxy.cjs\n M app/project-context.cjs\n M electron-builder.config.cjs",
+    "preserved_files": {
+      "app/mcp-proxy.cjs": true,
+      "app/project-context.cjs": true,
+      "electron-builder.config.cjs": true
+    },
+    "running_process_preserved": 41054
+  },
+  "limits": {
+    "windows_native": "not executed",
+    "live_mobile_chatgpt": "not executed",
+    "running_app_replaced": false,
+    "release_published": false,
+    "pushed": false,
+    "pull_request_created": false
+  },
+  "log_sha256": {
+    "ui.log": "aee445fd359676c032fc288f70f8f383754e019629a04f1bb39daae25bf3ae5b",
+    "regression-green.log": "f0f750b01f2f663bb2e39fed08154390ce40b5185880ced9e6599027a9f2f7a8",
+    "mcp.log": "95b3e57516dcf7c5a8bbafabbc3e8b48414bfaed163c9fda02709d76a1830885",
+    "capability.log": "2a086de7e41d44445d56b198637bf7dfa6e578caa136eeb63202e35983c110e5",
+    "baseline-unit.log": "4e6feb70b4f8808d94f0226b5bab82f56ead4cd0dddc58b365d3ac181323e7e3",
+    "tunnel.log": "cabf860c165c1c7e4c84c817b44435c2c2bdeac20582941dd6e766be30cab582",
+    "regression-red.log": "0750a6d061f988c6d33ae0554b3b2aec4f2719ef5f55e831c17f72a3718e0d30",
+    "unit.log": "3eae3c2001699f3d8bc47e972bf3693a69ab87c5dae137489731243b5dfa87af",
+    "continuity.log": "d6a8989ade694bacc33650132d0951cda56ca78643061d6f82da1e313b413389",
+    "build.log": "74d61b9c9c2950c7404e94b7a7274342085936fbff5ee4810765614edb264213"
+  }
+}

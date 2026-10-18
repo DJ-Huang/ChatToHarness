@@ -26,7 +26,8 @@ function deferred() {
 }
 
 class StubManager extends EventEmitter {
-  constructor() { super(); this.calls = []; this.tools = [structuredClone(TEST_TOOL)]; }
+  constructor() { super(); this.calls = []; this.tools = [structuredClone(TEST_TOOL)]; this.toolsVersion = 1; this.logs = []; }
+  log(event, details) { this.logs.push({ event, ...details }); }
   listTools(cursor) { assert.equal(cursor, undefined); return { tools: structuredClone(this.tools) }; }
   async call(name, args, options) {
     const call = { name, args, ...options };
@@ -169,6 +170,35 @@ test('real SDK client discovers and invokes tools through stdio relay without mo
   await client.close();
   assert.equal(stderr.join('').includes(environment.CTH_GATEWAY_TOKEN), false);
   assert.equal(stderr.join(''), '');
+});
+
+test('repeated upstream initialize reuses the session and stable tools without logging call data', { timeout: 15000 }, async t => {
+  const { manager, gateway, environment } = await fixture(t);
+  const connection = await peer(t, environment);
+  connection.send({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  const before = (await connection.waitFor(message => message.id === 1)).result;
+  await connection.initialize();
+  connection.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: TEST_TOOL.name, arguments: { label: 'private-call-contents' } } });
+  await connection.waitFor(message => message.id === 2);
+  connection.send({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
+  const after = (await connection.waitFor(message => message.id === 3)).result;
+  assert.deepEqual(after, before);
+  assert.equal(gateway.sessions.size, 1);
+  const initialized = manager.logs.filter(entry => entry.event === 'mcp-session' && entry.phase === 'initialized');
+  assert.deepEqual(initialized.map(entry => entry.initializations), [1, 2]);
+  assert.equal(initialized[0].session, initialized[1].session);
+  assert.equal(manager.logs.filter(entry => entry.phase === 'opened').length, 1);
+  assert.equal(manager.logs.filter(entry => entry.event === 'mcp-list-notification').length, 0);
+  const serverClosed = deferred();
+  const logEntry = manager.log.bind(manager);
+  manager.log = (event, details) => { logEntry(event, details); if (event === 'mcp-session' && details.phase === 'closed') serverClosed.resolve(); };
+  await connection.close();
+  await serverClosed.promise;
+  assert.equal(manager.logs.filter(entry => entry.phase === 'closed').length, 1);
+  const log = JSON.stringify(manager.logs);
+  assert.equal(log.includes(environment.CTH_GATEWAY_TOKEN), false);
+  assert.equal(log.includes(environment.CTH_GATEWAY_ENDPOINT), false);
+  assert.equal(log.includes('private-call-contents'), false);
 });
 
 test('identical request IDs in separate sessions cancel independently', { timeout: 15000 }, async t => {

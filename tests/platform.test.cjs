@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
-const {storageDirectory,bundledPaths,defaultShell,developmentEnvironment,tunnelCommand,spawnManaged,stopTree}=require('../app/platform.cjs');
+const {storageDirectory,bundledPaths,defaultShell,taskShellArguments,developmentEnvironment,tunnelCommand,spawnManaged,stopTree}=require('../app/platform.cjs');
 const {windowsProcessHost}=require('./native-helper.cjs');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function waitFor(read){const end=Date.now()+7000;while(Date.now()<end){const value=read();if(value)return value;await pause(25);}throw new Error('native fixture timed out');}
@@ -30,6 +30,17 @@ test('Windows development environments preserve user profile, Git and SSH withou
   assert.equal(value.GIT_CONFIG_GLOBAL,source.GIT_CONFIG_GLOBAL);
   assert.equal(value.SSH_AUTH_SOCK,source.SSH_AUTH_SOCK);
   assert.equal(developmentEnvironment({...source,HOME:'D:\\custom home'},'D:\\node.exe','win32').HOME,'D:\\custom home');
+});
+
+test('persistent commands select the configured shell grammar and preserve Unicode', () => {
+  const command = 'Write-Output "中文 $value & literal"';
+  const argv = taskShellArguments('C:\\Program Files\\PowerShell\\7\\pwsh.exe', command, 'win32');
+  assert.equal(argv.at(-2), '-EncodedCommand');
+  const decoded = Buffer.from(argv.at(-1), 'base64').toString('utf16le');
+  assert.match(decoded, /\[Console\]::OutputEncoding = \[System.Text.UTF8Encoding\]/); assert.ok(decoded.endsWith('\n' + command));
+  assert.deepEqual(taskShellArguments('C:\\Windows\\System32\\cmd.exe', command, 'win32'), ['/d', '/s', '/c', command]);
+  assert.deepEqual(taskShellArguments('/bin/zsh', command, 'darwin'), ['-lc', command]);
+  assert.throws(() => taskShellArguments('unknown.exe', command, 'win32'), {code: 'TASK_UNSUPPORTED_SHELL'});
 });
 
 // This small decoder mirrors the pinned Tunnel runtime parseCommandArgv grammar.

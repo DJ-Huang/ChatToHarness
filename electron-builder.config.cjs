@@ -4,4 +4,5 @@ const config=JSON.parse(JSON.stringify(require('./package.json').build));
 // Windows Node ships npm there (Mac uses lib/node_modules), so copy that tree
 // explicitly, like the separately included tool-engine dependency tree.
 if(process.platform==='win32')config.extraResources.push({from:'resources/node/node_modules',to:'node/node_modules',filter:['**/*']});
+config.extraResources.push({from:'resources/build-info.json',to:'build-info.json'});
 module.exports=config;

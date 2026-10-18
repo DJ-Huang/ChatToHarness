@@ -25,7 +25,7 @@ function componentFingerprint(root = ROOT, platform = process.platform, arch = p
   const hash = crypto.createHash('sha256');
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   hash.update(JSON.stringify({platform,arch,dependencies:manifest.dependencies,devDependencies:manifest.devDependencies}));
-  for(const name of ['package-lock.json','scripts/versions.cjs','scripts/prepare-resources.cjs','native/ManagedProcess.cs',
+  for(const name of ['package-lock.json','scripts/versions.cjs','scripts/prepare-resources.cjs','scripts/engine-isolation.cjs','native/ManagedProcess.cs',
     'vendor/desktop-commander/package.json','vendor/desktop-commander/package-lock.json']) {
     hash.update('\0' + name + '\0');hash.update(fs.readFileSync(path.join(root, name)));
   }

@@ -122,6 +122,74 @@ test('list changes revoke changed definitions and leave new tools denied', { tim
   assert.equal((await f.manager.call('one__echo', { refreshed: true })).structuredContent.arguments.refreshed, true);
 });
 
+test('catalog reordering preserves active calls, pending confirmations and the published version', { timeout: 10000 }, async t => {
+  const f = fixture(t); await f.connect('one');
+  f.policy('one', 'hang'); f.policy('one', 'echo', 'ask'); f.policy('one', 'change_tools');
+  const running = f.manager.call('one__hang', {});
+  await until(() => readCount(f.calls('one')) === 1);
+  const pending = f.manager.call('one__echo', { preserved: true });
+  await until(() => f.manager.status().approvals.length === 1);
+  const approval = f.manager.status().approvals[0];
+  const version = f.manager.toolsVersion, catalog = f.manager.listTools();
+  const active = [...f.manager.active];
+  let notifications = 0;
+  f.manager.on('toolsChanged', () => { notifications++; });
+  const catalogLogs = f.logs.filter(entry => entry.event === 'mcp-catalog').length;
+  await f.manager.call('one__change_tools', { action: 'reorder' });
+  await until(() => f.manager.record('one').tools[0].tool.name === 'tool_error');
+  assert.ok(active.every(operation => !operation.controller.signal.aborted));
+  assert.deepEqual(f.manager.status().approvals, [approval]);
+  assert.equal(f.manager.toolsVersion, version);
+  assert.equal(notifications, 0);
+  assert.deepEqual(f.manager.listTools(), catalog);
+  assert.equal(f.logs.filter(entry => entry.event === 'mcp-catalog').length, catalogLogs);
+  f.manager.approve({ id: approval.id, allow: true });
+  assert.equal((await pending).structuredContent.arguments.preserved, true);
+  // A later explicit policy change must still find the captured operation.
+  f.policy('one', 'hang', 'deny');
+  assert.equal((await running).structuredContent.code, 'MCP_POLICY_CHANGED');
+});
+
+test('an unrelated tool change preserves running calls and revokes only affected confirmations', { timeout: 10000 }, async t => {
+  const f = fixture(t); await f.connect('one');
+  f.policy('one', 'hang'); f.policy('one', 'echo', 'ask'); f.policy('one', 'change_tools');
+  const running = f.manager.call('one__hang', {});
+  await until(() => readCount(f.calls('one')) === 1);
+  const operation = [...f.manager.active].find(item => item.item.tool.name === 'hang');
+  const pending = f.manager.call('one__echo', {});
+  await until(() => f.manager.status().approvals.length === 1);
+  const approvalId = f.manager.status().approvals[0].id;
+  await f.manager.call('one__change_tools', {});
+  assert.equal((await pending).structuredContent.code, 'MCP_TOOLS_CHANGED');
+  assert.equal(operation.controller.signal.aborted, false);
+  assert.throws(() => f.manager.approve({ id: approvalId, allow: true }), { code: 'MCP_APPROVAL_EXPIRED' });
+  const tools = f.manager.status().servers[0].tools;
+  assert.equal(tools.find(item => item.name === 'echo').policy, 'deny');
+  assert.equal(tools.find(item => item.name === 'added_tool').policy, 'deny');
+  assert.equal(tools.find(item => item.name === 'hang').policy, 'allow');
+  const catalog = f.logs.filter(entry => entry.event === 'mcp-catalog').at(-1);
+  assert.equal(catalog.removed, 1);
+  assert.equal(catalog.added, 0, 'new tools remain hidden until allowed');
+  assert.match(catalog.fingerprint, /^[a-f0-9]{64}$/);
+  f.policy('one', 'hang', 'deny');
+  assert.equal((await running).structuredContent.code, 'MCP_POLICY_CHANGED');
+});
+
+for (const action of ['change_hang', 'remove_hang']) {
+  test(`a ${action} catalog update cancels that tool's running call`, { timeout: 10000 }, async t => {
+    const f = fixture(t); await f.connect('one');
+    f.policy('one', 'hang'); f.policy('one', 'change_tools');
+    const running = f.manager.call('one__hang', {});
+    await until(() => readCount(f.calls('one')) === 1);
+    await f.manager.call('one__change_tools', { action });
+    const result = await running;
+    assert.equal(result.structuredContent.code, 'MCP_TOOLS_CHANGED');
+    assert.equal(result.structuredContent.execution_state, 'unknown');
+    assert.equal((await f.manager.call('one__hang', {})).structuredContent.code, 'MCP_TOOL_DENIED');
+    assert.equal(readCount(f.calls('one')), 2, 'a changed call is never replayed');
+  });
+}
+
 test('local approval binds immutable original arguments and accepts only its captured ID', { timeout: 10000 }, async t => {
   const f = fixture(t); await f.connect('one'); f.policy('one', 'echo', 'ask');
   const original = { nested: { value: 'original' } };
@@ -212,6 +280,16 @@ test('environment secrets stay per service and are masked in approval state and 
   assert.equal((await pending).structuredContent.arguments.token, secret, 'masking must not modify downstream arguments');
   const log = JSON.stringify(f.logs);
   for (const value of [secret, 'service-two-private-secret', 'synthetic-tunnel-secret', 'synthetic-openai-secret', 'prefix:']) assert.equal(log.includes(value), false);
+  const diagnostics = f.logs.filter(entry => entry.event === 'mcp-connection' || entry.event === 'mcp-catalog');
+  assert.ok(diagnostics.some(entry => entry.event === 'mcp-catalog'));
+  for (const entry of diagnostics) {
+    const allowed = entry.event === 'mcp-connection'
+      ? ['event', 'server', 'phase', 'generation', 'count', 'code', 'attempt', 'delayMs']
+      : ['event', 'version', 'count', 'fingerprint', 'added', 'removed', 'changed'];
+    assert.ok(Object.keys(entry).every(key => allowed.includes(key)), 'diagnostics contain only connection state and catalog summaries');
+  }
+  assert.equal(JSON.stringify(diagnostics).includes(f.directory), false);
+  assert.equal(JSON.stringify(diagnostics).includes('Return the supplied arguments'), false);
 });
 
 test('enabled connection tests retain retries and one failed service never replays its call', { timeout: 15000 }, async t => {
@@ -225,9 +303,15 @@ test('enabled connection tests retain retries and one failed service never repla
   await until(() => readCount(f.starts('fragile')) >= 2 && f.manager.records.get('fragile').phase === 'ready', 6000);
   assert.equal(readCount(f.calls('fragile')), 1, 'reconnection must not repeat the exit call');
   assert.equal(readCount(f.starts('healthy')), 1);
+  const phases = f.logs.filter(entry => entry.event === 'mcp-connection' && entry.server === 'fragile').map(entry => entry.phase);
+  assert.deepEqual(phases, ['connecting', 'ready', 'closed', 'retry', 'connecting', 'ready']);
+  const retry = f.logs.find(entry => entry.event === 'mcp-connection' && entry.server === 'fragile' && entry.phase === 'retry');
+  assert.equal(retry.delayMs, 1000);
+  assert.equal(retry.attempt, 1);
   await f.manager.stop();
   assert.ok(f.manager.status().servers.every(server => server.phase === 'stopped'));
   assert.equal(f.manager.running, false);
+  assert.equal(f.logs.filter(entry => entry.event === 'mcp-connection' && entry.server === 'fragile').at(-1).phase, 'stopped');
 });
 
 test('cross-service aliases that collide fail discovery without exposing duplicates', { timeout: 10000 }, async t => {
@@ -417,4 +501,118 @@ test('a peer requiring only the newer unsupported protocol reports incompatibili
   assert.equal(f.manager.status().servers[0].protocolVersion, '2026-07-28');
   assert.equal(f.manager.records.get('future').retryTimer, undefined);
   assert.deepEqual(f.manager.visibleTools(), []);
+});
+
+test('allow-all exposes trusted enabled tools without changing definitions or reconnecting', { timeout: 15000 }, async t => {
+  const f = fixture(t); await f.connect('one');
+  f.policy('one', 'echo', 'ask'); f.policy('one', 'count');
+  const original = f.manager.visibleTools(), grants = f.settings.listToolPolicies('one');
+  const definitions = f.manager.record('one').tools.map(item => structuredClone(item.tool));
+  const generation = f.manager.record('one').generation;
+  let notifications = 0, approvals = 0;
+  f.manager.on('toolsChanged', () => { notifications++; });
+  f.manager.on('approval', () => { approvals++; });
+  f.manager.setAllowAllTools(true);
+  assert.equal(f.manager.status().allowAllTools, true);
+  assert.equal(f.manager.visibleTools().length, 8);
+  assert.equal(notifications, 1, 'previously denied tools become visible with one real directory change');
+  assert.ok(f.manager.status().servers[0].tools.every(item => item.policy === 'allow'));
+  assert.equal(f.manager.status().servers[0].tools.find(item => item.name === 'echo').savedPolicy, 'ask');
+  assert.deepEqual(f.manager.record('one').tools.map(item => item.tool), definitions);
+  for (const tool of original) assert.deepEqual(f.manager.visibleTools().find(item => item.name === tool.name), tool);
+  assert.equal((await f.manager.call('one__echo', { direct: true })).structuredContent.arguments.direct, true);
+  assert.equal(approvals, 0);
+  assert.equal(f.manager.record('one').generation, generation);
+  assert.equal(readCount(f.starts('one')), 1);
+  f.manager.setAllowAllTools(false);
+  assert.deepEqual(f.manager.visibleTools(), original);
+  assert.deepEqual(f.settings.listToolPolicies('one'), grants);
+  assert.equal(f.manager.record('one').generation, generation);
+  f.manager.setAllowAllTools(true);
+  await f.manager.setEnabled('one', false);
+  assert.deepEqual(f.manager.visibleTools(), []);
+  assert.equal((await f.manager.call('one__echo', {})).structuredContent.code, 'MCP_TOOL_DENIED');
+  await f.manager.setEnabled('one', true);
+  assert.equal(f.manager.visibleTools().length, 8);
+  f.settings.save({ id: 'one', args: [fixturePath, 'changed-launch-target'] });
+  assert.equal(f.settings.isTrusted('one'), false);
+  assert.deepEqual(f.manager.visibleTools(), []);
+  assert.equal((await f.manager.call('one__echo', {})).structuredContent.code, 'MCP_TOOL_DENIED');
+});
+
+test('allow-all covers new definitions while stale grants stay revoked when turned off', { timeout: 10000 }, async t => {
+  const f = fixture(t); await f.connect('one');
+  f.policy('one', 'echo', 'ask'); f.policy('one', 'change_tools');
+  f.manager.setAllowAllTools(true);
+  await f.manager.call('one__change_tools', {});
+  await until(() => f.manager.record('one').tools.some(item => item.tool.name === 'added_tool'));
+  assert.ok(f.manager.status().servers[0].tools.every(item => item.policy === 'allow'));
+  assert.equal(f.manager.status().servers[0].tools.find(item => item.name === 'echo').savedPolicy, 'deny');
+  assert.equal((await f.manager.call('one__added_tool', {})).structuredContent.added, true);
+  f.manager.setAllowAllTools(false);
+  assert.deepEqual(f.manager.visibleTools().map(item => item.name), ['one__change_tools']);
+  assert.equal((await f.manager.call('one__echo', {})).structuredContent.code, 'MCP_TOOL_DENIED');
+  assert.equal((await f.manager.call('one__added_tool', {})).structuredContent.code, 'MCP_TOOL_DENIED');
+});
+
+test('allow-all changes revoke affected calls transactionally without replaying or reconnecting', { timeout: 10000 }, async t => {
+  const f = fixture(t); await f.connect('one'); f.policy('one', 'echo', 'ask');
+  const pending = f.manager.call('one__echo', {});
+  await until(() => f.manager.status().approvals.length === 1);
+  f.manager.setAllowAllTools(true);
+  assert.equal((await pending).structuredContent.code, 'MCP_POLICY_CHANGED');
+  assert.equal(readCount(f.calls('one')), 0);
+  const running = f.manager.call('one__hang', {});
+  await until(() => readCount(f.calls('one')) === 1);
+  const operation = [...f.manager.active][0];
+  const version = f.manager.toolsVersion;
+  f.manager.setAllowAllTools(true);
+  assert.equal(f.manager.toolsVersion, version);
+  assert.equal(operation.controller.signal.aborted, false);
+  f.manager.setAllowAllTools(false);
+  assert.equal((await running).structuredContent.code, 'MCP_POLICY_CHANGED');
+  assert.equal(readCount(f.calls('one')), 1);
+  const retry = f.manager.call('one__echo', {});
+  await until(() => f.manager.status().approvals.length === 1);
+  const approval = f.manager.status().approvals[0];
+  const saved = fs.readFileSync(f.settings.file), catalog = f.manager.listTools(), before = f.manager.toolsVersion;
+  const originalRename = fs.renameSync;
+  fs.renameSync = () => { throw Error('Simulated persistence failure'); };
+  try { assert.throws(() => f.manager.setAllowAllTools(true), { code: 'WRITE_FAILED' }); }
+  finally { fs.renameSync = originalRename; }
+  assert.equal(f.manager.status().allowAllTools, false);
+  assert.equal(f.manager.toolsVersion, before);
+  assert.deepEqual(f.manager.listTools(), catalog);
+  assert.deepEqual(f.manager.status().approvals, [approval]);
+  assert.deepEqual(fs.readFileSync(f.settings.file), saved);
+  f.manager.approve({ id: approval.id, allow: true }); await retry;
+  f.policy('one', 'hang');
+  const controller = new AbortController();
+  const unaffected = f.manager.call('one__hang', {}, { signal: controller.signal });
+  await until(() => readCount(f.calls('one')) === 3);
+  const unchanged = [...f.manager.active][0];
+  f.manager.setAllowAllTools(true); f.manager.setAllowAllTools(false);
+  assert.equal(unchanged.controller.signal.aborted, false, 'saved allow is independent of the override');
+  assert.equal(readCount(f.starts('one')), 1);
+  controller.abort(); await unaffected;
+});
+
+test('execution history includes policy/approval rejection, validation, success, upstream error and timeout in one stable record', {timeout:10000}, async t=>{
+  const f=fixture(t);const {ExecutionHistory}=require('../app/execution-history.cjs');
+  const history=new ExecutionHistory(path.join(f.directory,'history'));t.after(()=>history.close());f.manager.history=history;
+  await f.connect('recorded');const tool=name=>alias('recorded',name);
+  await f.manager.call(tool('echo'),{});
+  assert.equal(history.rows()[0].state,'failed');
+  f.policy('recorded','echo','ask');const denied=f.manager.call(tool('echo'),{label:'safe'});await until(()=>f.manager.approvals.size===1);
+  assert.ok(history.rows().some(r=>r.state==='waiting_approval'));
+  f.manager.approve({id:f.manager.status().approvals[0].id,allow:false});await denied;
+  f.policy('recorded','echo');await f.manager.call(tool('echo'),null);await f.manager.call(tool('echo'),{label:'ok'});
+  assert.equal(history.rows().length,4);assert.equal(history.rows().filter(r=>r.state==='succeeded').length,1);
+  assert.ok(history.rows().every(r=>r.service==='[redacted]'&&r.delivery==='unknown'));
+  f.policy('recorded','tool_error');await f.manager.call(tool('tool_error'),{});
+  f.policy('recorded','protocol_error');await assert.rejects(f.manager.call(tool('protocol_error'),{}));
+  f.policy('recorded','hang');f.manager.records.get('recorded').timeoutMs=20;await f.manager.call(tool('hang'),{});
+  assert.equal(history.rows().length,7);assert.ok(history.rows().some(r=>r.tool.endsWith('__hang')&&r.state==='unknown'),JSON.stringify(history.rows().map(({tool,state,error_code})=>({tool,state,error_code}))));
+  assert.ok(history.rows().some(r=>r.tool.endsWith('__tool_error')&&r.state==='failed'));
+
 });

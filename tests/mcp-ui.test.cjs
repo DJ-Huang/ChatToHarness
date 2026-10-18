@@ -15,6 +15,7 @@ const methods = {
   mcpSaveServer: 'mcp-save-server', mcpRemoveServer: 'mcp-remove-server',
   mcpSetEnabled: 'mcp-set-enabled', mcpTrustServer: 'mcp-trust-server',
   mcpTestServer: 'mcp-test-server', mcpSetToolPolicy: 'mcp-set-tool-policy',
+  mcpSetAllowAllTools: 'mcp-set-allow-all-tools',
   mcpPreviewImport: 'mcp-preview-import', mcpCommitImport: 'mcp-commit-import',
   mcpExport: 'mcp-export', mcpResolveApproval: 'mcp-resolve-approval',
 };
@@ -38,8 +39,8 @@ function documentFixture() {
       if (!this.listeners.has(name)) this.listeners.set(name, []);
       this.listeners.get(name).push(callback);
     }
-    async emit(name) {
-      for (const callback of this.listeners.get(name) || []) await callback({ target: this, preventDefault() {} });
+    async emit(name, event = {}) {
+      for (const callback of this.listeners.get(name) || []) await callback({ target: this, preventDefault() {}, ...event });
     }
     setAttribute(name, value) { this.attributes[name] = value; }
     removeAttribute(name) { delete this.attributes[name]; }
@@ -54,7 +55,7 @@ function documentFixture() {
     node.checked = /(?:^|\s)checked(?:\s|$)/.test(match[2]);
     for (const attribute of match[2].matchAll(/([\w-]+)="([^"]*)"/g)) {
       node.attributes[attribute[1]] = attribute[2];
-      if (attribute[1].startsWith('data-')) node.dataset[attribute[1].slice(5)] = attribute[2];
+      if (attribute[1].startsWith('data-')) node.dataset[attribute[1].slice(5).replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase())] = attribute[2];
       if (['value', 'type'].includes(attribute[1])) node[attribute[1]] = attribute[2];
     }
     nodes.set(match[3], node);
@@ -126,7 +127,7 @@ test('renderer and restricted preload agree on MCP methods and exact IPC routes'
   assert.deepEqual(referenced, Object.keys(methods).sort());
   assert.deepEqual(Object.keys(exposed).filter(name => name.startsWith('mcp')).sort(), referenced);
   for (const [method, route] of Object.entries(methods)) {
-    const args = method === 'mcpSetEnabled' ? ['server', true] : method === 'mcpExport' ? [] : [{ test: method }];
+    const args = method === 'mcpSetEnabled' ? ['server', true] : method === 'mcpSetAllowAllTools' ? [true] : method === 'mcpExport' ? [] : [{ test: method }];
     await exposed[method](...args);
     assert.deepEqual(calls.pop(), ['localharness:' + route, ...args]);
   }
@@ -148,6 +149,42 @@ test('a newly saved MCP service is disabled and saving does not connect or trust
   assert.equal(config.timeoutMs, 60000); assert.deepEqual(Array.from(config.args), []);
   assert.equal(fixture.node('mcp-editor').hidden, true);
   assert.equal(fixture.node('mcp-env').value, '{}'); assert.equal(fixture.node('mcp-headers').value, '{}');
+});
+
+test('allow all tools shows saved permissions and restores individual controls when disabled', async () => {
+  let state = initialState();
+  const tool = { name: 'write', policy: 'deny', savedPolicy: 'deny' };
+  state.mcp.servers = [{ id: 'example', name: 'Example', enabled: true, trusted: true, transport: 'stdio', command: 'server', tools: [tool] }];
+  const toggles = [];
+  const fixture = await rendererFixture(state, {
+    async mcpSetAllowAllTools(enabled) {
+      toggles.push(enabled);
+      state = { ...state, mcp: { ...state.mcp, allowAllTools: enabled,
+        servers: state.mcp.servers.map(server => ({ ...server, tools: [{ ...tool, policy: enabled ? 'allow' : 'deny' }] })) } };
+      return state;
+    },
+  });
+  const toggle = fixture.node('mcp-allow-all-tools');
+  const policySelect = () => descendants(fixture.node('mcp-server-list')).find(node => node.tagName === 'SELECT');
+  assert.equal(toggle.checked, false);
+  assert.equal(policySelect().disabled, false);
+  assert.equal(policySelect().value, 'deny');
+  toggle.checked = true;
+  await toggle.emit('change');
+  assert.deepEqual(toggles, [true]);
+  assert.equal(toggle.checked, true);
+  assert.equal(policySelect().disabled, true);
+  assert.equal(policySelect().value, 'deny', 'saved policy remains visible instead of the effective allow');
+  assert.equal(policySelect().attributes['aria-label'], '关闭后 write 的调用权限');
+  assert.match(fixture.node('mcp-policy-summary').textContent, /关闭此开关后生效/);
+  toggle.checked = false;
+  await toggle.emit('change');
+  assert.deepEqual(toggles, [true, false]);
+  assert.equal(toggle.checked, false);
+  assert.equal(policySelect().disabled, false);
+  assert.equal(policySelect().value, 'deny');
+  assert.equal(policySelect().attributes['aria-label'], 'write 的调用权限');
+  assert.equal(fixture.calls.length, 0, 'the switch does not rewrite individual tool grants');
 });
 
 test('import requires a current preview, commits only its draft ID, and never enables services', async () => {
@@ -233,4 +270,139 @@ test('all MCP error messages have Chinese, English and Japanese translations wit
       if (locale === 'en') assert.doesNotMatch(translated, /[\u3400-\u9fff]/u);
     }
   }
+});
+
+test('execution page loads only on navigation, paginates and renders hostile records as text',async()=>{
+  const calls=[];const record={request_id:'exec_'+ 'a'.repeat(36),received_at:'2026-01-01T00:00:00Z',tool:'<img onerror=alert(1)>',operation:'<script>private</script>',service:'test',state:'succeeded',duration_ms:3};
+  const f=await rendererFixture(initialState(),{executionList:async query=>{calls.push(query);return {records:[record],total:80,usage:1024,diagnostics:{enabled:false}};},executionDetail:async()=>({...record,error_summary:'<script>detail</script>'})});
+  assert.equal(calls.length,0);await f.node('nav-history').emit('click');await settled();assert.equal(calls.length,1);assert.equal(calls[0].limit,50);
+  const rows=f.node('history-rows');assert.equal(rows.children.length,1);assert.match(rows.textContent,/<img onerror/);
+  await rows.children[0].children[2].children[0].emit('click');assert.match(f.node('history-detail-text').textContent,/<script>detail/);
+  await f.node('history-next').emit('click');await settled();assert.equal(calls.at(-1).offset,50);
+  await f.node('history-errors').emit('click');await settled();assert.equal(calls.at(-1).tab,'errors');assert.equal(calls.at(-1).offset,0);
+  for(const [method,channel]of Object.entries({executionList:'execution-list',executionDetail:'execution-detail',executionExport:'execution-export',executionDiagnostics:'execution-diagnostics'})){assert.ok(source('preload.cjs').includes(method));assert.ok(source('main.cjs').includes("bind('"+channel+"'"));}
+});
+
+
+test('home and sidebar open a live log page; filtering, pause, search and clear never interpret log text as HTML',async()=>{
+  const entries=[
+    {id:'1:1',at:'2026-10-18T08:00:00Z',event:'execution',category:'tool',severity:'error',message:'<img src=x onerror=alert(1)> · failed'},
+    {id:'1:2',at:'2026-10-18T08:00:01Z',event:'runtime',category:'connection',severity:'info',message:'Tunnel ready'},
+  ];
+  const calls=[];
+  const f=await rendererFixture(initialState(),{readLiveLogs:async query=>{
+    calls.push(query);return {entries:calls.length===1?entries:[],cursor:{file:'app.log',identity:'123',offset:80},reset:false,more:false};
+  }});
+  assert.deepEqual(f.node('nav-logs').attributes['aria-controls'].split(' '),['panel-logs','nav-log-submenu']);
+  assert.equal(f.node('overview-open-logs').dataset.navigate,'logs');
+  assert.equal(calls.length,0,'reading logs must be lazy');
+  await f.node('overview-open-logs').emit('click');await settled();
+  assert.equal(f.node('panel-logs').hidden,false);
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].cursor,null);
+  assert.equal(f.node('log-entries').children.length,2);
+  assert.match(f.node('log-entries').textContent,/<img src=x/);
+
+  await f.node('log-filter-error').emit('click');
+  assert.equal(f.node('log-entries').children.length,1);
+  assert.match(f.node('log-entries').textContent,/failed/);
+  assert.doesNotMatch(f.node('log-entries').textContent,/Tunnel ready/);
+  await f.node('log-filter-connection').emit('click');
+  assert.match(f.node('log-entries').textContent,/Tunnel ready/);
+  assert.doesNotMatch(f.node('log-entries').textContent,/failed/);
+
+  f.node('log-search').value='not present';await f.node('log-search').emit('input');
+  assert.match(f.node('log-entries').textContent,/没有符合筛选条件/);
+  f.node('log-search').value='';await f.node('log-search').emit('input');
+  await f.node('log-pause').emit('click');
+  assert.equal(f.node('log-pause').textContent,'继续');
+  await f.node('log-pause').emit('click');await settled();
+  assert.equal(calls.length,2,'resuming catches up with a cursor');
+  assert.deepEqual(calls[1].cursor,{file:'app.log',identity:'123',offset:80});
+  await f.node('log-clear').emit('click');
+  assert.match(f.node('log-entries').textContent,/等待新日志/);
+  await f.node('log-reload').emit('click');await settled();
+  assert.equal(calls.at(-1).cursor,null,'reload reads the bounded tail again');
+  assert.ok(source('main.cjs').includes("bind('live-logs-read'"));
+  assert.ok(source('preload.cjs').includes("readLiveLogs:input=>call('live-logs-read',input)"));
+});
+
+test('log pages share a labelled group, with nested history icon and accessible keyboard order', async () => {
+  const start=html.indexOf('id="nav-log-group"');
+  const end=html.indexOf('id="nav-connection"',start);
+  const group=html.slice(start,end);
+  assert.ok(start>0&&end>start);
+  assert.ok(group.indexOf('id="nav-logs"')<group.indexOf('id="nav-history"'));
+  assert.match(group, /role="group" aria-label="日志"/);
+  assert.match(group, /id="nav-history"[^>]*data-nav-level="child"[^>]*><svg[^>]*>.+?<\/svg>执行记录/);
+  assert.match(source('style.css'), /\.nav-log-group \.nav-item\[data-nav-level="child"\]/);
+  assert.equal(i18n.translate('en','日志'),'Logs');
+  assert.equal(i18n.translate('ja','日志'),'ログ');
+
+  let logReads=0;
+  const f=await rendererFixture(initialState(),{
+    readLiveLogs:async()=>{logReads++;return {entries:[],cursor:null,reset:false,more:false};},
+    executionList:async()=>({records:[],total:0,usage:0,diagnostics:{enabled:false}}),
+  });
+  const groupNode=f.node('nav-log-group');
+  const submenu=f.node('nav-log-submenu');
+  const parent=f.node('nav-logs');
+  const child=f.node('nav-history');
+  assert.equal(groupNode.dataset.active,'false');
+  assert.equal(groupNode.dataset.expanded,'false','menu is collapsed by default');
+  assert.equal(submenu.hidden,true,'child is hidden by default');
+  assert.equal(parent.attributes['aria-expanded'],'false');
+  assert.equal(child.attributes.tabindex,'-1');
+  assert.match(group,/id="nav-log-submenu"[^>]*hidden/,'child markup is collapsed before renderer loads');
+  assert.match(group,/class="nav-log-chevron"/,'parent has a disclosure arrow');
+
+  await parent.emit('click');await settled();
+  assert.equal(groupNode.dataset.active,'true');
+  assert.equal(groupNode.dataset.expanded,'true');
+  assert.equal(submenu.hidden,false);
+  assert.equal(parent.attributes['aria-expanded'],'true');
+  assert.equal(parent.attributes['aria-selected'],'true');
+  assert.equal(child.attributes['aria-selected'],'false');
+
+  const callsWhileOpen=logReads;
+  await parent.emit('click');await settled();
+  assert.equal(logReads,callsWhileOpen,'folding the menu must not reload the log stream');
+  assert.equal(groupNode.dataset.expanded,'false','clicking parent again closes its child');
+  assert.equal(submenu.hidden,true);
+  assert.equal(f.node('panel-logs').hidden,false,'collapsing does not close the log page');
+
+  await parent.emit('keydown',{key:'ArrowDown'});
+  assert.equal(f.node('nav-connection').attributes['aria-selected'],'true','collapsed child is skipped by keyboard navigation');
+  assert.equal(groupNode.dataset.active,'false');
+
+  await f.node('nav-connection').emit('keydown',{key:'ArrowUp'});
+  assert.equal(parent.attributes['aria-selected'],'true');
+  assert.equal(submenu.hidden,true);
+  await parent.emit('keydown',{key:'ArrowRight'});
+  assert.equal(parent.attributes['aria-expanded'],'true','right arrow expands');
+  await parent.emit('keydown',{key:'ArrowDown'});await settled();
+  assert.equal(child.attributes['aria-selected'],'true');
+  assert.equal(f.node('panel-history').hidden,false);
+  assert.equal(submenu.hidden,false);
+  assert.equal(groupNode.dataset.active,'true');
+  assert.match(child.className,/selected/);
+
+  await child.emit('keydown',{key:'ArrowLeft'});
+  assert.equal(parent.attributes['aria-selected'],'true');
+  assert.equal(submenu.hidden,true,'left arrow collapses');
+  assert.equal(parent.attributes['aria-expanded'],'false');
+
+  // In-page shortcuts to history expand the menu even when it is folded.
+  const shortcut=f.node('logs-history-shortcut');
+  assert.equal(shortcut.dataset.navigate,'history','history shortcut exists in live log page');
+  await shortcut.emit('click');await settled();
+  assert.equal(submenu.hidden,false);
+  assert.equal(child.attributes['aria-selected'],'true');
+  await parent.emit('click');
+  assert.equal(submenu.hidden,true,'clicking parent from history navigates to logs and closes');
+  assert.equal(f.node('panel-logs').hidden,false);
+
+  await f.node('nav-overview').emit('click');
+  assert.equal(groupNode.dataset.active,'false');
+  assert.equal(submenu.hidden,true);
 });

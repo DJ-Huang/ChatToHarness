@@ -75,8 +75,10 @@ setInterval(()=>{},1000);
   const manager=new RuntimeManager({home:f.home,paths:{node:process.execPath,tunnel:process.execPath,desktopCommander:path.join(f.root,'missing-unused-builtin'),processHost:windowsProcessHost()},gateway,tunnelScript:tunnel});
   f.cleanup.push(()=>manager.close());
   await manager.connect({directories:[],tunnelId:'tunnel_'+'a'.repeat(32)},fakeKey);
-  await waitFor(()=>fs.existsSync(report),'gateway Tunnel fixture did not start');
-  const first=JSON.parse(fs.readFileSync(report,'utf8'));
+  // A fixture may create the output path before the JSON write completes.
+  // Wait for a complete report, not just the existence of an empty file.
+  let first;
+  await waitFor(()=>{try{first=JSON.parse(fs.readFileSync(report,'utf8'));return Boolean(first?.endpoint);}catch{return false;}},'gateway Tunnel fixture did not start');
   assert.equal(first.endpoint,'synthetic-private-endpoint');
   assert.equal(first.args[first.args.indexOf('--mcp.command')+1],tunnelCommand([process.execPath,manager.gatewayLauncher]));
   assert.equal(fs.existsSync(manager.gatewayLauncher),true);

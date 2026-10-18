@@ -4,7 +4,7 @@ const os = require('node:os');
 const {StringDecoder} = require('node:string_decoder');
 const {SEARCH_TOOL} = require('./project-search.cjs');
 const {inside} = require('./project-context.cjs');
-const WORKFLOW = 'ChatToHarness: local file, search and terminal tools. search_project returns bounded matches with 1-based lines; read_file offsets are 0-based. Reads include optional project guidance and diagnostics. get_project_context loads selected rule bodies. A write with newly discovered guidance returns contexts and delivery tokens without execution; a subsequent request can include those tokens. File access uses desktop folder settings. Terminal context_paths describe project scope and do not sandbox the shell. Forwarded timeouts have unknown execution state; mutations are not replayed by the server.';
+const WORKFLOW = 'ChatToHarness: local file, search and terminal tools. search_project returns bounded matches with 1-based lines; read_file offsets are 0-based. Reads include optional project guidance and diagnostics. get_project_context discovers optional project skills, loads selected rule/skill bodies and reports matching guidance. A write with newly discovered guidance returns contexts and delivery tokens without execution; a subsequent request can include those tokens. File access uses desktop folder settings. Terminal context_paths describe project scope and do not sandbox the shell. Forwarded timeouts have unknown execution state; mutations are not replayed by the server.';
 const TOKEN_DESCRIPTION = 'Optional delivered-context tokens. A write may return fresh guidance and tokens for an explicit retry.';
 const FILE_TOOLS = new Set(['read_file','read_multiple_files','write_file','write_pdf','create_directory','list_directory','move_file','get_file_info','edit_block']);
 const SEARCH_TOOLS = new Set(['start_search','get_more_search_results','stop_search','list_searches']);
@@ -14,14 +14,35 @@ const CONTROL_TOOLS = new Set(['stop_search','force_terminate','kill_process']);
 const GATED_TOOLS = new Set([...FILE_TOOLS,...SEARCH_TOOLS,...TERMINAL_TOOLS]);
 const CONTEXT_TOOL = {
   name:'get_project_context',title:'Load project guidance',
-  description:'Read optional AGENTS and a rule index for an explicit project. Missing references produce diagnostics. Shared references may be in any authorized folder. rule_paths selects full bodies. Reads do not require this call. Returned tokens record delivery and confer no access rights.',
-  inputSchema:{type:'object',properties:{project_path:{type:'string',description:'Absolute task project directory or file in a Git project.'},target_paths:{type:'array',items:{type:'string'},maxItems:128},rule_paths:{type:'array',items:{type:'string'},maxItems:128}},required:['project_path'],additionalProperties:false},
-  outputSchema:{type:'object',properties:{project_path:{type:'string'},target_paths:{type:'array',items:{type:'string'}},agents:{type:'array',items:{type:'object'}},rules_index:{type:'array',items:{type:'object'}},loaded_rules:{type:'array',items:{type:'object'}},diagnostics:{type:'array',items:{type:'object'}},context_version:{type:'string'},instruction_version:{type:'string'},project_context_token:{type:'string'},instructions:{type:'string'}},required:['project_path','agents','rules_index','loaded_rules','diagnostics','project_context_token']},
+  description:'Read optional AGENTS, rule and skill indexes for an explicit project. task and target_paths report guidance matches; rule_paths and skill_paths select full bodies. Missing references produce diagnostics. Shared references may be in any authorized folder. Returned tokens record delivery and confer no access rights.',
+  inputSchema:{type:'object',properties:{project_path:{type:'string',description:'Absolute task project directory or file in a Git project.'},target_paths:{type:'array',items:{type:'string'},maxItems:128},rule_paths:{type:'array',items:{type:'string'},maxItems:128},skill_paths:{type:'array',items:{type:'string'},maxItems:128},task:{type:'string',maxLength:4096}},required:['project_path'],additionalProperties:false},
+  outputSchema:{type:'object',properties:{project_path:{type:'string'},target_paths:{type:'array',items:{type:'string'}},agents:{type:'array',items:{type:'object'}},rules_index:{type:'array',items:{type:'object'}},loaded_rules:{type:'array',items:{type:'object'}},skills_index:{type:'array',items:{type:'object'}},loaded_skills:{type:'array',items:{type:'object'}},precedence:{type:'object'},budget:{type:'object'},diagnostics:{type:'array',items:{type:'object'}},context_version:{type:'string'},instruction_version:{type:'string'},project_context_token:{type:'string'},instructions:{type:'string'}},required:['project_path','agents','rules_index','loaded_rules','diagnostics','project_context_token']},
   annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}
 };
 function idKey(id){return `${typeof id}:${String(id)}`;}
 function hasId(message){return Object.prototype.hasOwnProperty.call(message,'id');}
 function object(value){return value&&typeof value==='object'&&!Array.isArray(value);}
+// A structured-first client must not receive project guidance in place of the
+// actual tool output. Mirror public content without promoting client-only _meta.
+// Keep native blocks untouched so multimodal-capable clients can still render them.
+function projectResult(result,contexts=[]){
+  const content=Array.isArray(result.content)?result.content:[];
+  const upstream=result.structuredContent;
+  const data=object(upstream)?upstream:{};
+  const mirror={content,isError:result.isError===true};
+  if(upstream!==undefined&&(!object(upstream)||Object.hasOwn(data,'_harness_result')||Object.hasOwn(data,'project_contexts'))){
+    mirror.upstream_structured_content=upstream;
+  }
+  return {...result,
+    content:contexts.length?[...content,{type:'text',text:JSON.stringify({project_contexts:contexts})}]:content,
+    structuredContent:{...data,_harness_result:mirror,project_contexts:contexts}};
+}
+function projectResultSchema(schema={}){
+  return {...schema,type:'object',properties:{...schema.properties,
+    _harness_result:{type:'object',description:'Original public MCP result, including native content blocks and the error flag. Inspect this instead of treating project guidance as the tool output.',
+      properties:{content:{type:'array',items:{type:'object'}},isError:{type:'boolean'},upstream_structured_content:{}},required:['content','isError']},
+    project_contexts:{type:'array',items:{type:'object'}}}};
+}
 function failure(code,message,details={}){
   const result={code,message,operation_executed:false,execution_state:'not_started',...details};
   return {isError:true,content:[{type:'text',text:JSON.stringify(result)}],structuredContent:result};
@@ -149,7 +170,7 @@ class McpProxy{
       const key=idKey(message.id),pending=this.pending.get(key);if(!pending&&this.expired.has(key))return;
       if(pending){clearTimeout(pending.timer);this.pending.delete(key);}
       if(pending&&object(message.result)){
-        if(pending.method==='initialize')message={...message,result:{...message.result,instructions:`${this.enabled?WORKFLOW:'Automatic project guidance is disabled. Authorized-folder checks still apply.'}\n\n${message.result.instructions||''}`}};
+        if(pending.method==='initialize'){this.upstreamCapabilities=message.result.capabilities||{};message={...message,result:{...message.result,instructions:`${this.enabled?WORKFLOW:'Automatic project guidance is disabled. Authorized-folder checks still apply.'}\n\n${message.result.instructions||''}`}};}
         else if(pending.method==='tools/list'&&Array.isArray(message.result.tools)){
           const tools=message.result.tools.map(tool=>this.decorateTool(tool));
           if(!message.result.nextCursor){for(const tool of [CONTEXT_TOOL,SEARCH_TOOL])if(!tools.some(item=>item.name===tool.name))tools.push({...tool});}
@@ -173,22 +194,23 @@ class McpProxy{
               const binding=map.get(String(SEARCH_TOOLS.has(pending.name)?searchId:processId));if(binding)binding.finishedAt=Date.now();
             }
           }
-          if(pending.binding.contexts?.length){
-            const contexts=pending.binding.contexts;
-            message={...message,result:{...message.result,content:[...(message.result.content||[]),{type:'text',text:JSON.stringify({project_contexts:contexts})}],structuredContent:{...(object(message.result.structuredContent)?message.result.structuredContent:{}),project_contexts:contexts}}};
-          }
+          message={...message,result:projectResult(message.result,pending.binding.contexts||[])};
         }
       }
     }
     return this.sendClient(message);
   }
   decorateTool(tool){
-    if(object(tool._meta)){
+    if(object(tool._meta)&&!this.upstreamCapabilities?.resources){
       const meta={...tool._meta};delete meta['ui/resourceUri'];delete meta['openai/outputTemplate'];delete meta['openai/widgetAccessible'];
       if(object(meta.ui)){const ui={...meta.ui};delete ui.resourceUri;if(Object.keys(ui).length)meta.ui=ui;else delete meta.ui;}
       const clean={...tool};if(Object.keys(meta).length)clean._meta=meta;else delete clean._meta;tool=clean;
     }
-    if(!GATED_TOOLS.has(tool.name))return tool;
+    if(!GATED_TOOLS.has(tool.name)){
+      if(tool.name==='set_config_value')return {...tool,annotations:{...tool.annotations,readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:false}};
+      if(tool.name==='give_feedback_to_desktop_commander')return {...tool,annotations:{...tool.annotations,readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true}};
+      return tool;
+    }
     const properties={...tool.inputSchema?.properties,project_path:{type:'string',description:'Optional explicit task project directory for guidance.'},project_context_tokens:{type:'array',items:{type:'string'},maxItems:128,description:TOKEN_DESCRIPTION}};
     if(TERMINAL_TOOLS.has(tool.name))properties.context_paths={type:'array',items:{type:'string'},maxItems:128,description:'Related project paths; [] is for ordinary system diagnostics. This is guidance, not a shell sandbox.'};
     const brief={
@@ -197,9 +219,9 @@ class McpProxy{
       start_process:'Run a shell command or start an interactive terminal process on this device. Can modify files and access the network. Returns output and a process handle when available; timeout_ms limits the initial wait. context_paths describes related project paths for guidance and does not confine shell access.',
       interact_with_process:'Send input to a tracked terminal process and collect output. Input may execute commands, modify files or access the network. pid identifies the process returned by start_process.'
     };
-    const annotations={...tool.annotations,readOnlyHint:!MUTATING_TOOLS.has(tool.name)&&!['kill_process','force_terminate'].includes(tool.name),destructiveHint:(MUTATING_TOOLS.has(tool.name)&&tool.name!=='create_directory')||['kill_process','force_terminate'].includes(tool.name),openWorldHint:tool.name==='read_file'||['start_process','interact_with_process'].includes(tool.name)};
+    const annotations={...tool.annotations,idempotentHint:!MUTATING_TOOLS.has(tool.name)&&!['start_search','read_process_output'].includes(tool.name),readOnlyHint:!MUTATING_TOOLS.has(tool.name)&&!CONTROL_TOOLS.has(tool.name),destructiveHint:(MUTATING_TOOLS.has(tool.name)&&tool.name!=='create_directory')||['kill_process','force_terminate'].includes(tool.name),openWorldHint:tool.name==='read_file'||['start_process','interact_with_process'].includes(tool.name)};
     return {...tool,description:brief[tool.name]||tool.description,inputSchema:{...tool.inputSchema,type:'object',properties},annotations,
-      outputSchema:{...(tool.outputSchema||{}),type:'object',properties:{...tool.outputSchema?.properties,project_contexts:{type:'array',items:{type:'object'}}}}};
+      outputSchema:projectResultSchema(tool.outputSchema)};
   }
   dispose(){
     if(this.closed)return;this.closed=true;

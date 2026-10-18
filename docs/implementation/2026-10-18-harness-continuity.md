@@ -1,12 +1,14 @@
 # ChatToHarness 项目理解、扩展与持续执行交付说明
 
+> 2026-10-18 续作已完成结果回传修复、250 项测试复验及独立应用重建。最新验收、构建身份与限制见 [续作交付说明](2026-10-18-continuation.md) 和 [续作机器证据](continuation-evidence.json)。下方首次验收数据保留用于追溯。
+
 ## 交付位置与状态
 
 - 实现分支：`codex/harness-continuity`。
 - 实现工作区：`/Users/djhuang/AI/LocalHarness/.cache/worktrees/harness-upgrade-20261018`。
 - 原分支：`codex/mcp-tool-access-stability`，原 HEAD 为 `6f9583d7ed73b6e63b3a129c72b547943d865496`。
 - 源码版本仍为 `0.5.0`；新增构建标识用 commit、源码 SHA-256、构建时间区分实际构建，不冒充新 release。
-- 最后一项应用代码提交：`f079554`。后续验收脚本和交付文档提交不改变应用源码。
+- 最后一项应用代码提交：`d52193d`（补齐结构化优先客户端的原始结果回传）。后续交付文档提交不改变应用源码。
 - 原工作区的三个未提交文件按初始 SHA-256 保留。既有有效修改已在独立工作区完成并纳入对应提交。
 - 当前运行实例没有被替换或重启。原生 UI 验收只启动独立临时数据目录中的测试实例。
 - 没有推送、PR、release、正式签名、公证或安装到 Applications。没有启动额外模型或多 agent 编排。
@@ -152,7 +154,7 @@ XLSX 创建/范围编辑/读取、DOCX 创建/文本编辑/读取、PDF Markdown
 | 检查 | macOS arm64 | Windows x64 |
 |---|---|---|
 | 基线单元/集成测试 | 213 项：211 通过，0 失败，2 个 Windows 原生测试跳过 | 原生待执行 |
-| 最终单元/集成测试 | 241 项：239 通过，0 失败，同样 2 项跳过 | CI 已接入，原生待执行 |
+| 首次交付单元/集成测试 | 241 项：239 通过，0 失败，同样 2 项跳过 | CI 已接入，原生待执行 |
 | 官方引擎、项目规范、搜索、凭据隔离 | 通过 `mcp-smoke.cjs` | 原生待执行 |
 | 25 工具兼容及 XLSX/DOCX/PDF | 23 验证、2 部分；三种格式通过 | 原生待执行 |
 | 真 Tunnel / app-owned gateway | 通过隔离 loopback 控制面；未连接外部 OpenAI 服务 | 原生待执行 |
@@ -183,13 +185,14 @@ CI 固定 Node `24.22.0`。本次 Mac 使用 `resources/node/bin/node`；Windows
 
 ## 使用构建与回退
 
-本次生成的应用位于工作区 `dist/mac-arm64/ChatToHarness.app`。它使用构建回执报告源码身份。需要实际切换时，由用户先退出现有实例，再按自己的运行/安装流程启动该构建，并刷新或重新连接客户端工具目录；随后用 `get_harness_status` 核对 commit `f079554` 和源码指纹。本次没有执行该切换。
+本次生成的应用位于工作区 `dist/mac-arm64/ChatToHarness.app`。它使用构建回执报告源码身份。需要实际切换时，由用户先退出现有实例，再按自己的运行/安装流程启动该构建，并刷新或重新连接客户端工具目录；随后用 `get_harness_status` 核对 commit `d52193d` 和源码指纹。本次没有执行该切换。
 
 原工作区和正在运行的程序保持原状态，不需要回退。开发分支中的阶段可按相反顺序用 `git revert` 回退，保留历史；不要对原工作区使用 reset/checkout 覆盖三个未提交文件。
 
 若要回退全部功能代码，在没有额外未提交修改的独立分支中逐个执行：
 
 ```bash
+git revert d52193d
 git revert 0bdfdfa
 git revert f079554
 git revert 66eb160

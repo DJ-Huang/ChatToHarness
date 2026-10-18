@@ -36,7 +36,7 @@
   const mcpApprovalPending = new Set();
   const mcpOpenTools = new Set();
   const cancelled = Symbol('cancelled');
-  const tabNames = ['overview', 'logs', 'connection', 'directories', 'mcp', 'history', 'help'];
+  const tabNames = ['overview', 'logs', 'history', 'connection', 'directories', 'mcp', 'help'];
   const pages = {
     overview: ['工作空间概览', '将 AI 对话连接到本机执行环境。'],
     logs: ['实时日志', '持续查看本机连接、工具调用与异常日志。'],
@@ -117,6 +117,8 @@
   function showTab(name, focus = false) {
     if (!Object.hasOwn(pages, name)) return;
     activeTab = name;
+    // Keep the logs category highlighted for either of its two pages.
+    byId('nav-log-group').dataset.active = String(name === 'logs' || name === 'history');
     if(name==='history')void loadHistory();
     if(name==='logs')void loadLiveLogs(true);
     for (const tab of tabNames) byId('panel-' + tab).hidden = tab !== name;

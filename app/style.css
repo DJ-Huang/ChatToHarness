@@ -54,3 +54,15 @@ textarea,select{font:inherit}textarea:focus-visible,select:focus-visible,input[t
 .live-log-footer .inline-link{font-size:10px}
 @media(max-width:850px){.live-log-card{padding:19px}.overview-log-link{padding:16px}.live-log-line{grid-template-columns:70px 42px minmax(0,1fr);gap:6px;padding:5px 10px;font-size:10px}.live-log-line-error{padding-left:8px}}
 @media(max-width:680px){.overview-log-link{align-items:flex-start;flex-direction:column}.live-log-toolbar{align-items:stretch}.live-log-search{max-width:none;width:100%}.live-log-options{gap:7px}.live-log-line{grid-template-columns:62px minmax(0,1fr)}.live-log-kind{display:none}}
+
+/* Group the log viewer and execution history as one navigation category.
+   The child depth comes from a data attribute so it survives tab state changes. */
+.nav-log-group{display:flex;flex-direction:column;gap:2px;position:relative;border-radius:9px}
+.nav-log-group[data-active="true"]{background:#f7f9fd}
+.nav-log-group .nav-item[data-nav-level="child"]{width:calc(100% - 17px);height:37px;min-height:37px;margin-left:17px;padding-left:10px;gap:9px;font-size:11px;border-radius:6px}
+.nav-log-group .nav-item[data-nav-level="child"] svg{width:16px;height:16px}
+.nav-log-group .nav-item[data-nav-level="child"].selected{background:#e9f0fb;border-color:#dae5f7;color:#315ba6;font-weight:600}
+.nav-log-group[data-active="true"] .nav-item[data-tab="logs"]:not(.selected){color:#496a9b;font-weight:550}
+.nav-log-group::after{content:"";position:absolute;left:13px;top:49px;bottom:11px;width:1px;background:#e2e9f3;pointer-events:none}
+.nav-log-group[data-active="true"]::after{background:#c3d5ef}
+@media(max-width:850px){.nav-log-group .nav-item[data-nav-level="child"]{margin-left:15px;width:calc(100% - 15px);padding-left:9px}.nav-log-group::after{left:11px}}

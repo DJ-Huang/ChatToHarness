@@ -141,10 +141,26 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   await page.locator('#log-reload').click();
   await page.screenshot({path: path.join(output, 'console-live-logs.png'), fullPage: true});
   await tab(page, 'history');
+  const logGroup=page.locator('#nav-log-group');
+  const mainLog=page.locator('#nav-logs');
+  const historyLog=page.locator('#nav-history');
+  assert.equal(await logGroup.getAttribute('data-active'),'true');
+  assert.equal(await mainLog.getAttribute('aria-selected'),'false');
+  assert.equal(await historyLog.locator('svg').count(),1,'history has the missing document icon');
+  const parentBox=await mainLog.boundingBox(),childBox=await historyLog.boundingBox();
+  assert.ok(parentBox&&childBox&&childBox.x>=parentBox.x+12,'history is indented under live logs');
+  assert.ok(childBox.y>=parentBox.y+parentBox.height,'history follows live logs vertically');
+  await page.screenshot({path:path.join(output,'console-log-navigation.png'),fullPage:true});
+  await tab(page,'logs');
+  await mainLog.press('ArrowDown');
+  assert.equal(await historyLog.getAttribute('aria-selected'),'true');
+  await historyLog.press('ArrowDown');
+  assert.equal(await page.locator('#nav-connection').getAttribute('aria-selected'),'true');
+  assert.equal(await logGroup.getAttribute('data-active'),'false');
   await tab(page, 'overview');
 
 
-  // All five navigation entries select real, separate panels; keyboard navigation
+  // All seven navigation entries select real, separate panels; keyboard navigation
   // follows the vertical tab pattern. No client branding leaks into the overview.
   await tab(page, 'help');
   assert.ok((await page.locator('#panel-help').textContent()).includes('ChatGPT'));

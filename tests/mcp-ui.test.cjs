@@ -39,8 +39,8 @@ function documentFixture() {
       if (!this.listeners.has(name)) this.listeners.set(name, []);
       this.listeners.get(name).push(callback);
     }
-    async emit(name) {
-      for (const callback of this.listeners.get(name) || []) await callback({ target: this, preventDefault() {} });
+    async emit(name, event = {}) {
+      for (const callback of this.listeners.get(name) || []) await callback({ target: this, preventDefault() {}, ...event });
     }
     setAttribute(name, value) { this.attributes[name] = value; }
     removeAttribute(name) { delete this.attributes[name]; }
@@ -325,4 +325,45 @@ test('home and sidebar open a live log page; filtering, pause, search and clear 
   assert.equal(calls.at(-1).cursor,null,'reload reads the bounded tail again');
   assert.ok(source('main.cjs').includes("bind('live-logs-read'"));
   assert.ok(source('preload.cjs').includes("readLiveLogs:input=>call('live-logs-read',input)"));
+});
+
+test('log pages share a labelled group, with nested history icon and accessible keyboard order', async () => {
+  const start=html.indexOf('id="nav-log-group"');
+  const end=html.indexOf('id="nav-connection"',start);
+  const group=html.slice(start,end);
+  assert.ok(start>0&&end>start);
+  assert.ok(group.indexOf('id="nav-logs"')<group.indexOf('id="nav-history"'));
+  assert.match(group, /role="group" aria-label="日志"/);
+  assert.match(group, /id="nav-history"[^>]*data-nav-level="child"[^>]*><svg[^>]*>.+?<\/svg>执行记录/);
+  assert.match(source('style.css'), /\.nav-log-group \.nav-item\[data-nav-level="child"\]/);
+  assert.equal(i18n.translate('en','日志'),'Logs');
+  assert.equal(i18n.translate('ja','日志'),'ログ');
+
+  const f=await rendererFixture(initialState(),{
+    readLiveLogs:async()=>({entries:[],cursor:null,reset:false,more:false}),
+    executionList:async()=>({records:[],total:0,usage:0,diagnostics:{enabled:false}}),
+  });
+  const groupNode=f.node('nav-log-group');
+  assert.equal(groupNode.dataset.active,'false');
+  await f.node('nav-logs').emit('click');await settled();
+  assert.equal(groupNode.dataset.active,'true');
+  assert.equal(f.node('nav-logs').attributes['aria-selected'],'true');
+  assert.equal(f.node('nav-history').attributes['aria-selected'],'false');
+
+  await f.node('nav-logs').emit('keydown',{key:'ArrowDown'});await settled();
+  assert.equal(f.node('nav-history').attributes['aria-selected'],'true');
+  assert.equal(f.node('panel-history').hidden,false);
+  assert.equal(groupNode.dataset.active,'true');
+  assert.match(f.node('nav-history').className, /selected/);
+  assert.equal(f.node('nav-logs').attributes['aria-selected'],'false');
+
+  await f.node('nav-history').emit('keydown',{key:'ArrowDown'});
+  assert.equal(f.node('nav-connection').attributes['aria-selected'],'true');
+  assert.equal(groupNode.dataset.active,'false');
+
+  await f.node('nav-connection').emit('keydown',{key:'ArrowUp'});
+  assert.equal(f.node('nav-history').attributes['aria-selected'],'true');
+  assert.equal(groupNode.dataset.active,'true');
+  await f.node('nav-overview').emit('click');
+  assert.equal(groupNode.dataset.active,'false');
 });

@@ -2,7 +2,9 @@
 const {Server} = require('@modelcontextprotocol/sdk/server/index.js');
 const {StdioServerTransport} = require('@modelcontextprotocol/sdk/server/stdio.js');
 const types = require('@modelcontextprotocol/sdk/types.js');
-const server = new Server({name: 'content-fixture', version: '1.0.0'}, {capabilities: {resources: {listChanged: true}, prompts: {listChanged: true}}});
+const server = new Server({name: 'content-fixture', version: '1.0.0'}, {capabilities: {resources: {listChanged: true}, prompts: {listChanged: true}, tools: {listChanged: true}}});
+server.setRequestHandler(types.ListToolsRequestSchema, () => ({tools: [{name:'link',inputSchema:{type:'object',properties:{}}}]}));
+server.setRequestHandler(types.CallToolRequestSchema, () => ({content:[{type:'resource_link',uri:'fixture://note',name:'Synthetic link'}]}));
 server.setRequestHandler(types.ListResourcesRequestSchema, () => ({resources: [{uri: 'fixture://note', name: 'Note', mimeType: 'text/plain'}, {uri: 'ui://preview', name: 'Preview', mimeType: 'text/html;profile=mcp-app'}]}));
 server.setRequestHandler(types.ListResourceTemplatesRequestSchema, () => ({resourceTemplates: [{uriTemplate: 'fixture://notes/{id}', name: 'Note by ID'}]}));
 server.setRequestHandler(types.ReadResourceRequestSchema, request => {

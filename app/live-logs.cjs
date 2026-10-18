@@ -54,7 +54,7 @@ function format(line, source, offset) {
     message: sanitize(message, 1100),
   };
 }
-function take(source, offset, {tail = false} = {}) {
+function take(source, offset, {tail = false, limit = MAX_LINES} = {}) {
   const from = tail ? Math.max(0, source.size - MAX_BYTES) : Math.max(0, Math.min(offset, source.size));
   const length = Math.min(MAX_BYTES, source.size - from);
   if (!length) return {entries: [], offset: from, more: false};
@@ -76,6 +76,7 @@ function take(source, offset, {tail = false} = {}) {
     }
     consumed = end + 1;
     start = consumed;
+    if (!tail && entries.length >= limit) break;
   }
   // Do not loop forever on a malformed/oversize line with no newline.
   if (consumed === 0 && count === MAX_BYTES) consumed = count;
@@ -107,23 +108,24 @@ class LiveLogs {
           more = data.more;
         }
       } else if (matching.name === 'app.log') {
-        const data = take(matching, cursor.offset);
+        const data = take(matching, cursor.offset, {limit});
         entries = data.entries;
         next = {file: matching.name, identity: matching.identity, offset: data.offset};
         more = data.more;
       } else {
-        const remaining = take(matching, cursor.offset);
+        const remaining = take(matching, cursor.offset, {limit});
         entries = remaining.entries;
         next = {file: matching.name, identity: matching.identity, offset: remaining.offset};
         more = remaining.more;
-        if (!more && current) {
-          const currentData = take(current, 0);
+        if (!more && current && entries.length >= limit) more = true;
+        if (!more && current && entries.length < limit) {
+          const currentData = take(current, 0, {limit: limit - entries.length});
           entries.push(...currentData.entries);
           next = {file: current.name, identity: current.identity, offset: currentData.offset};
           more = currentData.more;
         }
       }
-      return {entries: entries.slice(-limit), cursor: next, reset, more};
+      return {entries: matching ? entries : entries.slice(-limit), cursor: next, reset, more};
     } finally {
       for (const item of files.values()) if (item) fs.closeSync(item.fd);
     }

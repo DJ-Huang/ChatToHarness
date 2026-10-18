@@ -64,11 +64,22 @@ class TaskStore {
     const env = developmentEnvironment(cleanEnvironment(), this.nodePath);
     for (const key of Object.keys(env)) if (/^(CTH_GATEWAY_|NODE_TEST_)/i.test(key) || ['NODE_OPTIONS','NODE_CHANNEL_FD','NODE_UNIQUE_ID','ELECTRON_RUN_AS_NODE'].includes(key)) delete env[key];
     env.DO_NOT_TRACK = '1'; if (this.configHome) env.LOCALHARNESS_DC_HOME = this.configHome;
+    const markLaunchFailure = () => {
+      try {
+        const file = path.join(directory, 'state.json');
+        const saved = readJson(file);
+        if (FINAL.has(saved.state) || saved.state !== 'queued') return;
+        const finished = now();
+        atomicJson(file, {...saved, state: 'failed', updated_at: finished, finished_at: finished,
+          operation_executed: false, execution_state: 'not_started',
+          error: {code: 'TASK_START_FAILED', message: 'The persistent worker could not start.'}});
+      } catch {}
+    };
     try {
       const worker = this.launch(this.nodePath, [path.join(this.workerDirectory, 'task-worker.cjs'), directory], {cwd: input.project_path, env, detached: true, windowsHide: true, stdio: 'ignore'});
-      worker.once('error', () => { try { atomicJson(path.join(directory, 'state.json'), {...state, state: 'failed', updated_at: now(), error: {code: 'TASK_START_FAILED', message: 'The persistent worker could not start.'}}); } catch {} });
+      worker.once('error', markLaunchFailure);
       worker.unref();
-    } catch (error) { atomicJson(path.join(directory, 'state.json'), {...state, state: 'failed', updated_at: now(), error: {code: 'TASK_START_FAILED', message: 'The persistent worker could not start.'}}); }
+    } catch (error) { markLaunchFailure(); }
     return {...this.status(taskId, input.project_path), reused: false};
   }
   status(id, project) {

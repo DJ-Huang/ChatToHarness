@@ -12,6 +12,10 @@
 
 ## バージョンの公開手順
 
+タグを作成する前に[PR #6 のマージ監査と v0.6.0 の準備確認](../implementation/2026-10-18-pr6-release-audit.md)を確認し、記録済みの P2 課題の扱いを判断し、準備ブランチを審査して `main` にマージしてください。**準備ブランチの push や PR だけではインストーラーを公開しません**。検証済みの main に一致するバージョンタグを付けて初めてネイティブ Release ワークフローが実行されます。監査記録は公開済み成果物の証拠ではありません。
+
+
+
 1. `package.json`、`package-lock.json` のルートバージョン、ロックファイル内のルートパッケージのバージョンをそろえて更新し、main に統合します。
 2. アプリのバージョンと一致する `vX.Y.Z` タグを push します。ワークフローはバージョンの変更やタグの作成を自動では行いません。
 3. 両 OS の検証完了を待ちます。公開 Release には `ChatToHarness-X.Y.Z-windows-x64-setup.exe`、`ChatToHarness-X.Y.Z-macos-arm64.dmg`、`SHA256SUMS.txt` が含まれます。

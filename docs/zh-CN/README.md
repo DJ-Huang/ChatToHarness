@@ -20,4 +20,4 @@
 
 软件与官网同样支持三种语言。
 
-[0.3.1 版本更新说明（三语）](../../release-notes/v0.3.1.md)
+[v0.6.0 待发布版本说明（三语，尚未正式发布）](../../release-notes/v0.6.0.md) · [当前已发布稳定版 v0.5.0](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.5.0)

@@ -49,3 +49,26 @@ test('native resource and prompt methods pass through authenticated gateway sess
   const prompt = await client.getPrompt({name: 'one::inspect', arguments: {subject: 'from gateway'}}); assert.equal(prompt.messages[0].content.text, 'Inspect from gateway');
   assert.equal((await client.callTool({name: 'mcp_list_resources', arguments: {}})).isError, undefined);
 });
+
+test('forwarded resource_link is namespaced and routes back through the correct MCP server', {timeout:15000}, async t => {
+  const f=await fixture(t);
+  f.manager.setAllowAllTools(true);
+  const result=await f.manager.call('one__link',{});
+  assert.equal(result.isError,undefined);
+  const link=result.content[0];
+  assert.equal(link.type,'resource_link');
+  assert.equal(link.uri,wrapUri('one','fixture://note'));
+  const response=await f.manager.content.native('resources/read',{uri:link.uri});
+  assert.match(response.contents[0].text,/SYNTHETIC_RESOURCE fixture:\/\/note/);
+  assert.equal(response.contents[0].uri,link.uri);
+});
+test('content list notifications fire when enabled resource services change', {timeout:15000}, async t => {
+  const f=await fixture(t);
+  let resources=0,prompts=0;
+  f.manager.on('resourcesChanged',()=>resources++);
+  f.manager.on('promptsChanged',()=>prompts++);
+  await f.manager.setEnabled('one',false);
+  assert.ok(resources>=1);
+  assert.ok(prompts>=1);
+  assert.equal((await f.manager.content.native('resources/list')).resources.length,2);
+});

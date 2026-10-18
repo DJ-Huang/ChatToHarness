@@ -22,6 +22,27 @@ const CONTEXT_TOOL = {
 function idKey(id){return `${typeof id}:${String(id)}`;}
 function hasId(message){return Object.prototype.hasOwnProperty.call(message,'id');}
 function object(value){return value&&typeof value==='object'&&!Array.isArray(value);}
+// A structured-first client must not receive project guidance in place of the
+// actual tool output. Mirror public content without promoting client-only _meta.
+// Keep native blocks untouched so multimodal-capable clients can still render them.
+function projectResult(result,contexts=[]){
+  const content=Array.isArray(result.content)?result.content:[];
+  const upstream=result.structuredContent;
+  const data=object(upstream)?upstream:{};
+  const mirror={content,isError:result.isError===true};
+  if(upstream!==undefined&&(!object(upstream)||Object.hasOwn(data,'_harness_result')||Object.hasOwn(data,'project_contexts'))){
+    mirror.upstream_structured_content=upstream;
+  }
+  return {...result,
+    content:contexts.length?[...content,{type:'text',text:JSON.stringify({project_contexts:contexts})}]:content,
+    structuredContent:{...data,_harness_result:mirror,project_contexts:contexts}};
+}
+function projectResultSchema(schema={}){
+  return {...schema,type:'object',properties:{...schema.properties,
+    _harness_result:{type:'object',description:'Original public MCP result, including native content blocks and the error flag. Inspect this instead of treating project guidance as the tool output.',
+      properties:{content:{type:'array',items:{type:'object'}},isError:{type:'boolean'},upstream_structured_content:{}},required:['content','isError']},
+    project_contexts:{type:'array',items:{type:'object'}}}};
+}
 function failure(code,message,details={}){
   const result={code,message,operation_executed:false,execution_state:'not_started',...details};
   return {isError:true,content:[{type:'text',text:JSON.stringify(result)}],structuredContent:result};
@@ -173,10 +194,7 @@ class McpProxy{
               const binding=map.get(String(SEARCH_TOOLS.has(pending.name)?searchId:processId));if(binding)binding.finishedAt=Date.now();
             }
           }
-          if(pending.binding.contexts?.length){
-            const contexts=pending.binding.contexts;
-            message={...message,result:{...message.result,content:[...(message.result.content||[]),{type:'text',text:JSON.stringify({project_contexts:contexts})}],structuredContent:{...(object(message.result.structuredContent)?message.result.structuredContent:{}),project_contexts:contexts}}};
-          }
+          message={...message,result:projectResult(message.result,pending.binding.contexts||[])};
         }
       }
     }
@@ -203,7 +221,7 @@ class McpProxy{
     };
     const annotations={...tool.annotations,idempotentHint:!MUTATING_TOOLS.has(tool.name)&&!['start_search','read_process_output'].includes(tool.name),readOnlyHint:!MUTATING_TOOLS.has(tool.name)&&!CONTROL_TOOLS.has(tool.name),destructiveHint:(MUTATING_TOOLS.has(tool.name)&&tool.name!=='create_directory')||['kill_process','force_terminate'].includes(tool.name),openWorldHint:tool.name==='read_file'||['start_process','interact_with_process'].includes(tool.name)};
     return {...tool,description:brief[tool.name]||tool.description,inputSchema:{...tool.inputSchema,type:'object',properties},annotations,
-      outputSchema:{...(tool.outputSchema||{}),type:'object',properties:{...tool.outputSchema?.properties,project_contexts:{type:'array',items:{type:'object'}}}}};
+      outputSchema:projectResultSchema(tool.outputSchema)};
   }
   dispose(){
     if(this.closed)return;this.closed=true;

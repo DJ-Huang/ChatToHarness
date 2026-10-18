@@ -36,7 +36,16 @@ async function main(){
    assert.equal(tools.tools.find(tool=>tool.name==='start_process').annotations.readOnlyHint,false);
    const raw=(name,args)=>rpc('tools/call',{name,arguments:args});
    const asText=result=>(result.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n');
-   const call=async(name,args)=>{const result=await raw(name,args);assert.notEqual(result.isError,true,`${name}: ${asText(result)}`);return asText(result);};
+   const call=async(name,args)=>{
+    const result=await raw(name,args);assert.notEqual(result.isError,true,`${name}: ${asText(result)}`);
+    if(tools.tools.find(tool=>tool.name===name)?.outputSchema?.properties?._harness_result){
+     const visible=result.structuredContent?._harness_result;
+     assert.ok(visible,`${name}: structured-first clients must receive the actual result`);
+     assert.equal(visible.isError,false);assert.deepEqual(visible.content,result.content.slice(0,visible.content.length));
+     assert.ok(visible.content.length,`${name}: the native engine returned public content`);
+    }
+    return asText(result);
+   };
    const context=async(project_path,target_paths,rule_paths)=>{const result=await raw('get_project_context',{project_path,target_paths,rule_paths});assert.notEqual(result.isError,true,asText(result));const data=result.structuredContent||JSON.parse(asText(result));assert.equal(typeof data.project_context_token,'string');return data;};
    const file=path.join(project,'hello 中文.txt'),content='hello localharness\n真实工具验收';
    const blocked=await raw('write_file',{path:file,content,mode:'rewrite'});assert.equal(blocked.isError,true);assert.equal(fs.existsSync(file),false);
@@ -46,6 +55,15 @@ async function main(){
    await call('write_file',{path:file,content,mode:'rewrite',project_context_tokens:tokens});assert.equal(fs.readFileSync(file,'utf8'),content);
    assert.ok((await call('read_file',{path:file})).includes(content),'reads need no prerequisite context call');
    assert.ok((await call('read_file',{path:file,project_context_tokens:tokens})).includes(content));
+   const imagePath=path.join(project,'synthetic-preview.png');
+   fs.writeFileSync(imagePath,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC','base64'));
+   const imageReply=await raw('read_file',{path:imagePath});assert.notEqual(imageReply.isError,true,asText(imageReply));
+   const imageBlock=imageReply.content.find(item=>item.type==='image');assert.ok(imageBlock?.data&&imageBlock.mimeType.startsWith('image/'));
+   assert.deepEqual(imageReply.structuredContent._harness_result.content.find(item=>item.type==='image'),imageBlock);
+   const missingReply=await raw('read_file',{path:path.join(project,'missing-synthetic-file.txt')});
+   assert.equal(missingReply.isError,true);assert.equal(missingReply.structuredContent._harness_result.isError,true);
+   assert.ok(asText(missingReply.structuredContent._harness_result).length,'the original read failure must remain visible');
+   console.log('Structured-first native text/image/error delivery: passed');
    const searchResult=await raw('search_project',{project_path:project,pattern:'真实工具验收'});
    assert.notEqual(searchResult.isError,true,asText(searchResult));
    const canonicalFile=fs.realpathSync.native(file);

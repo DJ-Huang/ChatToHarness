@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const {EventEmitter} = require('node:events');
 const {TaskStore} = require('../app/task-store.cjs');
 const {readJson, atomicJson} = require('../app/durable-files.cjs');
@@ -20,7 +21,14 @@ function fixture(t, options = {}) {
   const config = {home, engineEntry: path.join(engine, 'index.js'), configHome, nodePath: process.execPath, processHost: windowsProcessHost(), ...options};
   const store = new TaskStore(config), ids = [];
   t.after(async () => { for (const id of ids) try { store.cancel(id, project); } catch {} await until(() => ids.every(id => { try { return store.status(id, project).terminal; } catch { return true; } }), 12000); fs.rmSync(home, {recursive: true, force: true, maxRetries: 10, retryDelay: 100}); });
-  const command = code => process.platform === 'win32' ? `& '${process.execPath.replace(/'/g, "''")}' -e '${code.replace(/'/g, "''")}'` : `'${process.execPath.replace(/'/g, "'\\''")}' -e '${code.replace(/'/g, "'\\''")}'`;
+  const command = code => {
+    const name = '.task-' + crypto.createHash('sha256').update(code).digest('hex').slice(0, 16) + '.cjs';
+    const script = path.join(project, name);
+    if (!fs.existsSync(script)) fs.writeFileSync(script, code);
+    return process.platform === 'win32'
+      ? `& '${process.execPath.replace(/'/g, "''")}' '${script.replace(/'/g, "''")}'`
+      : `'${process.execPath.replace(/'/g, "'\\''")}' '${script.replace(/'/g, "'\\''")}'`;
+  };
   const start = (code, key, extra = {}) => { const value = store.start({project_path: project, idempotency_key: key, command: command(code), runtime_limit_ms: 10000, ...extra}); if (!ids.includes(value.task_id)) ids.push(value.task_id); return value; };
   return {home, project, store, config, command, start, ids};
 }
@@ -50,7 +58,9 @@ test('cancel uses an owned task record and preserves output and terminal state',
   assert.throws(() => f.store.cancel('1234', f.project), {code: 'INVALID_TASK_ID'});
 });
 test('the worker applies the configured command validator before executing', {timeout: 15000}, async t => {
-  const f = fixture(t), job = f.start('require("fs").writeFileSync("blocked-marker","bad")', 'blocked');
+  const f = fixture(t);
+  const job = f.store.start({project_path: f.project, idempotency_key: 'blocked', command: 'blocked-marker', runtime_limit_ms: 10000});
+  f.ids.push(job.task_id);
   await until(() => f.store.status(job.task_id, f.project).terminal);
   const result = f.store.status(job.task_id, f.project); assert.equal(result.error.code, 'COMMAND_BLOCKED'); assert.equal(result.operation_executed, false);
   assert.equal(fs.existsSync(path.join(f.project, 'blocked-marker')), false);

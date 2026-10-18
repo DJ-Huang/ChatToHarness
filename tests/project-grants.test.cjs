@@ -7,6 +7,7 @@ const path = require('node:path');
 const {McpSettings} = require('../app/mcp-settings.cjs');
 const {McpManager} = require('../app/mcp-manager.cjs');
 const {ProjectGrants, approvalProject} = require('../app/project-grants.cjs');
+const {canonical} = require('../app/project-context.cjs');
 const {windowsProcessHost} = require('./native-helper.cjs');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate) { for (let i = 0; i < 500; i++) { const value = predicate(); if (value) return value; await pause(10); } throw new Error('Expected local approval did not appear.'); }
@@ -20,7 +21,8 @@ function fixture(t) {
 test('project grants bind tool/config revisions and canonical project paths', async t => {
   const f = fixture(t), grants = new ProjectGrants(path.join(f.root, 'private'));
   const record = {id: 'one', configFingerprint: 'config'}, item = {tool: {name: 'echo', inputSchema: {properties: {project_path: {type: 'string'}}}}, fingerprint: 'definition'};
-  const project = await approvalProject({project_path: f.project, path: 'new.txt'}, item, [f.root]); assert.equal(project, f.project);
+  const expectedProject = await canonical(f.project, true);
+  const project = await approvalProject({project_path: f.project, path: 'new.txt'}, item, [f.root]); assert.equal(project, expectedProject);
   assert.equal(await approvalProject({project_path: f.project, path: '../outside.txt'}, item, [f.root]), undefined);
   grants.remember(record, item, project); const reopened = new ProjectGrants(path.join(f.root, 'private'));
   assert.equal(reopened.matches(record, item, project), true); assert.equal(reopened.matches(record, item, f.root), false);
@@ -39,7 +41,8 @@ test('remembered project approvals skip only the matching declared project', {ti
   await f.manager.connect('one');
   f.manager.setToolPolicy({serverId: 'one', toolName: 'echo', policy: 'ask'});
   await f.manager.start({directories: [f.root]});
-  const call = f.manager.call('one__echo', {project_path: f.project}); const approval = await until(() => f.manager.status().approvals[0]); assert.equal(approval.projectPath, f.project);
+  const expectedProject = await canonical(f.project, true);
+  const call = f.manager.call('one__echo', {project_path: f.project}); const approval = await until(() => f.manager.status().approvals[0]); assert.equal(approval.projectPath, expectedProject);
   f.manager.approve({id: approval.id, allow: true, remember: 'project'}); await call;
   assert.equal((await f.manager.call('one__echo', {project_path: f.project})).isError, undefined); assert.equal(f.manager.status().approvals.length, 0);
   const outside = f.manager.call('one__echo', {project_path: f.root}); const other = await until(() => f.manager.status().approvals[0]);

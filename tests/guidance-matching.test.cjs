@@ -18,7 +18,7 @@ test('rules match paths, task keywords and alwaysApply while AGENTS retains nest
   f.write('rules/always.md', '---\nalwaysApply: true\n---\nALWAYS_BODY');
   f.write('rules/unrelated.md', '---\npaths: ["art/**"]\n---\nUNRELATED_BODY');
   const result = await f.contexts.getContext({project_path: f.root, target_paths: ['src/nested/main.cjs'], task: 'build the app'});
-  assert.deepEqual(result.agents.map(item => path.relative(f.root, item.path)), ['AGENTS.md', path.join('src', 'AGENTS.md')]);
+  assert.deepEqual(result.agents.map(item => path.relative(result.project_path, item.path)), ['AGENTS.md', path.join('src', 'AGENTS.md')]);
   assert.equal(result.loaded_rules.length, 3); assert.ok(result.loaded_rules.some(item => item.content.includes('BUILD_BODY')));
   assert.ok(!result.loaded_rules.some(item => item.content.includes('UNRELATED_BODY')));
   assert.equal(result.precedence.agents, 'outer_to_inner'); assert.ok(result.budget.body_bytes > 0);

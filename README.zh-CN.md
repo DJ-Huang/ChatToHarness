@@ -18,11 +18,11 @@
 
 ### 应用概览
 
-![应用概览](site/assets/console-zh-CN.png)
+![应用概览](docs/images/help/zh-CN/overview.png)
 
 ### 连接配置：使用演示 Tunnel ID，不含真实凭据。
 
-![连接配置：使用演示 Tunnel ID，不含真实凭据。](docs/images/console-connection-zh-CN.png)
+![连接配置：使用演示 Tunnel ID，不含真实凭据。](docs/images/help/zh-CN/connection.png)
 
 ### ChatGPT
 
@@ -63,6 +63,8 @@ ChatGPT：通过 `@` 选择已连接插件，再描述任务和工程路径。�
 目录设置不构成终端沙箱，命令按当前用户权限执行。密钥只填入本机应用。“通道就绪”不等于客户端调用已验证。
 
 ## 文档
+
+[使用文档](docs/zh-CN/README.md) · [官网帮助中心](https://dj-huang.github.io/ChatToHarness/docs/zh-CN/)
 
 [使用指南](docs/zh-CN/GUIDE.md) · [客户端接入](docs/zh-CN/CLIENTS.md) · [架构](docs/zh-CN/ARCHITECTURE.md) · [构建与发布](docs/zh-CN/RELEASING.md) · [验证记录](docs/zh-CN/VERIFICATION.md) · [第三方声明](docs/zh-CN/THIRD_PARTY_NOTICES.md) · [许可证](docs/zh-CN/LICENSE.md)
 

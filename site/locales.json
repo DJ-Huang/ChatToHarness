@@ -218,5 +218,9 @@
   "有预算的代码搜索、更新检查、连接恢复、停止和日志集中管理。开发入口直接运行最新源码。": [
     "Bounded code search, update checks, reconnection, stop controls and logs in one place. The development entry runs current source directly.",
     "上限付きコード検索、更新確認、再接続、停止、ログを一元管理。開発入口から現在のソースを直接実行できます。"
+  ],
+  "使用文档": [
+    "User guide",
+    "使い方ガイド"
   ]
 }

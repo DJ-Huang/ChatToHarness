@@ -1,0 +1,260 @@
+{
+  "description": "Maintenance index only: user-facing explanations live in the corresponding Markdown articles.",
+  "coverage": {
+    "console-tour": {
+      "ui": [
+        "nav-overview",
+        "nav-logs",
+        "nav-history",
+        "nav-connection",
+        "nav-directories",
+        "nav-mcp",
+        "nav-help"
+      ],
+      "tools": [
+        "get_harness_status"
+      ]
+    },
+    "files": {
+      "ui": [],
+      "tools": [
+        "list_directory",
+        "get_file_info",
+        "create_directory",
+        "move_file"
+      ]
+    },
+    "reading": {
+      "ui": [],
+      "tools": [
+        "read_file",
+        "read_multiple_files"
+      ]
+    },
+    "editing": {
+      "ui": [],
+      "tools": [
+        "write_file",
+        "edit_block",
+        "write_pdf",
+        "apply_project_edit",
+        "undo_project_edit"
+      ]
+    },
+    "search": {
+      "ui": [],
+      "tools": [
+        "search_project",
+        "start_search",
+        "get_more_search_results",
+        "stop_search",
+        "list_searches"
+      ]
+    },
+    "project-git": {
+      "ui": [],
+      "tools": [
+        "get_project_overview",
+        "git_status",
+        "git_diff",
+        "git_log"
+      ]
+    },
+    "artifacts": {
+      "ui": [],
+      "tools": [
+        "get_file_result"
+      ]
+    },
+    "background-tasks": {
+      "ui": [],
+      "tools": [
+        "start_task",
+        "get_task_status",
+        "get_task_result",
+        "get_task_logs",
+        "list_tasks",
+        "cancel_task"
+      ]
+    },
+    "work-directories": {
+      "ui": [
+        "add-directory",
+        "save-workspace",
+        "auto-project-context"
+      ],
+      "tools": [
+        "get_project_context"
+      ]
+    },
+    "terminal": {
+      "ui": [],
+      "tools": [
+        "start_process",
+        "read_process_output",
+        "interact_with_process",
+        "force_terminate",
+        "list_sessions",
+        "list_processes",
+        "kill_process"
+      ]
+    },
+    "faq": {
+      "ui": [],
+      "tools": [
+        "get_config",
+        "set_config_value",
+        "get_usage_stats",
+        "get_recent_tool_calls",
+        "give_feedback_to_desktop_commander"
+      ]
+    },
+    "resources-prompts": {
+      "ui": [],
+      "tools": [
+        "mcp_list_resources",
+        "mcp_read_resource",
+        "mcp_list_prompts",
+        "mcp_get_prompt"
+      ]
+    },
+    "first-connection": {
+      "ui": [
+        "tunnel-id",
+        "api-key",
+        "save-connect"
+      ],
+      "tools": []
+    },
+    "connection-status": {
+      "ui": [
+        "reconnect",
+        "stop",
+        "check-connection"
+      ],
+      "tools": []
+    },
+    "credentials": {
+      "ui": [
+        "toggle-key",
+        "clear-credentials"
+      ],
+      "tools": []
+    },
+    "preferences": {
+      "ui": [
+        "language-select",
+        "auto-connect"
+      ],
+      "tools": []
+    },
+    "local-services": {
+      "ui": [
+        "mcp-add",
+        "mcp-id",
+        "mcp-name",
+        "mcp-command",
+        "mcp-args",
+        "mcp-cwd",
+        "mcp-env",
+        "mcp-platforms",
+        "mcp-timeout",
+        "mcp-save",
+        "mcp-cancel"
+      ],
+      "tools": []
+    },
+    "remote-services": {
+      "ui": [
+        "mcp-transport",
+        "mcp-url",
+        "mcp-headers"
+      ],
+      "tools": []
+    },
+    "service-trust": {
+      "ui": [
+        "mcp-trust-confirm",
+        "mcp-trust-cancel"
+      ],
+      "tools": []
+    },
+    "tool-permissions": {
+      "ui": [
+        "mcp-allow-all-tools",
+        "mcp-approval-list"
+      ],
+      "tools": []
+    },
+    "manage-services": {
+      "ui": [
+        "mcp-server-list"
+      ],
+      "tools": []
+    },
+    "import-export": {
+      "ui": [
+        "mcp-import-text",
+        "mcp-import-preview",
+        "mcp-import-confirm",
+        "mcp-export",
+        "mcp-copy-export"
+      ],
+      "tools": []
+    },
+    "live-logs": {
+      "ui": [
+        "log-filter-all",
+        "log-filter-tool",
+        "log-filter-connection",
+        "log-filter-error",
+        "log-search",
+        "log-follow",
+        "log-pause",
+        "log-clear",
+        "log-reload",
+        "log-open-folder",
+        "overview-open-logs"
+      ],
+      "tools": []
+    },
+    "execution-records": {
+      "ui": [
+        "logs-history-shortcut",
+        "history-all",
+        "history-running",
+        "history-errors",
+        "history-search",
+        "history-refresh",
+        "history-prev",
+        "history-next",
+        "history-rows"
+      ],
+      "tools": []
+    },
+    "diagnostics": {
+      "ui": [
+        "history-diagnostics",
+        "history-copy",
+        "history-export"
+      ],
+      "tools": []
+    },
+    "updates": {
+      "ui": [
+        "update-notice",
+        "check-update",
+        "download-update",
+        "update-release",
+        "auto-check-updates"
+      ],
+      "tools": []
+    },
+    "chatgpt": {
+      "ui": [
+        "copy-tunnel"
+      ],
+      "tools": []
+    }
+  }
+}

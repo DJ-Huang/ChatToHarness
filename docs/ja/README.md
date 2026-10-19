@@ -1,25 +1,77 @@
-# ChatToHarness ドキュメント一覧
+# ChatToHarness ヘルプセンター
 
 [English](../en/README.md) | [简体中文](../zh-CN/README.md) | [日本語](../ja/README.md)
 
-すべての文書に英語・簡体字中国語・日本語版があり、各ページの上部で切り替えられます。
+[公式ヘルプで読む](https://dj-huang.github.io/ChatToHarness/docs/ja/)
 
-| 項目 | 文書 |
-| --- | --- |
-| 利用ガイド | [GUIDE.md](GUIDE.md) |
-| クライアント接続 | [CLIENTS.md](CLIENTS.md) |
-| アーキテクチャ | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| ビルドとリリース管理 | [RELEASING.md](RELEASING.md) |
-| 検証記録 | [VERIFICATION.md](VERIFICATION.md) |
-| 第三者コンポーネント | [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) |
-| MIT ライセンス | [LICENSE.md](LICENSE.md) |
+## はじめに
 
-[プロジェクト概要](../../README.ja.md)
+- [ChatToHarness でできること](introduction.md)
+- [使い始める前の準備](requirements.md)
+- [ChatToHarness をインストールする](installation.md)
+- [初めて接続する](first-connection.md)
+- [コンソールの見方](console-tour.md)
+- [初めてのタスクを完了する](first-task.md)
 
-動作、設定、検証結果を変更した場合は、3 言語の文書を同期してください。アプリとサイトの言語選択は別々に保存します。
+## クライアント接続
 
-アプリとサイトも同じ3言語に対応しています。
+- [ChatGPT に接続する](chatgpt.md)
+- [Codex に接続する](codex.md)
 
-[v0.6.0 公開版・ダウンロード](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.6.0) · [現在の公開状況の根拠](VERIFICATION.md#v060-public-status-check-2026-10-18)
+## 日常の作業
 
-[公開準備時のソース内更新情報](../../release-notes/v0.6.0.md) には公開前の表現が残っています。確認済みの公開状況は日付付きの検証記録を参照してください。新たな実行テストの成功を意味するものではありません。
+- [ファイルを探して整理する](files.md)
+- [文書・画像・表計算を読む](reading.md)
+- [ファイルを変更し、安全な編集を戻す](editing.md)
+- [ファイル名や内容を検索する](search.md)
+- [プロジェクトと Git の変更を確認する](project-git.md)
+- [コマンドと対話セッションを使う](terminal.md)
+- [バックグラウンドタスクを開始・確認・取消する](background-tasks.md)
+- [成果物を確認して取得する](artifacts.md)
+
+## 接続と設定
+
+- [接続状態を確認し、再接続・停止する](connection-status.md)
+- [作業フォルダーと工程規約を管理する](work-directories.md)
+- [接続の認証情報を変更・消去する](credentials.md)
+- [言語・自動接続・バックグラウンド動作](preferences.md)
+
+## 外部ツール
+
+- [ローカル MCP サービスを追加する](local-services.md)
+- [リモート MCP サービスを追加する](remote-services.md)
+- [サービスを信頼して接続テストする](service-trust.md)
+- [ツールの権限と本機の確認を管理する](tool-permissions.md)
+- [サービスを編集・有効化・停止・削除する](manage-services.md)
+- [ツール設定をインポート・エクスポートする](import-export.md)
+- [サービスのリソースとテンプレートを使う](resources-prompts.md)
+
+## ログと実行履歴
+
+- [リアルタイムログを絞り込む](live-logs.md)
+- [実行履歴を探して読み取る](execution-records.md)
+- [診断情報・詳細・履歴を書き出す](diagnostics.md)
+
+## 問題を解決する
+
+- [インストールや起動の問題を解決する](installation-problems.md)
+- [接続失敗や再接続の繰り返しに対処する](connection-problems.md)
+- [クライアントにトンネルやツールが見つからない](missing-tools.md)
+- [フォルダー・キー・ツールの権限エラーに対処する](permission-problems.md)
+- [タイムアウト・状態不明・返答なしに対処する](uncertain-results.md)
+- [よくある質問と問い合わせ](faq.md)
+
+## 更新とプライバシー
+
+- [更新を確認して新版をインストールする](updates.md)
+- [アクセス範囲・認証情報・記録を理解する](privacy.md)
+
+## 以前のガイドと開発資料
+
+- [GUIDE](GUIDE.md)
+- [CLIENTS](CLIENTS.md)
+- [ARCHITECTURE](ARCHITECTURE.md)
+- [RELEASING](RELEASING.md)
+- [VERIFICATION](VERIFICATION.md)
+- [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md)
+- [LICENSE](LICENSE.md)

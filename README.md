@@ -18,11 +18,11 @@ A desktop console for connecting supported AI clients to local files, terminals,
 
 ### Application overview
 
-![Application overview](site/assets/console-en.png)
+![Application overview](docs/images/help/en/overview.png)
 
 ### Connection settings — demonstration Tunnel ID, no real credentials.
 
-![Connection settings — demonstration Tunnel ID, no real credentials.](docs/images/console-connection-en.png)
+![Connection settings — demonstration Tunnel ID, no real credentials.](docs/images/help/en/connection.png)
 
 ### ChatGPT
 
@@ -63,6 +63,8 @@ For a first read-only check, ask: “Use `get_harness_status` to report the runn
 Folder settings do not sandbox the terminal: commands run with your current user permissions. Keep API keys in the local application. “Tunnel ready” does not mean a client call has been verified.
 
 ## Documentation
+
+[User documentation](docs/en/README.md) · [Website help center](https://dj-huang.github.io/ChatToHarness/docs/en/)
 
 [User guide](docs/en/GUIDE.md) · [Client connections](docs/en/CLIENTS.md) · [Architecture](docs/en/ARCHITECTURE.md) · [Build & release](docs/en/RELEASING.md) · [Verification record](docs/en/VERIFICATION.md) · [Third-party notices](docs/en/THIRD_PARTY_NOTICES.md) · [License](docs/en/LICENSE.md)
 

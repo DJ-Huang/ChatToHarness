@@ -769,7 +769,7 @@
   api?.onShowUpdates?.(showUpdates);
   document.querySelectorAll('[data-external]').forEach((button) => {
     button.addEventListener('click', () => {
-      Promise.resolve(api.openExternal(button.dataset.external)).catch((error) => {
+      Promise.resolve(api.openExternal(button.dataset.external === 'docs-page' ? 'docs-' + activeTab : button.dataset.external)).catch((error) => {
         actionError = safeMessage(error);
         render();
       });

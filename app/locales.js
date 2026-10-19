@@ -2,6 +2,10 @@
 // Chinese source messages, English and Japanese translations. Shared by renderer and main.
 (function(root){
   const messages = {
+  "本页帮助": ["Help for this page", "この画面のヘルプ"],
+  "使用文档": ["User guide", "使い方ガイド"],
+  "按步骤了解连接、文件、工具和问题处理。": ["Step-by-step help for connections, files, tools and troubleshooting.", "接続、ファイル、ツール、問題解決を手順に沿って確認できます。"],
+  "打开帮助中心": ["Open help center", "ヘルプセンターを開く"],
   "日志": ["Logs", "ログ"],
   "日志子菜单": ["Log submenu", "ログのサブメニュー"],
   "实时日志": ["Live logs", "リアルタイムログ"],

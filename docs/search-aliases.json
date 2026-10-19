@@ -1,0 +1,12 @@
+{
+  "first-connection":{"zh-CN":["怎么连接","第一次配置","开始使用"],"en":["setup","getting started","connect"],"ja":["初期設定","接続方法","使い始める"]},
+  "connection-problems":{"zh-CN":["连不上","连接不上","掉线","一直重连"],"en":["cannot connect","disconnected","offline"],"ja":["つながらない","繋がらない","切断"]},
+  "missing-tools":{"zh-CN":["找不到插件","没有工具","工具不显示"],"en":["missing plugin","no tools","discovery"],"ja":["見つからない","ツールがない","プラグイン"]},
+  "tool-permissions":{"zh-CN":["确认弹窗","免确认","授权记忆","权限"],"en":["approval","confirmation","remember permissions"],"ja":["承認","確認画面","権限を記憶"]},
+  "uncertain-results":{"zh-CN":["回传","没收到","没有回复","重复执行","超时"],"en":["missing response","delivery","timeout","duplicate"],"ja":["返答がない","届かない","タイムアウト","重複"]},
+  "background-tasks":{"zh-CN":["长任务","后台运行","任务进度","取消任务"],"en":["long running","job","cancel task","progress"],"ja":["長時間","ジョブ","進捗","取消"]},
+  "editing":{"zh-CN":["撤回","恢复文件","回滚","写入","追加"],"en":["undo","revert","append","write"],"ja":["元に戻す","取り消す","追記","書き込み"]},
+  "reading":{"zh-CN":["Excel","Word","PDF","图片","表格"],"en":["Excel","Word","PDF","images","spreadsheet"],"ja":["Excel","Word","PDF","画像","表計算"]},
+  "preferences":{"zh-CN":["托盘","菜单栏","关窗口","切换语言"],"en":["tray","menu bar","language","close window"],"ja":["トレイ","メニューバー","表示言語","閉じる"]},
+  "import-export":{"zh-CN":["配置迁移","复制配置","换电脑"],"en":["migration","copy settings","new computer"],"ja":["設定移行","コピー","別のパソコン"]}
+}

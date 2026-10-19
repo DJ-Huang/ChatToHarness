@@ -1,3 +1,17 @@
+# Help Center · 使用帮助 · ヘルプ
+
+[English](en/README.md) | [简体中文](zh-CN/README.md) | [日本語](ja/README.md)
+
+38 topics in each language. Articles and images in this repository are the source of the website help center.
+
+每种语言包含 38 个使用主题。仓库文章与配图是官网帮助中心的唯一内容来源。
+
+各言語に38のトピックがあります。記事と画像の原文はこのリポジトリで管理します。
+
+[Website help center / 官网帮助中心 / ヘルプセンター](https://dj-huang.github.io/ChatToHarness/docs/en/)
+
+---
+
 # Documentation · 文档 · ドキュメント
 
 [English](en/README.md) | [简体中文](zh-CN/README.md) | [日本語](ja/README.md)

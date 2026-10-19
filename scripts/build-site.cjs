@@ -1,6 +1,7 @@
 'use strict';
 const fs=require('node:fs');
 const path=require('node:path');
+const {buildHelp}=require('./help-site.cjs');
 const root=path.resolve(__dirname,'..');
 const repository='DJ-Huang/ChatToHarness';
 const repoURL='https://github.com/'+repository;
@@ -49,7 +50,7 @@ function build(releases,output=path.join(root,'dist/site')){
     const canonical=baseURL+localePath(locale);
     const values={base:'/ChatToHarness/',localeBase:route(locale),lang:locale,docLocale:locale,
       guideAnchor:{'zh-CN':'故障处理',en:'troubleshooting',ja:'トラブルシューティング'}[locale],
-      canonical,alternates:locales.map(lang=>`<link rel="alternate" hreflang="${lang}" href="${baseURL+localePath(lang)}">`).join(''),
+      helpURL:`/ChatToHarness/docs/${locale}/`,canonical,alternates:locales.map(lang=>`<link rel="alternate" hreflang="${lang}" href="${baseURL+localePath(lang)}">`).join(''),
       languageLinks:locales.map(lang=>`<a href="${route(lang)}" lang="${lang}" hreflang="${lang}" data-language="${lang}"${lang===locale?' aria-current="page"':''}>${{'zh-CN':'中文',en:'English',ja:'日本語'}[lang]}</a>`).join(''),
       version:escape(t(info.version)),windows:download('windows','下载 Windows 版本'),macos:download('macos','下载 Mac 版本'),
       checksum:info.checksum?`<a href="${escape(info.checksum.browser_download_url)}">${escape(t('SHA-256 校验文件 ↗'))}</a>`:escape(t('安装包正式发布后显示下载链接')),repo:repoURL};
@@ -62,7 +63,8 @@ function build(releases,output=path.join(root,'dist/site')){
   fs.copyFileSync(path.join(output,'index.html'),path.join(output,'en/index.html'));
   fs.writeFileSync(path.join(output,'.nojekyll'),'');
   fs.writeFileSync(path.join(output,'robots.txt'),`User-agent: *\nAllow: /\nSitemap: ${baseURL}sitemap.xml\n`);
-  fs.writeFileSync(path.join(output,'sitemap.xml'),`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locales.map(locale=>`<url><loc>${baseURL+localePath(locale)}</loc></url>`).join('')}</urlset>\n`);
+  const help=buildHelp(output);
+  fs.writeFileSync(path.join(output,'sitemap.xml'),`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${[...locales.map(locale=>baseURL+localePath(locale)),...help.urls].map(url=>`<url><loc>${url}</loc></url>`).join('')}</urlset>\n`);
   for(const html of pages)for(const match of html.matchAll(/(?:href|src)="(\/ChatToHarness\/[^"#?]*)"/g)){
     const name=match[1].slice('/ChatToHarness/'.length)||'index.html';if(!fs.existsSync(path.join(output,name)))throw new Error('Missing website asset: '+name);
   }

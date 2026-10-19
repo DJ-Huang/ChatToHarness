@@ -18,11 +18,11 @@
 
 ### アプリの概要
 
-![アプリの概要](site/assets/console-ja.png)
+![アプリの概要](docs/images/help/ja/overview.png)
 
 ### 接続設定：デモ用 Tunnel ID を使用し、実際の認証情報は含みません。
 
-![接続設定：デモ用 Tunnel ID を使用し、実際の認証情報は含みません。](docs/images/console-connection-ja.png)
+![接続設定：デモ用 Tunnel ID を使用し、実際の認証情報は含みません。](docs/images/help/ja/connection.png)
 
 ### ChatGPT
 
@@ -63,6 +63,8 @@ ChatGPT：`@` で接続済みプラグインを選び、タスクとプロジェ
 フォルダー設定はターミナルのサンドボックスではありません。コマンドは現在のユーザー権限で実行されます。キーはローカルアプリにのみ入力してください。「トンネル準備完了」はクライアント呼び出しの検証完了を意味しません。
 
 ## ドキュメント
+
+[使い方ガイド](docs/ja/README.md) · [ヘルプセンター](https://dj-huang.github.io/ChatToHarness/docs/ja/)
 
 [利用ガイド](docs/ja/GUIDE.md) · [クライアント接続](docs/ja/CLIENTS.md) · [アーキテクチャ](docs/ja/ARCHITECTURE.md) · [ビルドとリリース](docs/ja/RELEASING.md) · [検証記録](docs/ja/VERIFICATION.md) · [第三者ソフトウェア](docs/ja/THIRD_PARTY_NOTICES.md) · [ライセンス](docs/ja/LICENSE.md)
 

@@ -1,3 +1,5 @@
+> **New help center:** See the [38-topic user guide](README.md) for illustrated instructions. This earlier comprehensive guide retains its sections and links, including developer material.
+
 # ChatToHarness User Guide
 
 [English](../en/GUIDE.md) | [简体中文](../zh-CN/GUIDE.md) | [日本語](../ja/GUIDE.md)
@@ -68,7 +70,7 @@ Automatic checks run 10 seconds after launch and every 24 hours thereafter, and 
 
 **Download and install** downloads the matching installer and verifies its size and SHA-256. After verification, the app stops the connection, opens the installer, and quits. On Mac, drag the new version from the DMG into Applications; Windows uses the installer wizard. Save or discard unsaved configuration changes and finish running tool tasks first. Development mode checks versions only. Missing assets, download failures, or invalid checksums do not start installation.
 
-![App updates and client help](../images/console-help-en.png)
+![App updates and client help](../images/help/en/updates.png)
 
 This screenshot uses isolated demonstration settings and a synthetic update response; it does not establish a real tunnel call.
 

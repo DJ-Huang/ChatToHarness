@@ -1,0 +1,58 @@
+{
+  "terms": [
+    {
+      "key": "work-directory",
+      "zh-CN": "工作目录",
+      "en": "Work directories",
+      "ja": "作業フォルダー"
+    },
+    {
+      "key": "tunnel-ready",
+      "zh-CN": "通道就绪",
+      "en": "Tunnel ready",
+      "ja": "トンネル準備完了"
+    },
+    {
+      "key": "live-logs",
+      "zh-CN": "实时日志",
+      "en": "Live logs",
+      "ja": "リアルタイムログ"
+    },
+    {
+      "key": "execution-records",
+      "zh-CN": "执行记录",
+      "en": "Execution history",
+      "ja": "実行履歴"
+    },
+    {
+      "key": "background-task",
+      "zh-CN": "持久后台任务",
+      "en": "Persistent background task",
+      "ja": "永続バックグラウンドタスク"
+    },
+    {
+      "key": "local-approval",
+      "zh-CN": "本机确认",
+      "en": "Local approval",
+      "ja": "本機の確認"
+    },
+    {
+      "key": "mcp",
+      "zh-CN": "扩展工具（MCP Servers）",
+      "en": "External tools (MCP Servers)",
+      "ja": "外部ツール（MCP Servers）"
+    },
+    {
+      "key": "tunnel-id",
+      "zh-CN": "Tunnel ID",
+      "en": "Tunnel ID",
+      "ja": "Tunnel ID"
+    },
+    {
+      "key": "runtime-key",
+      "zh-CN": "Runtime API Key",
+      "en": "Runtime API Key",
+      "ja": "Runtime API Key"
+    }
+  ]
+}

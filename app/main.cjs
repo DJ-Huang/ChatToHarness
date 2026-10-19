@@ -16,6 +16,7 @@ const {Preferences}=require('./preferences.cjs');
 const {Updater}=require('./updater.cjs');
 const {acquireInstance,installExitHandlers}=require('./dev-lifecycle.cjs');
 const {translate,normalize}=require('./i18n.js');
+const {documentationURL}=require('./help-links.cjs');
 let preferences,locale='en';
 const t=(message,values)=>translate(locale,message,values);
 // Electron safeStorage uses the application name for its macOS keychain item.
@@ -194,7 +195,7 @@ function registerIPC(){
   // management action. They can only resolve an already captured request ID.
   bind('mcp-resolve-approval',mcp(input=>{mcpManager.approve(input);return state();}));
   bind('open-logs',openLogs);
-  bind('open-external',async id=>{if(typeof id!=='string'||!Object.hasOwn(links,id))throw new Error('链接无效。');await shell.openExternal(links[id]);});
+  bind('open-external',async id=>{if(typeof id!=='string')throw new Error('链接无效。');const help=documentationURL(id,locale);if(!help&&!Object.hasOwn(links,id))throw new Error('链接无效。');await shell.openExternal(help||links[id]);});
 }
 function applicationMenu(){
   const edit={label:t('编辑'),submenu:[{role:'undo',label:t('撤销')},{role:'redo',label:t('重做')},{type:'separator'},{role:'cut',label:t('剪切')},{role:'copy',label:t('复制')},{role:'paste',label:t('粘贴')},{role:'selectAll',label:t('全选')}]};

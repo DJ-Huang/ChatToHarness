@@ -19,6 +19,7 @@
   "devDependencies": {
     "electron": "44.7.2",
     "electron-builder": "26.15.3",
+    "marked": "18.1.1",
     "playwright-core": "1.64.0"
   },
   "build": {

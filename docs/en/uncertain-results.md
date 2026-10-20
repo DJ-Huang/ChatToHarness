@@ -2,7 +2,7 @@
 
 [English](../en/uncertain-results.md) | [简体中文](../zh-CN/uncertain-results.md) | [日本語](../ja/uncertain-results.md)
 
-> For the current source; these changes have not been released.
+> Available in v0.6.2.
 
 ## Your goal
 

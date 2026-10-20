@@ -2,7 +2,7 @@
 
 [English](../en/background-tasks.md) | [简体中文](../zh-CN/background-tasks.md) | [日本語](../ja/background-tasks.md)
 
-> 对应当前源码；本次改动尚未发布。
+> 适用于 v0.6.2。
 
 ## 使用目标
 

@@ -2,7 +2,7 @@
 
 [English](../en/uncertain-results.md) | [简体中文](../zh-CN/uncertain-results.md) | [日本語](../ja/uncertain-results.md)
 
-> 对应当前源码；本次改动尚未发布。
+> 适用于 v0.6.2。
 
 ## 使用目标
 

@@ -236,6 +236,7 @@
   "读取与搜索自动附带适用规范；没有 AGENTS.md 也可正常工作。写入前交付尚未读取的规范。": ["Reads and searches include applicable guidance. Projects without AGENTS.md work normally. Undelivered guidance is provided before writes.", "読み取りと検索には適用規約を添えます。AGENTS.md がなくても利用できます。書き込み前に未読の規約を渡します。"],
   "应用更新": ["App updates", "アプリの更新"],
   "检查更新": ["Check for updates", "更新を確認"],
+  "更新应用后，建议刷新聊天客户端中的插件工具列表，以加载最新工具和参数说明。": ["After updating the app, refresh the plugin's tool list in your chat client to load the latest tools and parameter descriptions.", "アプリの更新後は、チャットクライアントでプラグインのツール一覧を更新し、最新のツールとパラメーターの説明を読み込むことをおすすめします。"],
   "重启 {product}": ["Restart {product}", "{product} を再起動"],
   "自动检查更新": ["Automatically check for updates", "更新を自動確認"],
   "启动后检查，此后每 24 小时检查一次。发现新版本时提醒。": ["Check after launch and every 24 hours. Notify when an update is available.", "起動後と以後 24 時間ごとに確認し、新版があればお知らせします。"],

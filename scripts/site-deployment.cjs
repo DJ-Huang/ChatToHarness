@@ -2,7 +2,8 @@
 const {releaseInfo}=require('./build-site.cjs');
 const stable=/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
-function expectedTag(eventName,ref='',event={}){
+function expectedTag(eventName,ref='',event={},releaseTag=''){
+  if(eventName==='workflow_dispatch'&&releaseTag){if(!stable.test(releaseTag))throw new Error('Expected a stable release tag.');return releaseTag;}
   if(eventName==='push'&&ref.startsWith('refs/tags/'))return ref.slice(10);
   if(eventName==='release'&&event.action!=='deleted'&&!event.release?.prerelease&&!event.release?.draft)return event.release?.tag_name||'';
   return '';
@@ -10,8 +11,8 @@ function expectedTag(eventName,ref='',event={}){
 
 // Publishing a release and listing it are separate API operations. Never turn a
 // temporarily stale list into a successful deployment of the previous release.
-async function prepareDeployment({load,eventName,ref='',event={},attempts=6,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}){
-  const required=expectedTag(eventName,ref,event);
+async function prepareDeployment({load,eventName,ref='',event={},releaseTag='',attempts=6,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}){
+  const required=expectedTag(eventName,ref,event,releaseTag);
   for(let attempt=0;attempt<attempts;attempt++){
     const releases=await load();
     const info=releaseInfo(releases);

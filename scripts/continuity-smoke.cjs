@@ -48,7 +48,8 @@ async function main() {
     const duplicate = await call('start_task', args); assert.equal(duplicate.task_id, taskId); assert.equal(duplicate.reused, true); report.session_reconnect = true;
     await pause(2000); await client.close(); await manager.close(); await runtime.close();
     await startManager(); client = await connect();
-    const recovered = await call('get_task_status', {project_path: project, task_id: taskId}); assert.ok(['running', 'starting'].includes(recovered.state)); report.manager_restart = true;
+    const recovered = await call('get_task_status', {project_path: project, task_id: taskId}); report.recovered_state = recovered.state;
+    assert.ok(['running', 'starting'].includes(recovered.state), JSON.stringify({state:recovered.state,execution_state:recovered.execution_state,exit_code:recovered.exit_code,error:recovered.error})); report.manager_restart = true;
     const replay = await call('start_task', args); assert.equal(replay.task_id, taskId); assert.equal(replay.reused, true);
     let status, polls = 0;
     do { await pause(2000); status = await call('get_task_status', {project_path: project, task_id: taskId}); if (++polls % 15 === 0) console.log(JSON.stringify({phase: status.state, elapsed_seconds: Math.round((Date.now() - began) / 1000)})); if (Date.now() - began > 170000) throw new Error('Long task exceeded acceptance deadline.'); } while (!status.terminal);
@@ -60,7 +61,14 @@ async function main() {
     const results = await call('list_tasks', {project_path: project}); assert.ok(results.items.some(item => item.task_id === taskId));
     const current = await call('get_project_overview', {project_path: project}); await call('undo_project_edit', {project_path: project, undo_id: edit.undo_id, expected_sha256: edit.after_sha256, project_context_tokens: [current.guidance.project_context_token]});
     assert.equal(fs.readFileSync(path.join(project, 'source.txt'), 'utf8'), 'before\n'); report.undo = true;
-  } catch (error) { report.failures.push(error.message); if (taskId) try { services.tasks.cancel(taskId, project); await pause(4000); } catch {} }
+  } catch (error) {
+    report.failures.push(error.message);
+    if (taskId) try {
+      const saved = services.tasks.result(taskId, project);
+      report.task_diagnostics = {state:saved.state,execution_state:saved.execution_state,exit_code:saved.exit_code,error:saved.error,stdout:saved.stdout,stderr:saved.stderr};
+      services.tasks.cancel(taskId, project); await pause(4000);
+    } catch {}
+  }
   finally {
     await client?.close().catch(() => {}); await manager?.close(); await runtime?.close();
     report.finished_at = new Date().toISOString(); const output = path.join(root, '.cache/acceptance'); fs.mkdirSync(output, {recursive: true}); fs.writeFileSync(path.join(output, `continuity-${process.platform}-${process.arch}.json`), JSON.stringify(report, null, 2) + '\n');

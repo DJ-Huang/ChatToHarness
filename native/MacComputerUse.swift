@@ -14,6 +14,7 @@ final class MacComputerUse: NSObject {
     private var targetPID: pid_t = 0
     private var targetTitle = ""
     private var targetLaunchDate: Date?
+    private var inputBlockedReason: String?
     private var deadline = Date.distantFuture
     private var lastImageSize = CGSize.zero
     private var lastGeometry: [Int] = []
@@ -22,6 +23,8 @@ final class MacComputerUse: NSObject {
     private var stopTap: CFMachPort?
     private var stopSource: CFRunLoopSource?
     private var watchdog: Timer?
+    private var cursorTimer: Timer?
+    private let cursorGlow = MacCursorGlow()
     private let ownerPID: pid_t
 
     init(ownerPID: pid_t) {
@@ -57,6 +60,20 @@ final class MacComputerUse: NSObject {
                 }])
                 exit(0)
             }
+            if mode == "probe_window" {
+                // A read-only, explicitly targeted, no-disk screenshot check.
+                // Does not require Accessibility or install any input event tap.
+                guard let id = UInt32(windowID), let window = windows.first(where: { $0.windowID == id })
+                else { throw CUError.unavailable }
+                let snapshot = try await screenshot(window)
+                guard let width = snapshot["width"] as? Int,
+                      let height = snapshot["height"] as? Int,
+                      let encoded = snapshot["png"] as? String,
+                      let decoded = Data(base64Encoded: encoded) else { throw CUError.capture }
+                emit(["ok": true, "window_id": String(id), "width": width, "height": height,
+                      "png_bytes": decoded.count, "geometry": geometry(window)])
+                exit(0)
+            }
             guard mode == "all_windows" || mode == "per_window" else { throw CUError.invalid }
             let selected: SCWindow?
             if mode == "per_window" {
@@ -73,11 +90,24 @@ final class MacComputerUse: NSObject {
             targetTitle = window.title ?? ""
             targetLaunchDate = NSRunningApplication(processIdentifier: targetPID)?.launchDate
             guard targetPID > 0 else { throw CUError.unavailable }
-            guard AXIsProcessTrusted() else { throw CUError.accessibility }
-            guard installLocalEsc() else { throw CUError.stopUnavailable }
+            // Observation requires only Screen Recording permission.
+            // Control requires Accessibility *and* a working local Esc stop.
+            // Missing input permissions never block read-only screenshots.
+            if !AXIsProcessTrusted() {
+                inputBlockedReason = CUError.accessibility.rawValue
+            } else if !installLocalEsc() {
+                inputBlockedReason = CUError.stopUnavailable.rawValue
+            } else {
+                inputBlockedReason = nil
+            }
             showStop()
-            showOutline(for: window)
+            if inputBlockedReason == nil { showOutline(for: window) }
             deadline = Date().addingTimeInterval(600)
+            if inputBlockedReason == nil {
+                cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.033, repeats: true) { [weak self] _ in
+                    self?.updateCursorGlow()
+                }
+            }
             watchdog = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
@@ -85,7 +115,9 @@ final class MacComputerUse: NSObject {
                     self.refreshOutline()
                 }
             }
-            emit(["ready": true, "window_id": String(targetID)])
+            emit(["ready": true, "window_id": String(targetID),
+                  "input_enabled": inputBlockedReason == nil,
+                  "input_blocked_reason": inputBlockedReason ?? NSNull()])
             Task.detached { [weak self] in
                 while let line = readLine() {
                     guard let self else { break }
@@ -216,9 +248,30 @@ final class MacComputerUse: NSObject {
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
+    private func updateCursorGlow() {
+        guard targetID != 0, CGPreflightScreenCaptureAccess(),
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID,
+              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                       kCGNullWindowID) as? [[String: Any]],
+              let record = windows.first(where: {
+                  ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == targetID
+              }),
+              let bounds = record[kCGWindowBounds as String] as? [String: Any],
+              let x = bounds["X"] as? NSNumber, let y = bounds["Y"] as? NSNumber,
+              let w = bounds["Width"] as? NSNumber, let h = bounds["Height"] as? NSNumber else {
+            cursorGlow.update(target: .zero, frontmost: false)
+            return
+        }
+        cursorGlow.update(target: CGRect(x: x.doubleValue, y: y.doubleValue,
+                                        width: w.doubleValue, height: h.doubleValue),
+                          frontmost: true)
+    }
+
     @objc private func stopPressed() { stopNow() }
     private func stopNow() {
         watchdog?.invalidate()
+        cursorTimer?.invalidate()
+        cursorGlow.stop()
         stopPanel?.close()
         outlinePanel?.close()
         if let source = stopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
@@ -230,8 +283,11 @@ final class MacComputerUse: NSObject {
     private func currentWindow(requireForeground: Bool) async throws -> SCWindow {
         guard Date() <= deadline else { throw CUError.expired }
         guard CGPreflightScreenCaptureAccess() else { throw CUError.screen }
-        guard AXIsProcessTrusted() else { throw CUError.accessibility }
-        guard stopTap.map({ CGEvent.tapIsEnabled(tap: $0) }) == true else { throw CUError.stopUnavailable }
+        if requireForeground {
+            guard inputBlockedReason == nil else { throw CUError.accessibility }
+            guard AXIsProcessTrusted() else { throw CUError.accessibility }
+            guard stopTap.map({ CGEvent.tapIsEnabled(tap: $0) }) == true else { throw CUError.stopUnavailable }
+        }
         guard let window = try await shareable().first(where: { $0.windowID == targetID }) else { throw CUError.unavailable }
         guard window.owningApplication?.processID == targetPID &&
               NSRunningApplication(processIdentifier: targetPID)?.launchDate == targetLaunchDate else { throw CUError.changed }
@@ -296,6 +352,30 @@ final class MacComputerUse: NSObject {
                        y: window.frame.minY + CGFloat(y) * window.frame.height / lastImageSize.height)
     }
 
+
+    private func checkLivePointerTarget() throws {
+        guard Date() <= deadline else { throw CUError.expired }
+        guard CGPreflightScreenCaptureAccess() else { throw CUError.screen }
+        guard AXIsProcessTrusted() else { throw CUError.accessibility }
+        guard stopTap.map({ CGEvent.tapIsEnabled(tap: $0) }) == true else { throw CUError.stopUnavailable }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID,
+              NSRunningApplication(processIdentifier: targetPID)?.launchDate == targetLaunchDate
+        else { throw CUError.foreground }
+        guard let data = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                   kCGNullWindowID) as? [[String: Any]],
+              let info = data.first(where: {
+                  ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == targetID
+              }),
+              (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == targetPID,
+              let bounds = info[kCGWindowBounds as String] as? [String: Any],
+              let x = bounds["X"] as? NSNumber, let y = bounds["Y"] as? NSNumber,
+              let width = bounds["Width"] as? NSNumber, let height = bounds["Height"] as? NSNumber
+        else { throw CUError.unavailable }
+        let rect = [Int(x.doubleValue), Int(y.doubleValue),
+                    Int(x.doubleValue + width.doubleValue), Int(y.doubleValue + height.doubleValue)]
+        guard rect == lastGeometry else { throw CUError.moved }
+    }
+
     private func movePointer(to destination: CGPoint) async throws {
         let source = CGEventSource(stateID: .combinedSessionState)
         let start = CGEvent(source: nil)?.location ?? destination
@@ -303,7 +383,9 @@ final class MacComputerUse: NSObject {
         let steps = max(8, min(32, Int(ceil(distance / 25))))
         var last = start
         for index in 1...steps {
-            _ = try await currentWindow(requireForeground: true)
+            // Avoid a ScreenCaptureKit round trip for each 12ms pointer frame.
+            // Still check live TCC, target identity, window geometry and Esc tap.
+            try checkLivePointerTarget()
             try checkUserIdle()
             if let physical = CGEvent(source: nil)?.location,
                hypot(physical.x - last.x, physical.y - last.y) > 7 { throw CUError.userActive }
@@ -394,6 +476,7 @@ final class MacComputerUse: NSObject {
             guard let action = args["action"] as? String else { throw CUError.invalid }
             let window = try await currentWindow(requireForeground: action != "observe" && action != "activate")
             if action == "observe" { return try await screenshot(window) }
+            if let reason = inputBlockedReason { return fail(reason) }
             if action == "activate" {
                 guard let app = NSRunningApplication(processIdentifier: targetPID),
                       app.activate(options: []) else { throw CUError.activation }
@@ -458,6 +541,25 @@ final class MacComputerUse: NSObject {
 @main
 struct MacComputerUseMain {
     static func main() {
+        // Permission diagnostics are explicitly opt-in and cannot activate input.
+        if CommandLine.arguments.count == 2,
+           ["permission_status", "request_permissions"].contains(CommandLine.arguments[1]) {
+            let request = CommandLine.arguments[1] == "request_permissions"
+            let screen = request ? CGRequestScreenCaptureAccess() : CGPreflightScreenCaptureAccess()
+            let options: CFDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: request] as CFDictionary
+            let accessibility = request ? AXIsProcessTrustedWithOptions(options) : AXIsProcessTrusted()
+            let inputMonitoring = request ? CGRequestListenEventAccess() : CGPreflightListenEventAccess()
+            let data: [String: Any] = [
+                "screen_recording": screen,
+                "accessibility": accessibility,
+                "input_monitoring": inputMonitoring,
+                "request_attempted": request,
+                "identity_hint": "TCC grants belong to the actual process/app identity; restart the helper after changing macOS Privacy & Security."
+            ]
+            if let encoded = try? JSONSerialization.data(withJSONObject: data),
+               let json = String(data: encoded, encoding: .utf8) { print(json) }
+            return
+        }
         guard CommandLine.arguments.count == 4, let parent = Int32(CommandLine.arguments[1]),
               parent > 0 else {
             print("{\"error\":\"CU_OWNER_REQUIRED\"}")

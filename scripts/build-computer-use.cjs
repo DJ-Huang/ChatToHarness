@@ -20,7 +20,8 @@ function buildComputerUse(root = path.resolve(__dirname, '..')) {
   if (process.platform === 'darwin') {
     const output = path.join(directory, 'ChatToHarness.MacComputerUse');
     execFileSync('xcrun', ['swiftc', '-parse-as-library', '-O',
-      path.join(root, 'native', 'MacComputerUse.swift'), '-o', output], {stdio: 'pipe'});
+      path.join(root, 'native', 'MacComputerUse.swift'),
+      path.join(root, 'native', 'MacCursorGlow.swift'), '-o', output], {stdio: 'pipe'});
     fs.chmodSync(output, 0o755);
     fs.writeFileSync(path.join(directory, 'mcp-config.json'), JSON.stringify({mcpServers: {
       'macos-computer': {command: process.execPath, args: [path.join(root, 'app', 'macos-computer-use-stdio.cjs')],

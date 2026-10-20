@@ -10,6 +10,7 @@
     "build:computer-use": "node scripts/build-computer-use.cjs",
     "computer-use": "node app/computer-use-stdio.cjs",
     "computer-use:mac": "node app/macos-computer-use-stdio.cjs",
+    "computer-use:mac:permissions": "node scripts/mac-computer-use-permissions.cjs",
     "test:computer-use-mac": "node scripts/test-computer-use-macos.cjs",
     "test:computer-use-native": "node scripts/test-computer-use-native.cjs",
     "start": "node scripts/dev.cjs",

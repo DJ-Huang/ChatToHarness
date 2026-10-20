@@ -15,7 +15,7 @@ function run(command, args) {
 console.log('[Mac Computer Use] Compile native ScreenCaptureKit / Accessibility helper');
 run(process.execPath, ['scripts/build-computer-use.cjs']);
 console.log('[Mac Computer Use] MCP contract, screenshot chunking and TCC denial tests');
-run(process.execPath, ['--test', 'tests/macos-computer-use.test.cjs']);
+run(process.execPath, ['--test', '--test-concurrency=1', 'tests/macos-computer-use.test.cjs', 'tests/mac-permission-diagnostics.test.cjs', 'tests/mac-native-observe-glow.test.cjs', 'tests/mac-readonly-mcp-real.test.cjs']);
 console.log('[Mac Computer Use] Automated acceptance: PASS');
 console.log('Real GUI clicks, local STOP/Esc, Retina mapping and signed-app Screen Recording grants');
 console.log('remain MANUAL acceptance gates. This script does not claim they passed.');

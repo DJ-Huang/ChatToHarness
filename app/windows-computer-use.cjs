@@ -95,7 +95,10 @@ class WindowsComputerUse {
   status(s = this.session) {
     if (!s) return this.lastSession || {state: 'none', session_id: null, authorization_mode: this.authorizationMode, next_action: 'open_session'};
     return {session_id: s.id, state: s.state, authorization_mode: this.authorizationMode, ...(s.windowId ? {window_id: s.windowId} : {}), expires_at: new Date(s.expiresAt).toISOString(),
-      expires_in_ms: Math.max(0, s.expiresAt - Date.now()), stop_hotkey: 'Esc',
+      expires_in_ms: Math.max(0, s.expiresAt - Date.now()),
+      stop_hotkey: s.inputEnabled === false ? null : 'Esc',
+      ...(typeof s.inputEnabled === 'boolean' ? {input_enabled: s.inputEnabled} : {}),
+      ...(s.inputBlockedReason ? {input_blocked_reason: s.inputBlockedReason} : {}),
       next_action: s.state === 'ready' ? 'observe' : 'get_session', ...(s.error ? {code: s.error} : {})};
   }
   stop(code = 'CU_SESSION_CLOSED', s = this.session) {
@@ -136,7 +139,11 @@ class WindowsComputerUse {
     // an inaccessible session or cause an unhandled ready rejection.
     Promise.resolve(s.native.ready).then(data => {
       clearTimeout(s.consentTimer);
-      if (this.session === s && !s.native.closed) { s.state = 'ready'; s.windowId = data.window_id || s.windowId; }
+      if (this.session === s && !s.native.closed) {
+        s.state = 'ready'; s.windowId = data.window_id || s.windowId;
+        if (typeof data.input_enabled === 'boolean') s.inputEnabled = data.input_enabled;
+        if (typeof data.input_blocked_reason === 'string') s.inputBlockedReason = data.input_blocked_reason;
+      }
     }, error => {
       this.stop(/^CU_[A-Z_]+$/.test(error.code || '') ? error.code : 'CU_NATIVE_ERROR', s);
     });

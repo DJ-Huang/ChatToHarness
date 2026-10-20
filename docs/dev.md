@@ -1,5 +1,16 @@
 # Development record — Windows computer use
 
+## macOS Computer Use P0 continued — 2026-10-20
+
+- Issue #1; branch feat/computer-use. Windows native/visual acceptance remains deferred. Windows pointer changes in native/ComputerUse.cs and tests/windows-cursor-motion.test.cjs deliberately remain uncommitted and are not staged.
+- Permission evidence: running native helper reports Screen Recording GRANTED, Accessibility MISSING, Input Monitoring MISSING. Added explicit permission status/request commands; OS grants are process-identity-specific and cannot be bypassed.
+- Real ScreenCaptureKit: list_windows succeeded (27 entries); own ChatToHarness window screenshot 1160×850, 211,199 PNG bytes, negative-coordinate geometry [1759,-1328,2919,-478], without image files.
+- Real MCP: observation-only session opens with Screen Recording alone and returns screenshot/chunks; type_text rejected CU_ACCESSIBILITY_REQUIRED. Status now exposes input_enabled=false, input_blocked_reason and null stop_hotkey in read-only mode.
+- Swift implementation: native screenshot probe, per-frame identity/geometry validation without repeated ScreenCaptureKit round-trips; separate MacCursorGlow uses system cursor alpha/hotspot to paint a mouse-transparent light-blue outer silhouette, no synthetic cursor/click ring. Glow compiles but is not visually accepted.
+- Automated evidence: npm run test:computer-use-mac PASS 14/14, 0 skipped, serial native GUI tests. Source build and staging succeed. Actual input, global Esc/STOP, glow appearance, multi-display and signed DMG acceptance remain pending.
+- Next: user grants Accessibility and Input Monitoring to actual helper identity, restarts it, then validates real input and emergency stop on disposable app. No Windows acceptance at this milestone.
+
+
 ## macOS Computer Use P0 implementation — 2026-10-20
 
 - **Priority:** user explicitly promoted macOS Computer Use to highest priority. Defer Windows native/installer/visual acceptance; preserve previous Windows source and pending tests without claiming acceptance.

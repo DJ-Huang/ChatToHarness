@@ -6,10 +6,10 @@ const {spawn} = require('node:child_process');
 const {createInterface} = require('node:readline');
 const {compressCapture, snapshot, readChunk, MAX_CAPTURE_BYTES, MAX_CHUNK_BYTES} = require('./computer-use-images.cjs');
 const ACTIONS = ['list_windows', 'open_session', 'get_session', 'activate', 'observe', 'read_screenshot', 'click', 'type_text', 'key_press', 'scroll', 'close_session'];
-const KEYS = ['ENTER', 'TAB', 'ESC', 'BACKSPACE', 'DELETE', 'LEFT', 'RIGHT', 'UP', 'DOWN', 'HOME', 'END', 'PAGEUP', 'PAGEDOWN', 'CTRL+A', 'CTRL+C', 'CTRL+V', 'CTRL+Z', 'CTRL+Y', 'SHIFT+TAB'];
+const KEYS = ['ENTER', 'TAB', 'BACKSPACE', 'DELETE', 'LEFT', 'RIGHT', 'UP', 'DOWN', 'HOME', 'END', 'PAGEUP', 'PAGEDOWN', 'CTRL+A', 'CTRL+C', 'CTRL+V', 'CTRL+Z', 'CTRL+Y', 'SHIFT+TAB'];
 const definition = {
   name: 'computer_use', title: 'Windows computer use',
-  description: 'Windows computer use. Authorization is configured at service startup: default all_windows permits list_windows and open_session with a returned window_id (omitted means foreground window); per_window requires the local picker for each new session. open_session immediately returns session_id and state initializing or awaiting_consent; poll get_session without an ID until ready. Repeating open_session recovers the current ID without replaying input. close_session without an ID closes the current session. observe requires session_id and returns observation_id with an image or chunk manifest. Inputs require a fresh observation and unchanged foreground target/geometry; coordinates are physical pixels relative to the outer window. Each input consumes the observation. Ctrl+Alt+F12 or STOP ends control. Configured clients share one session. Session IDs route calls; they are not authorization. GUI effects are not confined by project directories.',
+  description: 'Windows computer use. Authorization is configured at service startup: default all_windows permits list_windows and open_session with a returned window_id (omitted means foreground window); per_window requires the local picker for each new session. open_session immediately returns session_id and state initializing or awaiting_consent; poll get_session without an ID until ready. Repeating open_session recovers the current ID without replaying input. close_session without an ID closes the current session. observe requires session_id and returns observation_id with an image or chunk manifest. Inputs require a fresh observation and unchanged foreground target/geometry; coordinates are physical pixels relative to the outer window. Each input consumes the observation. Esc or the visible STOP button ends control. The controlled window has a light-blue translucent gradient outline; the real Windows mouse pointer is accentuated by a continuously following, mouse-transparent, light-blue gradient glow. Configured clients share one session. Session IDs route calls; they are not authorization. GUI effects are not confined by project directories.',
   inputSchema: {type: 'object', additionalProperties: false, required: ['action'], properties: {
     action: {type: 'string', enum: ACTIONS}, session_id: {type: 'string'}, observation_id: {type: 'string'}, window_id: {type: 'string', pattern: '^[1-9][0-9]{0,18}$'},
     format: {type: 'string', enum: ['auto', 'png', 'webp']}, delivery: {type: 'string', enum: ['auto', 'chunked']}, screenshot_id: {type: 'string'},
@@ -95,7 +95,7 @@ class WindowsComputerUse {
   status(s = this.session) {
     if (!s) return this.lastSession || {state: 'none', session_id: null, authorization_mode: this.authorizationMode, next_action: 'open_session'};
     return {session_id: s.id, state: s.state, authorization_mode: this.authorizationMode, ...(s.windowId ? {window_id: s.windowId} : {}), expires_at: new Date(s.expiresAt).toISOString(),
-      expires_in_ms: Math.max(0, s.expiresAt - Date.now()), stop_hotkey: 'Ctrl+Alt+F12',
+      expires_in_ms: Math.max(0, s.expiresAt - Date.now()), stop_hotkey: 'Esc',
       next_action: s.state === 'ready' ? 'observe' : 'get_session', ...(s.error ? {code: s.error} : {})};
   }
   stop(code = 'CU_SESSION_CLOSED', s = this.session) {

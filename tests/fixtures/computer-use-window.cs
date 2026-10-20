@@ -62,7 +62,74 @@ class ComputerUseWindowFixture {
         EnumChildWindows(parent,delegate(IntPtr h,IntPtr unused) { var text=new StringBuilder(256); GetClassName(h,text,text.Capacity); if(text.ToString().StartsWith("WindowsForms10."+name+"."))result=h; return true; },IntPtr.Zero);
         return result;
     }
-    static void ProductionLifecycle(string helper,Form target,bool hotkey) {
+    static void CheckOutline(int helperPid, Form target) {
+        Rect targetRect;
+        GetWindowRect(target.Handle,out targetRect);
+        IntPtr outline=IntPtr.Zero;
+        EnumWindows(delegate(IntPtr h,IntPtr state) {
+            uint owner; GetWindowThreadProcessId(h,out owner);
+            if(owner!=(uint)helperPid) return true;
+            Rect rect;
+            if(!GetWindowRect(h,out rect))return true;
+            if(rect.Left==targetRect.Left-10 && rect.Top==targetRect.Top-10
+                && rect.Right==targetRect.Right+10 && rect.Bottom==targetRect.Bottom+10)outline=h;
+            return true;
+        },IntPtr.Zero);
+        if(outline==IntPtr.Zero)throw new Exception("Active controlled window has no matching visual outline");
+        var sample=new Bitmap(1,1);
+        using(var g=Graphics.FromImage(sample))g.CopyFromScreen(targetRect.Left-5,targetRect.Top+30,0,0,new Size(1,1));
+        Color c=sample.GetPixel(0,0);
+        Console.WriteLine("OUTLINE_PIXEL_RGB="+c.R+","+c.G+","+c.B);
+        if(c.G<=c.R+5 || c.B<=c.G+5)throw new Exception("Visible outline is not light-blue toned");
+    }
+    static void CheckCursorGlow(Process helper, Form target, Point physicalCursor) {
+        FocusFixture(target);
+        if (!SetCursorPos(physicalCursor.X, physicalCursor.Y)) throw new Exception("Cannot move real cursor");
+        Pump();
+        IntPtr cursorLayer=IntPtr.Zero;
+        EnumWindows(delegate(IntPtr h, IntPtr state) {
+            uint owner; GetWindowThreadProcessId(h, out owner);
+            if (owner != (uint)helper.Id) return true;
+            Rect rect; if (!GetWindowRect(h,out rect)) return true;
+            if(rect.Right-rect.Left==76 && rect.Bottom-rect.Top==76
+                && rect.Left==physicalCursor.X-38 && rect.Top==physicalCursor.Y-38) cursorLayer=h;
+            return true;
+        }, IntPtr.Zero);
+        if (cursorLayer==IntPtr.Zero)throw new Exception("Real mouse pointer has no correctly positioned gradient highlight");
+        if (GetAncestor(WindowFromPoint(physicalCursor), 2) != target.Handle)
+            throw new Exception("Cursor highlight blocks mouse hit testing");
+        using(var pixel = new Bitmap(1,1)) {
+            using(var g=Graphics.FromImage(pixel))g.CopyFromScreen(physicalCursor.X+12, physicalCursor.Y+12,0,0,new Size(1,1));
+            Color c=pixel.GetPixel(0,0);
+            if(c.G<=c.R+4 || c.B<=c.G+4)throw new Exception("Cursor highlight is not blue gradient");
+        }
+    }
+    static void AssertMouseFeedback(Process helper, Form target) {
+        FocusFixture(target);
+        Rect rect; GetWindowRect(target.Handle,out rect);
+        Point first = new Point(rect.Right-80,rect.Bottom-65);
+        Point second = new Point(rect.Right-130,rect.Bottom-85);
+        CheckCursorGlow(helper,target,first);
+        CheckCursorGlow(helper,target,second);
+        var request=new Dictionary<string,object> {
+            {"action","click"},
+            {"geometry",new int[] {rect.Left,rect.Top,rect.Right,rect.Bottom}},
+            {"x",second.X-rect.Left},{"y",second.Y-rect.Top}
+        };
+        for(int i=0;i<2;i++) {
+            helper.StandardInput.WriteLine(new JavaScriptSerializer().Serialize(request));
+            helper.StandardInput.Flush();
+            var response=helper.StandardOutput.ReadLineAsync();
+            var deadline=DateTime.UtcNow.AddSeconds(5);
+            while(!response.IsCompleted && DateTime.UtcNow<deadline) Pump();
+            if(!response.IsCompleted || response.Result == null || !response.Result.Contains("\"ok\":true"))
+                throw new Exception("Native click failed with real pointer glow");
+            if (GetAncestor(WindowFromPoint(second),2)!=target.Handle)
+                throw new Exception("Cursor glow intercepted target click");
+        }
+        Console.WriteLine("REAL_MOUSE_GLOW_TRACKS_CURSOR=true; CLICK_THROUGH_GLOW=true");
+    }
+    static void ProductionLifecycle(string helper,Form target,int stopMode) {
         using(var child=Process.Start(new ProcessStartInfo(helper,Process.GetCurrentProcess().Id.ToString()) { UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,StandardOutputEncoding=new UTF8Encoding(false) })) {
             try {
                 IntPtr picker=IntPtr.Zero; var end=DateTime.UtcNow.AddSeconds(8);
@@ -76,12 +143,20 @@ class ComputerUseWindowFixture {
                 var ready=child.StandardOutput.ReadLineAsync(); end=DateTime.UtcNow.AddSeconds(8);
                 while(!ready.IsCompleted && DateTime.UtcNow<end)Pump();
                 if(!ready.IsCompleted || ready.Result==null || !ready.Result.Contains("\"ready\":true"))throw new Exception("Production consent did not establish session");
-                if(hotkey) {
+                CheckOutline(child.Id, target);
+                if(stopMode==0) {
+                    target.Left+=24; Pump(); Thread.Sleep(1200); Pump(); CheckOutline(child.Id,target);
+                    target.Left-=24; Pump(); Thread.Sleep(1200); Pump(); CheckOutline(child.Id,target);
+                    Console.WriteLine("OUTLINE_FOLLOWS_WINDOW=true");
+                    AssertMouseFeedback(child,target);
+                }
+                if(stopMode!=0) {
                     FocusFixture(target);
-                    var inputType=Native.GetNestedType("INPUT",BindingFlags.NonPublic); var batch=Array.CreateInstance(inputType,6);
+                    var inputType=Native.GetNestedType("INPUT",BindingFlags.NonPublic);
                     var key=Native.GetMethod("Key",BindingFlags.Static|BindingFlags.NonPublic);
-                    ushort[] codes={17,18,123,123,18,17};
-                    for(int i=0;i<6;i++)batch.SetValue(key.Invoke(null,new object[]{codes[i],(ushort)0,i<3?0u:2u}),i);
+                    ushort[] codes=new ushort[]{27,27};
+                    var batch=Array.CreateInstance(inputType,codes.Length);
+                    for(int i=0;i<codes.Length;i++)batch.SetValue(key.Invoke(null,new object[]{codes[i],(ushort)0,i==0?0u:2u}),i);
                     Native.GetMethod("Inject",BindingFlags.Static|BindingFlags.NonPublic).Invoke(null,new object[]{batch});
                 } else {
                     IntPtr stop=FindWindow(child.Id,"ChatToHarness — Computer Use"); var stopButton=Child(stop,"BUTTON"); if(stopButton==IntPtr.Zero)throw new Exception("Production STOP control missing");
@@ -159,6 +234,31 @@ class ComputerUseWindowFixture {
         }
         return 0;
     }
+    static void AssertCursorInNativeCapture(Form target) {
+        FocusFixture(target);
+        Point spot = target.PointToScreen(new Point(245, 220));
+        if (!SetCursorPos(spot.X, spot.Y)) throw new Exception("Cannot position test cursor");
+        Pump();
+        var rectType = Native.GetNestedType("RECT", BindingFlags.Public);
+        var area = Activator.CreateInstance(rectType);
+        rectType.GetField("Left").SetValue(area, spot.X - 28);
+        rectType.GetField("Top").SetValue(area, spot.Y - 28);
+        rectType.GetField("Right").SetValue(area, spot.X + 68);
+        rectType.GetField("Bottom").SetValue(area, spot.Y + 68);
+        using (var bitmap = new Bitmap(96, 96))
+        using (var graphics = Graphics.FromImage(bitmap)) {
+            graphics.Clear(Color.White);
+            Native.GetMethod("DrawVisibleCursor", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, new object[] { graphics, area });
+            int changed = 0;
+            for (int y = 0; y < bitmap.Height; y++)
+                for (int x = 0; x < bitmap.Width; x++) {
+                    Color color = bitmap.GetPixel(x,y);
+                    if (color.R < 235 || color.G < 235 || color.B < 235) changed++;
+                }
+            if (changed < 4) throw new Exception("Native cursor was not composited into capture");
+            Console.WriteLine("SCREENSHOT_NATIVE_CURSOR_PIXELS=" + changed);
+        }
+    }
     static void ExpectError(Dictionary<string,object> args, string code) {
         try { Execute(args); throw new Exception("Expected " + code); } catch(InvalidOperationException e) { if(e.Message != code) throw; }
     }
@@ -172,6 +272,7 @@ class ComputerUseWindowFixture {
                 bool clicked=false; button.Click += delegate { clicked=true; };
                 form.Controls.Add(input); form.Controls.Add(button); form.Show(); FocusFixture(form);
                 Set("Target",form.Handle); Set("TargetPid",(uint)Process.GetCurrentProcess().Id); Set("TargetStarted",Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks);
+                AssertCursorInNativeCapture(form);
                 var capture=Execute(new Dictionary<string,object>{{"action","observe"}});
                 var geometry=(int[])Property(capture,"geometry");
                 var png=Convert.FromBase64String((string)Property(capture,"png"));
@@ -192,9 +293,9 @@ class ComputerUseWindowFixture {
                 var scroll=Action("scroll",geometry); scroll["x"]=point.X-geometry[0]; scroll["y"]=point.Y-geometry[1]; scroll["delta"]=-1; Execute(scroll); Pump();
                 form.Left+=20; Pump(); ExpectError(click,"CU_WINDOW_MOVED");
                 using(var other=new Form { Text="Fixture focus rejection",Width=200,Height=100 }) { other.Show(); other.Activate(); SetForegroundWindow(other.Handle); Pump(); ExpectError(text,"CU_WINDOW_NOT_FOREGROUND"); }
-                ProductionLifecycle(args[0],form,false);
-                ProductionLifecycle(args[0],form,true);
-                Console.WriteLine("NATIVE_ACCEPTANCE_PASS: PNG, Unicode literal input, Ctrl+A/Backspace, button click, wheel submission, geometry rejection, foreground rejection, production consent picker, STOP button, Ctrl+Alt+F12");
+                ProductionLifecycle(args[0],form,0);
+                ProductionLifecycle(args[0],form,1);
+                Console.WriteLine("NATIVE_ACCEPTANCE_PASS: PNG, Unicode literal input, Ctrl+A/Backspace, button click, wheel submission, geometry rejection, foreground rejection, production consent picker, gradient outline, real mouse glow, STOP button and Esc");
             }
             return 0;
         } catch(Exception e) { Console.Error.WriteLine(e.ToString()); return 1; }

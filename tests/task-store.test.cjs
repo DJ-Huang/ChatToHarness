@@ -48,8 +48,10 @@ function fixture(t, options = {}) {
     const name = '.task-' + crypto.createHash('sha256').update(code).digest('hex').slice(0, 16) + '.cjs';
     const script = path.join(project, name);
     if (!fs.existsSync(script)) fs.writeFileSync(script, code);
+    // PowerShell otherwise maps a native nonzero exit to 1. Explicitly forward
+    // this fixture's Node exit code so the same strict assertions run on Windows.
     return process.platform === 'win32'
-      ? `& '${process.execPath.replace(/'/g, "''")}' '${script.replace(/'/g, "''")}'`
+      ? `& '${process.execPath.replace(/'/g, "''")}' '${script.replace(/'/g, "''")}'; exit $LASTEXITCODE`
       : `'${process.execPath.replace(/'/g, "'\\''")}' '${script.replace(/'/g, "'\\''")}'`;
   };
   const start = (code, key, extra = {}) => { const value = store.start({project_path: project, idempotency_key: key, command: command(code), runtime_limit_ms: 10000, ...extra}); if (!ids.includes(value.task_id)) ids.push(value.task_id); return value; };

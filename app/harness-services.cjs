@@ -90,7 +90,11 @@ class HarnessServices {
       const errors=['failed','unknown','interrupted'].includes(row.state)&&!row.recovery_kind||row.delivery==='local_write_failed';
       if(state==='errors'?!errors:state!=='all'&&state!==row.state&&state!==row.recovery_kind)continue;
       const explicitProject=typeof row.project==='string'&&path.isAbsolute(row.project),scopes=explicitProject?[row.project]:row.scope_paths;
-      if(!Array.isArray(scopes)||!scopes.length||scopes.length>128||scopes.some(scope=>typeof scope!=='string'||!path.isAbsolute(scope)||!inside(root,path.resolve(scope))))continue;
+      // Authorize canonical paths before testing project containment. Windows
+      // 8.3 names and other authorized aliases can be outside the root lexically
+      // while resolving to the very same project. The checks below still reject
+      // every canonical target that escapes the selected project.
+      if(!Array.isArray(scopes)||!scopes.length||scopes.length>128||scopes.some(scope=>typeof scope!=='string'||!path.isAbsolute(scope)))continue;
       let scoped=true;
       for(const scope of scopes) {
         const key=`${explicitProject?'project':'path'}:${scope}`;let canonical=projects.get(key);

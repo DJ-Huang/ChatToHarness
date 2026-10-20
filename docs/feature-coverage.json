@@ -63,7 +63,9 @@
     "artifacts": {
       "ui": [],
       "tools": [
-        "get_file_result"
+        "get_file_result",
+        "get_tool_result_page",
+        "get_tool_result_file"
       ]
     },
     "background-tasks": {
@@ -230,7 +232,9 @@
         "history-next",
         "history-rows"
       ],
-      "tools": []
+      "tools": [
+        "get_execution_summary"
+      ]
     },
     "diagnostics": {
       "ui": [

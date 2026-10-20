@@ -21,6 +21,8 @@ Expand Live logs in the sidebar or use its execution-record shortcut.
 5. Distinguish local execution success, response written to the local channel and actual receipt by the client.
 6. If a task ID exists, inspect that task instead of starting another.
 
+From chat, call `get_execution_summary` directly with the authorized `project_path` and `state:"errors"` for recent failures. It returns request IDs, tool names, states, durations, error reasons and any task ID, without raw arguments or output. The default is 10 records, at most 50; use `tool`, `since` and the returned cursor to narrow or page the result.
+
 ![Find and understand execution history](../images/help/en/history.png)
 
 1 Search; 2 Execution list; 3 Export selected records. Interface demonstration using the current repository UI and isolated sample data; not evidence of a live tunnel or tool call.

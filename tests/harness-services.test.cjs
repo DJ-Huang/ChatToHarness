@@ -182,6 +182,26 @@ test('execution summaries include explicit file scopes without project_path and 
   assert.doesNotMatch(JSON.stringify(result),/outside selected project|scope_paths|unscoped-shell|mixed-projects|symlink-escape/);
 });
 
+test('execution summaries scope authorized aliases by canonical paths while excluding aliases outside the project',async t=>{
+  const f=fixture(t),alias=path.join(f.directory,'project-alias'),outside=path.join(f.directory,'outside');
+  fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,'private.txt'),'outside project');
+  const outsideAlias=path.join(f.project,'outside-alias');
+  fs.symlinkSync(f.project,alias,process.platform==='win32'?'junction':'dir');
+  fs.symlinkSync(outside,outsideAlias,process.platform==='win32'?'junction':'dir');
+  const records=[
+    {request_id:'project-alias',project:alias},
+    {request_id:'file-alias',scope_paths:[path.join(alias,'hello 中文.txt')]},
+    {request_id:'missing-alias',scope_paths:[path.join(alias,'missing.txt')]},
+    {request_id:'outside-alias',scope_paths:[path.join(outsideAlias,'private.txt')]},
+    {request_id:'mixed-alias',scope_paths:[path.join(alias,'hello 中文.txt'),path.join(outsideAlias,'private.txt')]},
+  ];
+  f.services.history={rows:()=>records.map(row=>({...row,tool:'read_file',state:'failed',received_at:'2026-10-20T00:00:00.000Z',error_code:'READ_FAILED'}))};
+  const result=await f.services.call('get_execution_summary',{project_path:f.project,state:'errors'});
+  assert.equal(result.isError,undefined);
+  assert.deepEqual(result.structuredContent.items.map(row=>row.request_id).sort(),['file-alias','missing-alias','project-alias']);
+  assert.doesNotMatch(JSON.stringify(result),/outside-alias|mixed-alias|private\.txt/);
+});
+
 test('harness status reports tool health separately from a ready connection using manager and runtime health',async t=>{
   const f=fixture(t),missing=[{service_id:'builtin',capability:'tools',phase:'failed',code:'MCP_COMPONENT_MISSING'}];
   f.services.runtime=()=>({state:'ready',localReady:true,tools_health:'ready',tools_ready:true,missing_capabilities:[]});

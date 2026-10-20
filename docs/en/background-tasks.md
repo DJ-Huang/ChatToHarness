@@ -2,7 +2,7 @@
 
 [English](../en/background-tasks.md) | [简体中文](../zh-CN/background-tasks.md) | [日本語](../ja/background-tasks.md)
 
-> For the current source; these changes have not been released.
+> Available in v0.6.2.
 
 ## Your goal
 

@@ -11,14 +11,19 @@ const {readJson, atomicJson} = require('../app/durable-files.cjs');
 const {defaultShell} = require('../app/platform.cjs');
 const {windowsProcessHost} = require('./native-helper.cjs');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-test('bounded waits preserve output, durable identity and the worker after a chat disconnect', {timeout:15000}, async t=>{
+test('bounded waits preserve output, durable identity and the worker after a chat disconnect', {timeout:60000}, async t=>{
   const f=fixture(t);
-  const quick=f.start('console.log("short result");console.error("stderr result");process.exitCode=3','short-wait');
-  const done=await f.store.waitResult(quick.task_id,f.project,{wait_ms:10000});
+  // Synchronize on the actual program, not worker/PowerShell startup time under
+  // CI load. The response wait remains capped at 10 seconds on every platform.
+  const quick=f.start('const fs=require("fs");console.log("short result");console.error("stderr result");fs.writeFileSync("short-ready","1");const timer=setInterval(()=>{if(fs.existsSync("finish-short")){clearInterval(timer);process.exitCode=3;}},25)','short-wait',{runtime_limit_ms:30000});
+  await until(()=>fs.existsSync(path.join(f.project,'short-ready')),30000);
+  const finishing=f.store.waitResult(quick.task_id,f.project,{wait_ms:10000});
+  fs.writeFileSync(path.join(f.project,'finish-short'),'1');
+  const done=await finishing;
   assert.equal(done.terminal,true);assert.equal(done.state,'failed');assert.equal(done.exit_code,3);
   assert.match(done.stdout,/short result/);assert.match(done.stderr,/stderr result/);
   const code='require("fs").appendFileSync("wait-once.txt","1");setTimeout(()=>console.log("finished later"),900)';
-  const task=f.start(code,'disconnected-wait'),controller=new AbortController();
+  const task=f.start(code,'disconnected-wait',{runtime_limit_ms:30000}),controller=new AbortController();
   const waiting=f.store.waitResult(task.task_id,f.project,{wait_ms:10000,signal:controller.signal});
   setTimeout(()=>controller.abort(),20);
   const active=await waiting;
@@ -26,8 +31,9 @@ test('bounded waits preserve output, durable identity and the worker after a cha
   assert.equal(active.next_arguments.task_id,task.task_id);assert.equal(active.next_tool,'get_task_result');
   assert.ok(!fs.existsSync(path.join(f.store.taskPath(task.task_id),'cancel.request')));
   const reopened=new TaskStore(f.config);
-  const same=reopened.start({project_path:f.project,idempotency_key:'disconnected-wait',command:f.command(code),runtime_limit_ms:10000,wait_ms:0});
+  const same=reopened.start({project_path:f.project,idempotency_key:'disconnected-wait',command:f.command(code),runtime_limit_ms:30000,wait_ms:0});
   assert.equal(same.task_id,task.task_id);assert.equal(same.reused,true);
+  await until(()=>fs.existsSync(path.join(f.project,'wait-once.txt'))||reopened.status(task.task_id,f.project).terminal,30000);
   const final=await reopened.waitResult(task.task_id,f.project,{wait_ms:10000});
   assert.equal(final.state,'succeeded');assert.match(final.stdout,/finished later/);
   assert.equal(fs.readFileSync(path.join(f.project,'wait-once.txt'),'utf8'),'1');

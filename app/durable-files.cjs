@@ -33,8 +33,17 @@ function atomicJson(file, value) {
   try {
     fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
     fs.writeFileSync(fd, JSON.stringify(value) + '\n'); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
-    if (fs.existsSync(file)) { const stat = fs.lstatSync(file); if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw Object.assign(new Error('Stored record changed unexpectedly.'), {code: 'UNSAFE_STORAGE'}); }
-    fs.renameSync(temporary, file); syncDirectory(path.dirname(file));
+    for (let attempt = 0; ; attempt++) {
+      if (fs.existsSync(file)) { const stat = fs.lstatSync(file); if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw Object.assign(new Error('Stored record changed unexpectedly.'), {code: 'UNSAFE_STORAGE'}); }
+      try { fs.renameSync(temporary, file); break; }
+      catch (error) {
+        // Windows can temporarily deny replacement while a reader holds the old
+        // file open. Retry the same rename, never unlink the destination first.
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 5) throw error;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5 * (attempt + 1));
+      }
+    }
+    syncDirectory(path.dirname(file));
   } finally { if (fd !== undefined) fs.closeSync(fd); try { fs.unlinkSync(temporary); } catch {} }
 }
 module.exports = {privateDirectory, readJson, atomicJson, syncDirectory};

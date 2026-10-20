@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {atomicJson, readJson} = require('../app/durable-files.cjs');
 
-test('a record replaced between open and fstat is reopened without accepting unlinked bytes', t => {
+test('a record replaced between open and fstat is reopened without accepting unlinked bytes', {skip:process.platform==='win32'?'Windows denies replacement while the old file is open; covered by sharing retries below.':false}, t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-record-race-'));
   t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
   const file = path.join(directory, 'state.json');
@@ -33,9 +33,46 @@ test('replacement retries are bounded and still reject hard links and oversized 
   const fstat = fs.fstatSync;
   let attempts = 0;
   t.mock.method(fs, 'fstatSync', (fd, ...args) => {
-    atomicJson(file, {revision: ++attempts});
-    return fstat(fd, ...args);
+    attempts++;
+    const stat = fstat(fd, ...args);
+    stat.nlink = 0;
+    return stat;
   });
   assert.throws(() => readJson(file), {code: 'UNSAFE_STORAGE'});
   assert.equal(attempts, 3);
+});
+
+test('Windows atomic writes retry transient sharing conflicts without deleting the previous record', {skip:process.platform!=='win32'}, t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-record-sharing-'));
+  t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
+  const file = path.join(directory, 'state.json');
+  atomicJson(file, {revision: 1});
+  const rename = fs.renameSync;
+  let attempts = 0;
+  t.mock.method(fs, 'renameSync', (...args) => {
+    if (++attempts <= 2) {
+      assert.deepEqual(readJson(file), {revision: 1});
+      throw Object.assign(new Error('Synthetic reader sharing conflict'), {code:'EPERM'});
+    }
+    return rename(...args);
+  });
+  atomicJson(file, {revision: 2});
+  assert.equal(attempts, 3);
+  assert.deepEqual(readJson(file), {revision: 2});
+});
+
+test('Windows persistent rename failures remain bounded and preserve the previous record', {skip:process.platform!=='win32'}, t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-record-sharing-failure-'));
+  t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
+  const file = path.join(directory, 'state.json');
+  atomicJson(file, {revision: 1});
+  let attempts = 0;
+  t.mock.method(fs, 'renameSync', () => {
+    attempts++;
+    throw Object.assign(new Error('Synthetic persistent sharing conflict'), {code:'EPERM'});
+  });
+  assert.throws(() => atomicJson(file, {revision: 2}), {code:'EPERM'});
+  assert.equal(attempts, 6);
+  assert.deepEqual(readJson(file), {revision: 1});
+  assert.deepEqual(fs.readdirSync(directory), ['state.json']);
 });

@@ -58,7 +58,7 @@ function validate(args) {
 }
 class NativeConnection {
   constructor(executable, {operation, mode = 'all_windows', window_id} = {}) {
-    this.child = spawn(executable, [String(process.pid), operation === 'list_windows' ? 'list_windows' : mode, window_id || '0'], {windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'ignore'], env: Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(SystemRoot|WINDIR|TEMP|TMP|USERPROFILE)$/i.test(k)))});
+    this.child = spawn(executable, [String(process.pid), operation === 'list_windows' ? 'list_windows' : mode, window_id || '0'], {windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'ignore'], env: Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(SystemRoot|WINDIR|TEMP|TMP|USERPROFILE|HOME|TMPDIR|USER|LOGNAME|LANG)$/i.test(k)))});
     this.pending = null;
     this.ready = new Promise((resolve, reject) => { this.initial = {resolve, reject}; });
     this.lines = createInterface({input: this.child.stdout});
@@ -86,10 +86,10 @@ class NativeConnection {
   }
 }
 class WindowsComputerUse {
-  constructor({platform = process.platform, connect, helperPath = fs.existsSync(path.join(__dirname, '../ChatToHarness.ComputerUse.exe')) ? path.join(__dirname, '../ChatToHarness.ComputerUse.exe') : path.resolve(__dirname, '../resources/computer-use/ChatToHarness.ComputerUse.exe'), timeoutMs = 45000, authorizationMode = process.env.CTH_COMPUTER_USE_AUTHORIZATION_MODE || 'all_windows'} = {}) {
+  constructor({platform = process.platform, connect, helperPath = fs.existsSync(path.join(__dirname, '../ChatToHarness.ComputerUse.exe')) ? path.join(__dirname, '../ChatToHarness.ComputerUse.exe') : path.resolve(__dirname, '../resources/computer-use/ChatToHarness.ComputerUse.exe'), timeoutMs = 45000, supportedPlatform = 'win32', authorizationMode = process.env.CTH_COMPUTER_USE_AUTHORIZATION_MODE || 'all_windows'} = {}) {
     if (!['all_windows','per_window'].includes(authorizationMode)) throw fail('CU_INVALID_AUTHORIZATION_MODE');
     this.authorizationMode = authorizationMode;
-    this.platform = platform; this.connect = connect || (options => new NativeConnection(helperPath, options));
+    this.platform = platform; this.supportedPlatform = supportedPlatform; this.connect = connect || (options => new NativeConnection(helperPath, options));
     this.timeoutMs = timeoutMs; this.session = null; this.lastSession = null; this.busy = false; this.operation = null;
   }
   status(s = this.session) {
@@ -146,7 +146,7 @@ class WindowsComputerUse {
     let started = false, timer, abort, operation, activeSession;
     try {
       const args = validate(input);
-      if (this.platform !== 'win32') throw fail('CU_WINDOWS_REQUIRED');
+      if (this.platform !== this.supportedPlatform) throw fail(this.supportedPlatform === 'darwin' ? 'CU_MACOS_REQUIRED' : 'CU_WINDOWS_REQUIRED');
       signal?.throwIfAborted();
       this.reconcile();
       if (args.action === 'list_windows') return await this.listWindows(signal);

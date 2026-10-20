@@ -1,5 +1,17 @@
 # Development record — Windows computer use
 
+## macOS Computer Use P0 implementation — 2026-10-20
+
+- **Priority:** user explicitly promoted macOS Computer Use to highest priority. Defer Windows native/installer/visual acceptance; preserve previous Windows source and pending tests without claiming acceptance.
+- **Branch:** `feat/computer-use`, in-place; no worktree. **Issue:** [#1](https://github.com/watermoon/ChatToHarness/issues/1) (open).
+- **Native implementation:** `native/MacComputerUse.swift` (macOS 14+, arm64): ScreenCaptureKit window listing/single-window capture; AppKit consent picker; guarded foreground/window identity/launchDate/geometry/occlusion checks; CGEvent pointer, click, scroll, Unicode typing and bounded keys (CTRL shortcuts map to Command). A local non-activating STOP panel and passive Esc event tap must both initialize before input; missing Screen Recording, Accessibility or Esc capabilities reject the session. Parent-process watchdog and 10-minute deadline close control.
+- **MCP:** `app/macos-computer-use.cjs`, `app/macos-computer-use-stdio.cjs`; reuse existing one-use observation, image compression, SHA256, chunks, sessions and no-replay semantics via platform-qualified native connection. Windows tool name/policy remains separate.
+- **Build/packaging:** `scripts/build-computer-use.cjs`, `scripts/prepare-computer-use.cjs`, `scripts/computer-use-config.cjs`, `electron-builder.config.cjs`, platform-dispatched `app/computer-use-stdio.cjs`; source `npm run computer-use:mac`, build `npm run build:computer-use`.
+- **Mac verification:** `npm run test:computer-use-mac` exit **0**, **7/7** dedicated tests pass, including native binary launch and MCP stdio discovery. Swift optimized helper compilation exit 0. macOS native `list_windows` returned **`CU_SCREEN_RECORDING_REQUIRED`**, confirming fail-closed behavior on this host. Real window capture, input, Esc/STOP and Retina/multi-display are **not yet validated** because the required local TCC grants have not been established. Do not mark supported/released.
+- **Acceptance still open:** real installed-app Screen Recording + Accessibility (+ Input Monitoring if event tap requires it), target consent, screenshot geometry/retina, visual overlay and native pointer silhouette glow, actual click/scroll/Unicode, Esc/STOP under focus/full-screen, permission revocation, signed DMG identity, screenshot persistence/no-replay, Mac packaging verification. Windows full acceptance postponed by user.
+- **Next:** obtain interactive Mac TCC permission evidence for the executing app/helper; run disposable GUI fixture with global stop verified, then accept. Maintain `docs/computer-use-macos-plan.md` and Issue #1.
+
+
 ## Fix cursor-shaped Glow alignment — 2026-10-20
 
 - User reported that Glow was not actually wrapped around the real mouse cursor. Root cause: the previous `MakeCursorGlow()` always drew a 76×76 radial disk centered on the pointer coordinate, ignoring cursor silhouette and hotspot.

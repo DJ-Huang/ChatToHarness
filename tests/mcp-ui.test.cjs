@@ -95,6 +95,20 @@ async function rendererFixture(state = initialState(), overrides = {}) {
   return { document, calls, node: id => document.getElementById(id), update: value => subscriber(value), api };
 }
 
+test('a healthy tunnel still shows degraded tool health and clears after recovery', async () => {
+  const state=initialState();
+  state.runtime={state:'ready',localReady:true,toolsCount:12,tools_health:'degraded',tools_ready:false,
+    missing_capabilities:[{service_id:'builtin',capability:'tools',phase:'failed',code:'MCP_MODULE_NOT_FOUND'}]};
+  const f=await rendererFixture(state);
+  assert.equal(f.node('status-label').textContent,'部分工具不可用');
+  assert.equal(f.node('local-detail').textContent,'部分工具不可用');
+  assert.equal(f.node('tunnel-detail').textContent,'通道已就绪');
+  assert.equal(f.node('error-banner').hidden,false);
+  f.update({...state,runtime:{...state.runtime,tools_health:'ready',tools_ready:true,missing_capabilities:[]}});
+  assert.equal(f.node('error-banner').hidden,true);
+  assert.notEqual(f.node('status-label').textContent,'部分工具不可用');
+});
+
 test('MCP navigation is accessible and management inputs cannot submit tunnel settings', () => {
   const document = documentFixture();
   const nav = document.getElementById('nav-mcp');
@@ -325,6 +339,51 @@ test('home and sidebar open a live log page; filtering, pause, search and clear 
   assert.equal(calls.at(-1).cursor,null,'reload reads the bounded tail again');
   assert.ok(source('main.cjs').includes("bind('live-logs-read'"));
   assert.ok(source('preload.cjs').includes("readLiveLogs:input=>call('live-logs-read',input)"));
+});
+
+test('live logs merge transport updates across polls and localize recoverable execution states',async()=>{
+  const base={at:'2026-10-19T00:52:18Z',event:'execution',category:'tool',severity:'info',request_id:'exec_first',
+    service:'builtin',tool:'start_process',state:'failed',error_code:'PROJECT_CONTEXT_REFRESH_REQUIRED',
+    recovery_kind:'needs_context',message:'builtin · start_process · failed · PROJECT_CONTEXT_REFRESH_REQUIRED'};
+  const pages=[
+    [{...base,id:'1:1',delivery:'unknown'}],
+    [{...base,id:'1:2',delivery:'local_write_succeeded'},
+      {...base,id:'1:3',request_id:'exec_second',error_code:'context_paths_required',recovery_kind:'needs_arguments'},
+      {...base,id:'1:4',state:'running',error_code:'',recovery_kind:undefined}],
+    [{...base,id:'1:5',delivery:'local_write_failed',severity:'error',recovery_kind:undefined}],
+  ];
+  const f=await rendererFixture(initialState(),{readLiveLogs:async()=>({entries:pages.shift()||[],cursor:{file:'app.log',identity:'1',offset:100},reset:false,more:false})});
+  await f.node('nav-logs').emit('click');await settled();
+  assert.equal(f.node('log-entries').children.length,1);
+  assert.match(f.node('log-entries').textContent,/待读取项目规范/);
+  const poll=async()=>{await f.node('log-pause').emit('click');await f.node('log-pause').emit('click');await settled();};
+  await poll();
+  assert.equal(f.node('log-entries').children.length,3,'same request/state/code updates in place; other requests and phases stay separate');
+  assert.match(f.node('log-entries').textContent,/响应已写入本机通道/);
+  assert.match(f.node('log-entries').textContent,/待补全参数/);
+  assert.match(f.node('log-entries').textContent,/执行中/);
+  await f.node('log-filter-error').emit('click');
+  assert.match(f.node('log-entries').textContent,/没有符合筛选条件/);
+  await poll();
+  assert.equal(f.node('log-entries').children.length,1);
+  assert.match(f.node('log-entries').textContent,/失败.*本机写入失败/);
+  assert.doesNotMatch(f.node('log-entries').textContent,/待读取项目规范/);
+  await f.node('log-filter-all').emit('click');
+  assert.equal(f.node('log-entries').children.length,3);
+  await f.node('log-reload').emit('click');await settled();
+  assert.match(f.node('log-entries').textContent,/等待新日志/);
+});
+
+test('execution history labels recoverable failures and translations describe local response delivery',async()=>{
+  const records=['needs_arguments','needs_context'].map((kind,index)=>({request_id:'exec_'+index,received_at:'2026-10-19T00:52:18Z',tool:'start_process',service:'builtin',state:'failed',recovery_kind:kind}));
+  const f=await rendererFixture(initialState(),{executionList:async()=>({records,total:2,usage:0,diagnostics:{enabled:false}})});
+  await f.node('nav-history').emit('click');await settled();
+  assert.match(f.node('history-rows').textContent,/待补全参数/);
+  assert.match(f.node('history-rows').textContent,/待读取项目规范/);
+  for(const key of ['待补全参数','待读取项目规范','响应已写入本机通道']){
+    assert.equal(messages[key].length,2);
+    assert.notEqual(i18n.translate('en',key),key);assert.notEqual(i18n.translate('ja',key),key);
+  }
 });
 
 test('log pages share a labelled group, with nested history icon and accessible keyboard order', async () => {

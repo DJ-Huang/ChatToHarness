@@ -10,6 +10,8 @@ const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 const { ToolListChangedNotificationSchema } = require('@modelcontextprotocol/sdk/types.js');
 const { McpGateway } = require('../app/mcp-gateway.cjs');
+const {McpResultPages,decorateTool} = require('../app/mcp-result-pages.cjs');
+const deliveryTools = () => new McpResultPages().tools();
 
 const TEST_TOOL = {
   name: 'unity__inspect', description: 'Test application tool',
@@ -138,7 +140,7 @@ test('private gateway authenticates before MCP parsing and never exposes managem
   }
 });
 
-test('real SDK client discovers and invokes tools through stdio relay without modifying arguments or results', { timeout: 15000 }, async t => {
+test('real SDK client preserves arguments and defers native files without rerunning the source tool', { timeout: 15000 }, async t => {
   const { manager, environment } = await fixture(t);
   const expected = {
     content: [
@@ -157,12 +159,22 @@ test('real SDK client discovers and invokes tools through stdio relay without mo
   const client = new Client({ name: 'upstream-test', version: '1.0.0' }, { capabilities: {} });
   t.after(() => client.close());
   await client.connect(transport);
-  assert.deepEqual((await client.listTools()).tools, [TEST_TOOL]);
+  assert.deepEqual((await client.listTools()).tools, [TEST_TOOL,...deliveryTools()]);
   const args = { label: '中文', unchangedPath: '../literal/$HOME', nested: { project_context: false, newline: 'a\nb' }, zero: 0 };
   const result = await client.callTool({ name: TEST_TOOL.name, arguments: args });
   assert.deepEqual(manager.calls[0].args, args);
   assert.equal(manager.calls[0].name, TEST_TOOL.name);
-  assert.deepEqual(result, expected);
+  assert.equal(result.structuredContent.kind,'harness_result_page');
+  assert.equal(result.isError,true);
+  assert.deepEqual(result._meta,expected._meta);
+  const projected=JSON.parse(result.structuredContent.text);
+  assert.deepEqual(projected.structuredContent,expected.structuredContent);
+  assert.deepEqual(projected.content[0],expected.content[0]);
+  for(const [index,block] of expected.content.slice(1).entries()){
+    const file=await client.callTool({name:'get_tool_result_file',arguments:{result_id:result.structuredContent.result_id,file_index:index}});
+    assert.deepEqual(file.content,[block]);
+  }
+  assert.equal(manager.calls.length,1);
   const changed = deferred();
   client.setNotificationHandler(ToolListChangedNotificationSchema, () => changed.resolve());
   manager.emit('toolsChanged');
@@ -178,8 +190,10 @@ test('repeated upstream initialize reuses the session and stable tools without l
   connection.send({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
   const before = (await connection.waitFor(message => message.id === 1)).result;
   await connection.initialize();
-  connection.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: TEST_TOOL.name, arguments: { label: 'private-call-contents' } } });
-  await connection.waitFor(message => message.id === 2);
+  const responseWritten = deferred(), recordLog = manager.log.bind(manager);
+  manager.log = (event, details) => { recordLog(event,details);if(event==='mcp-timing'&&details.phase==='response-written'&&details.method==='tools/call')responseWritten.resolve(); };
+  connection.send({ jsonrpc: '2.0', id: 'private-json-rpc-id', method: 'tools/call', params: { name: TEST_TOOL.name, arguments: { label: 'private-call-contents' } } });
+  await Promise.all([connection.waitFor(message => message.id === 'private-json-rpc-id'), responseWritten.promise]);
   connection.send({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
   const after = (await connection.waitFor(message => message.id === 3)).result;
   assert.deepEqual(after, before);
@@ -187,8 +201,22 @@ test('repeated upstream initialize reuses the session and stable tools without l
   const initialized = manager.logs.filter(entry => entry.event === 'mcp-session' && entry.phase === 'initialized');
   assert.deepEqual(initialized.map(entry => entry.initializations), [1, 2]);
   assert.equal(initialized[0].session, initialized[1].session);
+  for(const entry of initialized){
+    assert.ok(Number.isSafeInteger(entry.initializeRequest));
+    assert.ok(Number.isFinite(entry.responseToNotificationMs)&&entry.responseToNotificationMs>=0);
+  }
   assert.equal(manager.logs.filter(entry => entry.phase === 'opened').length, 1);
+  assert.equal(manager.logs.filter(entry => entry.phase === 'transport-ready').length, 1);
   assert.equal(manager.logs.filter(entry => entry.event === 'mcp-list-notification').length, 0);
+  const callTiming=manager.logs.filter(entry=>entry.event==='mcp-timing'&&entry.method==='tools/call');
+  assert.deepEqual(callTiming.map(entry=>entry.phase),['request-received','tool-dispatched','response-written']);
+  assert.equal(new Set(callTiming.map(entry=>entry.request)).size,1);
+  assert.equal(new Set(callTiming.map(entry=>entry.session)).size,1);
+  assert.ok(callTiming[1].durationMs>=0&&callTiming[2].durationMs>=callTiming[1].durationMs);
+  assert.ok(callTiming[2].writeMs>=0);
+  assert.ok(callTiming[0].frameMs>=callTiming[0].parseMs&&callTiming[0].parseMs>=0);
+  assert.ok(callTiming[0].sinceInitializedMs>=0);
+  assert.equal(manager.calls.length,1);
   const serverClosed = deferred();
   const logEntry = manager.log.bind(manager);
   manager.log = (event, details) => { logEntry(event, details); if (event === 'mcp-session' && details.phase === 'closed') serverClosed.resolve(); };
@@ -199,6 +227,47 @@ test('repeated upstream initialize reuses the session and stable tools without l
   assert.equal(log.includes(environment.CTH_GATEWAY_TOKEN), false);
   assert.equal(log.includes(environment.CTH_GATEWAY_ENDPOINT), false);
   assert.equal(log.includes('private-call-contents'), false);
+  assert.equal(log.includes('private-json-rpc-id'), false);
+});
+
+test('SDK output validation accepts original strict schemas and complete saved pages without replay', {timeout:15000}, async t=>{
+  const {manager,gateway,environment}=await fixture(t);
+  const strict={...TEST_TOOL,outputSchema:{type:'object',$defs:{text:{type:'string'}},properties:{body:{$ref:'#/$defs/text'}},required:['body'],additionalProperties:false}};
+  manager.tools=[strict];
+  const original={content:[{type:'text',text:'preview'}],structuredContent:{body:'完整😀输出\n'.repeat(6000)}};
+  manager.handleCall=()=>structuredClone(original);
+  const client=new Client({name:'paged-schema-test',version:'1'},{capabilities:{}});
+  t.after(()=>client.close());
+  await client.connect(new StdioClientTransport({command:process.execPath,args:[relay],env:environment,stderr:'pipe'}));
+  assert.deepEqual((await client.listTools()).tools,[decorateTool(strict),...deliveryTools()]);
+  let result=await client.callTool({name:strict.name,arguments:{unchanged:true}});
+  const first=result,text=[];
+  for(;;){
+    const page=result.structuredContent;text.push(page.text);
+    if(!page.has_more)break;
+    result=await client.callTool({name:'get_tool_result_page',arguments:{result_id:page.result_id,offset:page.next_offset}});
+  }
+  assert.deepEqual(JSON.parse(text.join('')),original);
+  assert.equal(manager.calls.length,1);
+  // Gateway stop/restart closes sessions but not saved result delivery storage.
+  await client.close();await gateway.stop();await gateway.start();
+  assert.deepEqual(await gateway.toolCall('get_tool_result_page',{result_id:first.structuredContent.result_id}),first);
+  manager.handleCall=()=>({content:[{type:'text',text:'small'}],structuredContent:{body:'small'}});
+  assert.deepEqual((await gateway.toolCall(strict.name,{})).structuredContent,{body:'small'});
+});
+
+test('saved reads obey tool and folder revocation, and UI tool contracts remain unchanged',async t=>{
+  const {manager,gateway}=await fixture(t);
+  const original={content:[{type:'text',text:'original '.repeat(6000)}],structuredContent:{widgetData:'kept'}};
+  manager.handleCall=()=>original;
+  const first=await gateway.toolCall(TEST_TOOL.name,{}),result_id=first.structuredContent.result_id;
+  manager.tools=[];
+  assert.equal((await gateway.toolCall('get_tool_result_page',{result_id})).structuredContent.code,'MCP_RESULT_DENIED');
+  manager.tools=[structuredClone(TEST_TOOL)];manager.desktopSettings={directories:['changed-folder']};
+  assert.equal((await gateway.toolCall('get_tool_result_page',{result_id})).structuredContent.code,'MCP_RESULT_DENIED');
+  manager.tools=[{...TEST_TOOL,_meta:{ui:{resourceUri:'ui://fixture/widget'}}}];
+  assert.equal(await gateway.toolCall(TEST_TOOL.name,{}),original);
+  assert.equal(manager.calls.length,2,'paging and permission failures never execute the source again');
 });
 
 test('identical request IDs in separate sessions cancel independently', { timeout: 15000 }, async t => {
@@ -266,7 +335,7 @@ test('gateway immediate start-stop and subsequent restart leave no old listener 
   const oldEnvironment = gateway.environment();
   const connection = await peer(t, oldEnvironment);
   connection.send({ jsonrpc: '2.0', id: 20, method: 'tools/list' });
-  assert.deepEqual((await connection.waitFor(message => message.id === 20)).result.tools, [TEST_TOOL]);
+  assert.deepEqual((await connection.waitFor(message => message.id === 20)).result.tools, [TEST_TOOL,...deliveryTools()]);
   await gateway.stop();
   assert.equal(gateway.sessions.size, 0);
   assert.equal(gateway.sockets.size, 0);

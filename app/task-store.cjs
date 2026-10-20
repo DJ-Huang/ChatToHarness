@@ -97,6 +97,44 @@ class TaskStore {
     for (const id of fs.readdirSync(this.directory)) if (/^task_[a-f0-9]{64}$/.test(id)) try { values.push(this.status(id, project)); } catch (error) { if (error.code !== 'TASK_SCOPE_MISMATCH') values.push({task_id: id, state: 'unreadable', error: {code: error.code || 'TASK_RECORD_UNREADABLE'}}); }
     return values.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
+  result(id, project) {
+    const state=this.status(id,project),{directory}=this.request(id,project),expired=()=>fs.existsSync(path.join(directory,'output.expired'));
+    const unavailable=code=>({...state,stdout:'',stderr:'',output_expired:code==='TASK_LOG_EXPIRED',output_error:{code,message:code==='TASK_LOG_EXPIRED'?'Saved task output expired under diagnostic retention.':'Saved task output could not be read safely.'},has_more:false,output_truncated:false});
+    if(expired())return unavailable('TASK_LOG_EXPIRED');
+    const file=path.join(directory,'output.jsonl');let buffer=Buffer.alloc(0),size=0,start=0;
+    if(fs.existsSync(file)) {
+      let fd;
+      try {
+        fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
+        const stat=fs.fstatSync(fd);if(!stat.isFile()||stat.nlink!==1)return unavailable('UNSAFE_STORAGE');
+        size=stat.size;start=Math.max(0,size-65536);buffer=Buffer.alloc(size-start);
+        const read=fs.readSync(fd,buffer,0,buffer.length,start);buffer=buffer.subarray(0,read);
+      }catch{return unavailable('TASK_LOG_UNREADABLE');}finally{if(fd!==undefined)fs.closeSync(fd);}
+    }
+    let at=0,consumed=0,stdout='',stderr='',omitted=start>0;
+    // When seeking into a tail, discard only the partial first JSONL entry.
+    if(start>0){const first=buffer.indexOf(10);at=first<0?buffer.length:first+1;consumed=at;}
+    for(;;) {
+      const end=buffer.indexOf(10,at);if(end<0)break;
+      let entry;try{entry=JSON.parse(buffer.subarray(at,end).toString('utf8'));}catch{return unavailable('TASK_LOG_UNREADABLE');}
+      if(typeof entry.text==='string'&&(entry.stream==='stdout'||entry.stream==='stderr')) {
+        const previous=entry.stream==='stdout'?stdout:stderr,combined=previous+entry.text;
+        let tail=Buffer.from(combined);if(tail.length>4096){omitted=true;let offset=tail.length-4096;while(offset<tail.length&&(tail[offset]&0xc0)===0x80)offset++;tail=tail.subarray(offset);}
+        if(entry.stream==='stdout')stdout=tail.toString('utf8');else stderr=tail.toString('utf8');
+      }
+      consumed=end+1;at=end+1;
+    }
+    if(expired())return unavailable('TASK_LOG_EXPIRED');
+    const cursor=`${id}:${start+consumed}`,result={...state,stdout,stderr,output_expired:false,output_truncated:omitted||Boolean(state.log_truncated),
+      // If old output was omitted, the log cursor starts at the beginning so it
+      // can be recovered. next_cursor always follows the complete tail entries.
+      log_cursor:omitted?`${id}:0`:cursor,next_cursor:cursor,has_more:omitted||start+consumed<size};
+    while(Buffer.byteLength(JSON.stringify({content:[{type:'text',text:result.summary}],structuredContent:result}))>14*1024&&(result.stdout.length||result.stderr.length)) {
+      result.stdout=result.stdout.slice(Math.ceil(result.stdout.length/2));result.stderr=result.stderr.slice(Math.ceil(result.stderr.length/2));
+      result.output_truncated=true;result.has_more=true;result.log_cursor=`${id}:0`;
+    }
+    return result;
+  }
   logs(id, project, args = {}) {
     const {directory} = this.request(id, project); let offset = 0;
     if (fs.existsSync(path.join(directory,'output.expired'))) throw fail('TASK_LOG_EXPIRED', 'Saved task output has expired under diagnostic retention.');

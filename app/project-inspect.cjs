@@ -6,7 +6,7 @@ const {spawn} = require('node:child_process');
 const {inside} = require('./project-context.cjs');
 
 const MAX_OUTPUT = 512 * 1024;
-const PAGE_BYTES = 48 * 1024;
+const PAGE_BYTES = 14 * 1024;
 const fail = (code, message, details = {}) => Object.assign(new Error(message), {code, details});
 function integer(value, fallback, max) {
   if (value === undefined) return fallback;
@@ -65,14 +65,23 @@ class ProjectInspector {
       key = crypto.randomBytes(16).toString('hex'); record = {kind, root, rows, metadata, expires: Date.now() + 300000};
       this.pages.set(key, record); while (this.pages.size > 32) this.pages.delete(this.pages.keys().next().value);
     }
-    const items = []; let bytes = 0;
+    const items = [];
+    const value = () => ({...record.metadata,items,returned:items.length,has_more:offset<record.rows.length,...(offset<record.rows.length?{next_cursor:`${key}:${offset}`}:{})});
+    const wireBytes = () => {const page=value();return Buffer.byteLength(JSON.stringify({content:[{type:'text',text:page.summary||JSON.stringify(page)}],structuredContent:page}))+256;};
+    if(wireBytes()>PAGE_BYTES)throw fail('PAGE_TOO_LARGE','Page metadata exceeds its delivery budget; narrow the selected scope.');
     while (offset < record.rows.length && items.length < limit) {
-      const row = record.rows[offset], size = Buffer.byteLength(JSON.stringify(row));
-      if (items.length && bytes + size > PAGE_BYTES) break;
-      items.push(row); bytes += size; offset++;
+      const row = record.rows[offset]; items.push(row); offset++;
+      if(wireBytes()<=PAGE_BYTES)continue;
+      offset--;items.pop();
+      if(items.length)break;
+      // Git diff lines and commit subjects can individually exceed the wire
+      // budget. Preserve their identity and expose an explicitly short snippet.
+      const compact={...row,truncated:true};
+      for(const field of ['text','subject','summary','command_summary','error_summary'])if(typeof compact[field]==='string')compact[field]=compact[field].slice(0,512);
+      items.push(compact);offset++;
+      if(wireBytes()>PAGE_BYTES)throw fail('PAGE_ROW_TOO_LARGE','One entry exceeds the delivery budget; narrow the selected scope.');
     }
-    const more = offset < record.rows.length;
-    return {...record.metadata, items, returned: items.length, has_more: more, ...(more ? {next_cursor: `${key}:${offset}`} : {})};
+    return value();
   }
   async git(kind, input, {signal} = {}) {
     const root = await this.root(input);

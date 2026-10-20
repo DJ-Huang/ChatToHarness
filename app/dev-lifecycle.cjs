@@ -2,11 +2,16 @@
 
 const RESTART_FLAG = '--localharness-dev-restart';
 const RESTART_EXIT_CODE = 75;
+const MENU_RESTART_EXIT_CODE = 76;
 function ownerFrom(argv,prefix) {
   const value=(argv || []).find(item=>typeof item==='string'&&item.startsWith(prefix));
   const number=value?.slice(prefix.length);
   const owner=/^\d+$/.test(number || '')?Number(number):0;
   return Number.isSafeInteger(owner)&&owner>1?owner:0;
+}
+
+function supervisedDevelopment({app,host=process}) {
+  return !app.isPackaged && (host.argv || []).includes(RESTART_FLAG) && Boolean(ownerFrom(host.argv,'--localharness-dev-owner='));
 }
 
 function acquireInstance({app,show,host=process}) {
@@ -55,4 +60,4 @@ function installExitHandlers({app,host=process,setTimer=setInterval,clearTimer=c
   return dispose;
 }
 
-module.exports={acquireInstance,installExitHandlers,RESTART_FLAG,RESTART_EXIT_CODE};
+module.exports={acquireInstance,installExitHandlers,supervisedDevelopment,RESTART_FLAG,RESTART_EXIT_CODE,MENU_RESTART_EXIT_CODE};

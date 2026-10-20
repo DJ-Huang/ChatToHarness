@@ -231,12 +231,13 @@
   function render() {
     const runtime = currentState?.runtime || {};
     const state = runtime.state || 'unconfigured';
+    const toolsDegraded = ['degraded','unavailable'].includes(runtime.tools_health);
     const transitioning = ['authorizing', 'checking', 'starting'].includes(state);
     const active = ['authorizing', 'checking', 'starting', 'ready', 'reconnecting'].includes(state);
     const installing = ['downloading', 'verifying', 'installing'].includes(currentState?.updates?.phase);
     const locked = Boolean(pending) || transitioning || installing || !initialized;
     byId('status-badge').className = `status-badge ${state === 'ready' ? 'ready' : ['authorizing', 'checking', 'starting', 'reconnecting'].includes(state) ? 'working' : state === 'failed' ? 'failed' : ''}`;
-    byId('status-label').textContent = initialized ? t(stateNames[state] || '状态未知') : t('正在载入');
+    byId('status-label').textContent = initialized ? t(state === 'ready' && toolsDegraded ? '部分工具不可用' : stateNames[state] || '状态未知') : t('正在载入');
     byId('overview-headline').textContent = t(headlines[state] || headlines.unconfigured);
     byId('runtime-description').textContent = t(descriptions[state] || descriptions.unconfigured);
     byId('key-status').hidden = !keySaved;
@@ -261,16 +262,16 @@
     [tunnelInput, keyInput, autoConnectInput, autoProjectContextInput].forEach((input) => { input.disabled = installing || ['save', 'workspace', 'clear'].includes(pending); });
     document.querySelectorAll('.remove-directory').forEach(button => { button.disabled = Boolean(pending) || installing; });
     byId('action-message').textContent = t(actionMessage);
-    const error = actionError || (state === 'failed' ? runtime.error : '') || '';
+    const error = actionError || (state === 'failed' ? runtime.error : '') || (toolsDegraded ? '通道状态与工具状态分别检查；部分工具暂时不可用。' : '') || '';
     byId('error-banner').hidden = !error;
     byId('error-message').textContent = t(mcpErrors[error] || error);
-    byId('tools-summary').textContent = runtime.localReady ? t('{count} 项可用', { count: runtime.toolsCount || '—' }) : state === 'checking' ? t('正在检查') : t('等待检查');
+    byId('tools-summary').textContent = toolsDegraded ? t('部分工具不可用') : runtime.localReady ? t('{count} 项可用', { count: runtime.toolsCount || '—' }) : state === 'checking' ? t('正在检查') : t('等待检查');
     byId('folders-summary').textContent = directories.length ? t('{count} 个目录', { count: directories.length }) : t('尚未选择');
     byId('directory-nav-count').textContent = String(directories.length);
     byId('rules-summary').textContent = autoProjectContextInput.checked ? t('自动加载') : t('已关闭');
     byId('rules-detail').textContent = autoProjectContextInput.checked ? t('AGENTS.md 与相关规则') : t('工具调用前不自动提供工程规范');
     byId('step-local').className = `progress-step${runtime.localReady ? ' complete' : state === 'checking' ? ' active' : ''}`;
-    byId('local-detail').textContent = runtime.localReady
+    byId('local-detail').textContent = toolsDegraded ? t('部分工具不可用') : runtime.localReady
       ? runtime.toolsCount ? t('已就绪 · {count} 项工具', { count: runtime.toolsCount }) : t('已就绪')
       : state === 'checking' ? t('正在检查本机工具…') : t('连接时自动检查');
     byId('step-tunnel').className = `progress-step${state === 'ready' ? ' complete' : ['starting', 'reconnecting'].includes(state) ? ' active' : ''}`;
@@ -661,7 +662,7 @@
     }
     const state = await api.check();
     checkpoint();
-    if (state?.runtime?.localReady) actionMessage = '本机工具检查通过。';
+    if (state?.runtime?.localReady && !['degraded','unavailable'].includes(state.runtime.tools_health)) actionMessage = '本机工具检查通过。';
     return state;
   }));
   byId('reconnect').addEventListener('click', () => perform('reconnect', async (checkpoint) => {
@@ -814,11 +815,21 @@
   let liveCursor=null,liveEntries=[],liveFilter='all',livePaused=false,liveFollowing=true;
   let liveLoadSerial=0,liveBusy=false;
   const liveCategories={tool:'工具',connection:'连接',system:'系统'};
+  const executionLabels={received:'已接收',waiting_approval:'等待批准',submitted:'任务已提交',running:'执行中',succeeded:'成功',failed:'失败',interrupted:'已中断',unknown:'未知',cancelling:'正在取消',needs_arguments:'待补全参数',needs_context:'待读取项目规范',local_write_succeeded:'响应已写入本机通道',local_write_failed:'本机写入失败'};
+  function liveMessage(entry){
+    if(entry.event!=='execution'||!entry.state)return entry.message;
+    return [entry.service,entry.tool,t(executionLabels[entry.recovery_kind||entry.state]||entry.state),entry.error_code,
+      entry.delivery&&entry.delivery!=='unknown'?t(executionLabels[entry.delivery]||entry.delivery):''].filter(Boolean).join(' · ');
+  }
+  function liveExecutionKey(entry){
+    return entry.event==='execution'&&entry.request_id
+      ? JSON.stringify([entry.request_id,entry.state,entry.error_code||'']) : null;
+  }
   function renderLiveLogs(){
     const needle=byId('log-search').value.trim().toLowerCase();
     const filtered=liveEntries.filter(entry=>
       (liveFilter==='all'||liveFilter==='error'&&entry.severity==='error'||entry.category===liveFilter)&&
-      (!needle||[entry.at,entry.event,entry.message,entry.category].join(' ').toLowerCase().includes(needle)));
+      (!needle||[entry.at,entry.event,entry.message,liveMessage(entry),entry.category].join(' ').toLowerCase().includes(needle)));
     const viewport=byId('log-stream'),previousScroll=viewport.scrollTop||0;
     const body=byId('log-entries');body.replaceChildren();
     for(const entry of filtered){
@@ -829,7 +840,7 @@
       time.textContent=Number.isFinite(parsed)?new Date(parsed).toLocaleTimeString(locale,{hour12:false}):'--:--:--';
       const kind=document.createElement('span');kind.className='live-log-kind';
       kind.textContent=t(liveCategories[entry.category]||'系统');
-      const message=document.createElement('span');message.className='live-log-message';message.textContent=entry.message;
+      const message=document.createElement('span');message.className='live-log-message';message.textContent=liveMessage(entry);
       line.append(time,kind,message);body.append(line);
     }
     if(!filtered.length){
@@ -853,8 +864,13 @@
       if(serial!==liveLoadSerial||activeTab!=='logs')return;
       if(reload||result.reset)liveEntries=[];
       const seen=new Set(liveEntries.map(entry=>entry.id));
+      const executions=new Map();
+      liveEntries.forEach((entry,index)=>{const key=liveExecutionKey(entry);if(key)executions.set(key,index);});
       for(const entry of result.entries||[])if(!seen.has(entry.id)){
-        liveEntries.push(entry);seen.add(entry.id);
+        const key=liveExecutionKey(entry),index=key?executions.get(key):undefined;
+        if(index!==undefined)liveEntries[index]={...entry,at:liveEntries[index].at};
+        else{if(key)executions.set(key,liveEntries.length);liveEntries.push(entry);}
+        seen.add(entry.id);
       }
       if(liveEntries.length>400)liveEntries=liveEntries.slice(-400);
       liveCursor=result.cursor??null;
@@ -899,7 +915,6 @@
 
   let historyFilter='all',historyOffset=0,historySequence=0,historyDetail=null,historySearchTimer;
   const historySelected=new Set();
-  const executionLabels={received:'已接收',waiting_approval:'等待批准',submitted:'任务已提交',running:'执行中',succeeded:'成功',failed:'失败',interrupted:'已中断',unknown:'未知',cancelling:'正在取消',local_write_succeeded:'本机写入成功',local_write_failed:'本机写入失败'};
   async function loadHistory(){
     const sequence=++historySequence;
     try{
@@ -914,7 +929,7 @@
       for(const record of result.records){
         const row=document.createElement('tr'),cell=document.createElement('td'),check=document.createElement('input');check.type='checkbox';check.checked=historySelected.has(record.request_id);check.setAttribute('aria-label',record.request_id);
         check.addEventListener('change',()=>{if(check.checked&&historySelected.size<100)historySelected.add(record.request_id);else{historySelected.delete(record.request_id);check.checked=false;}});cell.append(check);row.append(cell);
-        for(const value of [new Date(record.last_received_at||record.received_at).toLocaleString(locale),record.tool+' · '+record.operation,record.project||record.service,t(executionLabels[record.state]||record.state)+(record.delivery==='local_write_failed'?' · '+t('本机写入失败'):''),record.duration_ms===undefined?'—':record.duration_ms+' ms']){
+        for(const value of [new Date(record.last_received_at||record.received_at).toLocaleString(locale),record.tool+' · '+record.operation,record.project||record.service,t(executionLabels[record.recovery_kind||record.state]||record.state)+(record.delivery==='local_write_failed'?' · '+t('本机写入失败'):''),record.duration_ms===undefined?'—':record.duration_ms+' ms']){
           const td=document.createElement('td');td.textContent=value;row.append(td);
         }
         const button=document.createElement('button');button.type='button';button.className='inline-link';button.textContent=row.children[2].textContent;row.children[2].replaceChildren(button);

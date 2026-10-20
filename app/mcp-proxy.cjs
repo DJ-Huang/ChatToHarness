@@ -4,8 +4,9 @@ const os = require('node:os');
 const {StringDecoder} = require('node:string_decoder');
 const {SEARCH_TOOL} = require('./project-search.cjs');
 const {inside} = require('./project-context.cjs');
+const {guidanceRetry} = require('./tool-recovery.cjs');
 const WORKFLOW = 'ChatToHarness: local file, search and terminal tools. search_project returns bounded matches with 1-based lines; read_file offsets are 0-based. Reads include optional project guidance and diagnostics. get_project_context discovers optional project skills, loads selected rule/skill bodies and reports matching guidance. A write with newly discovered guidance returns contexts and delivery tokens without execution; a subsequent request can include those tokens. File access uses desktop folder settings. Terminal context_paths describe project scope and do not sandbox the shell. Forwarded timeouts have unknown execution state; mutations are not replayed by the server.';
-const TOKEN_DESCRIPTION = 'Optional delivered-context tokens. A write may return fresh guidance and tokens for an explicit retry.';
+const TOKEN_DESCRIPTION = 'Optional delivered-context tokens. If a write returns fresh guidance, read it and merge retry_patch into the original arguments for an explicit retry.';
 const FILE_TOOLS = new Set(['read_file','read_multiple_files','write_file','write_pdf','create_directory','list_directory','move_file','get_file_info','edit_block']);
 const SEARCH_TOOLS = new Set(['start_search','get_more_search_results','stop_search','list_searches']);
 const TERMINAL_TOOLS = new Set(['start_process','read_process_output','interact_with_process','force_terminate','kill_process','list_sessions','list_processes']);
@@ -108,7 +109,7 @@ class McpProxy{
             if(prepared)result.project_contexts=prepared.contexts;
           }
           if(!operation.cancelled)await this.reply(message.id,{content:[{type:'text',text:JSON.stringify(result)}],structuredContent:result});
-        }catch(error){if(!operation.cancelled)await this.reply(message.id,this.contextFailure(error));}
+        }catch(error){if(!operation.cancelled)await this.reply(message.id,this.contextFailure(error,name));}
         finally{this.endLocal(message,operation);}return;
       }
     }
@@ -116,7 +117,7 @@ class McpProxy{
     if(message.method==='tools/call'){
       const operation=this.beginLocal(message);
       try{if(GATED_TOOLS.has(name))binding=await this.validateCall(name,args,{signal:operation.controller.signal});}
-      catch(error){if(!operation.cancelled)await this.reply(message.id,this.contextFailure(error));return;}
+      catch(error){if(!operation.cancelled)await this.reply(message.id,this.contextFailure(error,name));return;}
       finally{this.endLocal(message,operation);}
       if(operation.cancelled||this.closed)return;
       const clean={...args};delete clean.project_context_tokens;delete clean.context_paths;delete clean.project_path;
@@ -135,14 +136,23 @@ class McpProxy{
     return this.sendServer(forwarded);
   }
   loadHint(targets){return {next_tool:'get_project_context',default_project_path:this.defaultDirectory,target_paths:targets,instructions:'Supplied contexts contain fresh guidance and delivery tokens for a subsequent request. get_project_context also accepts an explicit task project. The original operation did not execute.'};}
-  contextFailure(error){const details=object(error?.details)?error.details:{};return failure(error?.code||'context_error',error?.message||'Project context could not be loaded.',{...this.loadHint(details.target_paths||[]),...details});}
+  contextFailure(error,name){
+    const details=object(error?.details)?error.details:{};
+    const hint=error?.code==='context_paths_required'
+      ? {next_tool:name,next_action:'declare_context_paths_then_retry',recovery_kind:'needs_arguments',instructions:'Provide related context_paths, or an explicit project_path for start_process to use as its default scope. [] is only for ordinary system diagnostics. The operation has not run.'}
+      : details.retry_patch ? {} : this.loadHint(details.target_paths||[]);
+    return failure(error?.code||'context_error',error?.message||'Project context could not be loaded.',{...hint,...details});
+  }
   pruneBindings(map){const cutoff=Date.now()-5*60*1000;for(const [id,binding]of map)if(binding.finishedAt&&binding.finishedAt<cutoff)map.delete(id);}
   async validateCall(name,args,{signal}={}){
     const tokens=args.project_context_tokens;let targets=toolPaths(name,args),origin;
     this.pruneBindings(this.processes);this.pruneBindings(this.searches);
     if(TERMINAL_TOOLS.has(name)){
-      if(this.enabled&&name==='start_process'&&!Object.hasOwn(args,'context_paths'))throw Object.assign(new Error('Declare related context_paths; [] is only for ordinary system diagnostics.'),{code:'context_paths_required'});
-      targets=args.context_paths||[];
+      const defaultScope=name==='start_process'&&!Object.hasOwn(args,'context_paths')&&
+        typeof args.project_path==='string'&&path.isAbsolute(args.project_path)&&
+        args.project_path.length<=32768&&!args.project_path.includes('\0') ? [args.project_path] : undefined;
+      if(this.enabled&&name==='start_process'&&!Object.hasOwn(args,'context_paths')&&!defaultScope)throw Object.assign(new Error('Declare related context_paths or a valid absolute project_path; [] is only for ordinary system diagnostics.'),{code:'context_paths_required'});
+      targets=Object.hasOwn(args,'context_paths') ? args.context_paths : defaultScope||[];
       if(args.pid!==undefined)origin=this.processes.get(String(args.pid));
     }else if(SEARCH_TOOLS.has(name)&&args.sessionId!==undefined)origin=this.searches.get(String(args.sessionId));
     if((['read_process_output','interact_with_process','force_terminate'].includes(name)||['get_more_search_results','stop_search'].includes(name))&&!origin)throw Object.assign(new Error('The process/search handle is unavailable after reconnect or expiry; start a new operation.'),{code:'context_origin_unknown'});
@@ -160,7 +170,7 @@ class McpProxy{
     // Network-only reads and known cleanup actions have no project prerequisites.
     if(name==='read_file'&&!absolute.length)return {paths:[],tokens:[],contexts:[]};
     const prepared=await this.contexts.prepare(tokens,absolute,{projectPath:args.project_path,signal,writing:MUTATING_TOOLS.has(name)});
-    if(prepared.needsDelivery)throw Object.assign(new Error('Read the supplied project guidance, then retry with its context tokens. This operation has not run.'),{code:'PROJECT_CONTEXT_REFRESH_REQUIRED',details:{contexts:prepared.contexts,next_action:'read_contexts_then_retry'}});
+    if(prepared.needsDelivery)throw Object.assign(new Error('Read the project guidance before retrying the original tool. This operation has not run.'),{code:'PROJECT_CONTEXT_REFRESH_REQUIRED',details:guidanceRetry(name,prepared.contexts)});
     return {paths:absolute,tokens:prepared.contexts.length?prepared.contexts.map(context=>context.project_context_token):Array.isArray(tokens)?tokens:[],contexts:prepared.contexts};
   }
   remember(map,key,binding){if(key===undefined||key===null||!binding)return;this.pruneBindings(map);map.set(String(key),{...binding,contexts:[]});}
@@ -201,7 +211,10 @@ class McpProxy{
     return this.sendClient(message);
   }
   decorateTool(tool){
-    if(object(tool._meta)&&!this.upstreamCapabilities?.resources){
+    // Built-in file/terminal calls return data. Desktop Commander's viewer hints
+    // otherwise make ChatGPT open a UI even for an ordinary text read. Native
+    // result blocks and external MCP widgets retain their own delivery paths.
+    if(object(tool._meta)){
       const meta={...tool._meta};delete meta['ui/resourceUri'];delete meta['openai/outputTemplate'];delete meta['openai/widgetAccessible'];
       if(object(meta.ui)){const ui={...meta.ui};delete ui.resourceUri;if(Object.keys(ui).length)meta.ui=ui;else delete meta.ui;}
       const clean={...tool};if(Object.keys(meta).length)clean._meta=meta;else delete clean._meta;tool=clean;
@@ -212,15 +225,33 @@ class McpProxy{
       return tool;
     }
     const properties={...tool.inputSchema?.properties,project_path:{type:'string',description:'Optional explicit task project directory for guidance.'},project_context_tokens:{type:'array',items:{type:'string'},maxItems:128,description:TOKEN_DESCRIPTION}};
-    if(TERMINAL_TOOLS.has(tool.name))properties.context_paths={type:'array',items:{type:'string'},maxItems:128,description:'Related project paths; [] is for ordinary system diagnostics. This is guidance, not a shell sandbox.'};
+    if(TERMINAL_TOOLS.has(tool.name))properties.context_paths={type:'array',items:{type:'string'},maxItems:128,description:'Related project paths. start_process defaults to [project_path] when omitted with an explicit absolute project_path; otherwise declare this field. Explicit values take precedence; [] is for ordinary system diagnostics. This only supplies guidance and changes neither shell cwd nor access.'};
     const brief={
       read_file:'Read authorized local files or HTTP(S) URLs. Text offset is 0-based (negative means tail), length limits lines. Supports PDF, images, DOCX and spreadsheets; sheet/range select workbook cells. Reads include optional project guidance.',
+      read_multiple_files:'Read multiple authorized local files in one call, returning each path and content. Individual read errors do not stop other files. PNG, JPEG, GIF and WebP retain native image content.',
+      write_file:'Write or append an authorized file. Prefer apply_project_edit for UTF-8 project text with checksum and undo protection. Text uses string content; Excel (.xlsx/.xls/.xlsm) uses JSON 2D arrays or sheet-name maps. New DOCX accepts Markdown headings; edit existing DOCX with edit_block. Use write_pdf for PDF.',
+      write_pdf:'Create PDFs from Markdown, HTML/CSS, inline SVG and images, or modify an existing PDF with delete/insert operations. Use a new filename in outputPath; modifications preserve the source and require a different outputPath. Page indexes are 0-based; inserts accept markdown or sourcePdfPath. Force page breaks with <div style="page-break-before: always;"></div>. All source and output paths must be authorized.',
+      create_directory:'Create an authorized directory and missing parent directories, or leave an existing directory in place.',
+      list_directory:'List an authorized directory with relative paths and file/directory markers. depth defaults to 2; use 1 for direct children. Root entries are complete; nested directories show at most 100 entries each with hidden-count warnings. Denied or missing paths are marked.',
+      move_file:'Move or rename a file or directory. Both source and destination must be within authorized folders. Prefer absolute paths.',
+      get_file_info:'Read file/directory metadata, including size, timestamps, permissions, type and text line count/tail information. Use get_file_result when a SHA-256 is needed for a safe project edit.',
+      edit_block:'Edit an authorized file. Text uses old_string/new_string with exact whitespace and expected_replacements (default 1); include enough context to identify the intended matches. DOCX uses XML fragments from read_file, including header/footer search. Excel uses a range such as Sheet1!A1:C10 and 2D-array content. Prefer apply_project_edit for UTF-8 project edits with checksum and undo protection.',
       start_search:'Start a background filename or content search. Patterns are regex unless literalSearch=true. The returned sessionId identifies result pages and cancellation. search_project provides a bounded alternative with line context.',
-      start_process:'Run a shell command or start an interactive terminal process on this device. Can modify files and access the network. Returns output and a process handle when available; timeout_ms limits the initial wait. context_paths describes related project paths for guidance and does not confine shell access.',
-      interact_with_process:'Send input to a tracked terminal process and collect output. Input may execute commands, modify files or access the network. pid identifies the process returned by start_process.'
+      get_more_search_results:'Read a result range and current status from a start_search sessionId. Nonnegative offset is a 0-based result index; negative offset tails the last N results and ignores length. length defaults to 100. Fetch additional results only when needed; prefer search_project for ordinary searches.',
+      stop_search:'Stop a start_search session. Its final results remain readable until automatic cleanup after five minutes.',
+      list_searches:'List active background search session IDs, patterns, status and runtime.',
+      start_process:'Run a shell command or start an interactive terminal process on this device. Can modify files and access the network. Returns output and a process handle when available; timeout_ms limits the initial wait. Omitted context_paths defaults to [project_path] when an explicit absolute project_path is supplied. This guidance scope changes neither shell cwd nor access. Read returned guidance before applying retry_patch and explicitly retrying.',
+      interact_with_process:'Send input to a tracked terminal process and collect output. Input may execute commands, modify files or access the network. pid identifies the process returned by start_process.',
+      read_process_output:'Read tracked process output and status. offset=0 reads NEW lines since the last read and waits up to timeout_ms; positive offsets are absolute 0-based lines, negative offsets start that many lines from the end. length limits lines (default: fileReadLineLimit). A wait can end while the process is still running. Use get_task_result for persistent tasks.',
+      force_terminate:'Force termination of a tracked terminal session by its pid.',
+      kill_process:'Forcefully terminate a system process by a positive PID. This can interrupt unrelated work.',
+      list_sessions:'List tracked terminal sessions with PID, waiting-for-input state and runtime.',
+      list_processes:'List system processes with PID, command name, CPU and memory information.'
     };
     const annotations={...tool.annotations,idempotentHint:!MUTATING_TOOLS.has(tool.name)&&!['start_search','read_process_output'].includes(tool.name),readOnlyHint:!MUTATING_TOOLS.has(tool.name)&&!CONTROL_TOOLS.has(tool.name),destructiveHint:(MUTATING_TOOLS.has(tool.name)&&tool.name!=='create_directory')||['kill_process','force_terminate'].includes(tool.name),openWorldHint:tool.name==='read_file'||['start_process','interact_with_process'].includes(tool.name)};
-    return {...tool,description:brief[tool.name]||tool.description,inputSchema:{...tool.inputSchema,type:'object',properties},annotations,
+    const scopeSchema=this.enabled&&tool.name==='start_process'
+      ? {allOf:[...(tool.inputSchema?.allOf||[]),{anyOf:[{required:['context_paths']},{required:['project_path']}]}]} : {};
+    return {...tool,description:brief[tool.name]||tool.description,inputSchema:{...tool.inputSchema,type:'object',properties,...scopeSchema},annotations,
       outputSchema:projectResultSchema(tool.outputSchema)};
   }
   dispose(){

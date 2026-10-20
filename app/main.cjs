@@ -6,7 +6,8 @@ const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 const {ExecutionHistory}=require('./execution-history.cjs');
 const {LiveLogs}=require('./live-logs.cjs');
-const {writeBudgeted,sanitize,regular,safeFields}=require('./diagnostic-budget.cjs');
+const {sanitize}=require('./diagnostic-budget.cjs');
+const {DiagnosticWriter}=require('./diagnostic-writer.cjs');
 const {Settings}=require('./settings.cjs');
 const {RuntimeManager}=require('./runtime.cjs');
 const {storageDirectory}=require('./platform.cjs');
@@ -14,7 +15,7 @@ const platform=process.platform||'darwin';
 const product='ChatToHarness';
 const {Preferences}=require('./preferences.cjs');
 const {Updater}=require('./updater.cjs');
-const {acquireInstance,installExitHandlers}=require('./dev-lifecycle.cjs');
+const {acquireInstance,installExitHandlers,supervisedDevelopment,MENU_RESTART_EXIT_CODE}=require('./dev-lifecycle.cjs');
 const {translate,normalize}=require('./i18n.js');
 const {documentationURL}=require('./help-links.cjs');
 let preferences,locale='en';
@@ -27,8 +28,8 @@ const testMode=process.env.LOCALHARNESS_TEST_MODE==='1'&&Boolean(process.env.LOC
 const home=storageDirectory({platform,userHome:os.homedir(),appData:process.env.APPDATA,override:process.env.LOCALHARNESS_HOME});
 app.setName(testMode?'ChatToHarness Acceptance '+require('node:crypto').createHash('sha256').update(home).digest('hex').slice(0,12):platform==='darwin'?'LocalHarness':product);
 app.setPath('userData',home);
-let history;
-let window,tray,trayMenu,settings,runtime,updater,mcpSettings,mcpManager,fatal='',quitting=false,installing=false,quitReady=false,queue=Promise.resolve(),actionEpoch=0;
+let history,diagnosticWriter,diagnosticError;
+let window,tray,trayMenu,settings,runtime,updater,mcpSettings,mcpManager,fatal='',quitting=false,installing=false,restarting=false,quitReady=false,queue=Promise.resolve(),actionEpoch=0;
 const indexURL=pathToFileURL(path.join(__dirname,'index.html')).href;
 const resources=(testMode&&process.env.LOCALHARNESS_RESOURCES)|| (app.isPackaged?process.resourcesPath:(process.env.LOCALHARNESS_RESOURCES||path.join(__dirname,'..','resources')));
 const links=Object.freeze({
@@ -41,31 +42,27 @@ const links=Object.freeze({
   repository:'https://github.com/DJ-Huang/ChatToHarness',
 });
 let versions={app:app.getVersion(),node:'—',tunnel:'—',desktopCommander:'—'};
-const recentLogs=new Map();
 const seenExecutionStates=new Map();
-function log(event,detail={}){
-  try{
-    let fields=safeFields(detail);if(Buffer.byteLength(JSON.stringify(fields))>2048)fields={summary:sanitize(JSON.stringify(fields),2048)};
-    const signature=sanitize(event,256)+JSON.stringify(fields);const previous=recentLogs.get(signature);if(previous&&Date.now()-previous<60000)return;recentLogs.set(signature,Date.now());if(recentLogs.size>128)recentLogs.delete(recentLogs.keys().next().value);
-    const directory=path.join(home,'logs');require('./durable-files.cjs').privateDirectory(directory);
-    const file=path.join(directory,'app.log');if(regular(file)?.size>1024*1024)fs.renameSync(file,file+'.previous');
-    const row=JSON.stringify({time:new Date().toISOString(),event:sanitize(event,256),...fields})+'\n';
-    writeBudgeted(home,Buffer.byteLength(row),()=>{const fd=fs.openSync(file,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_APPEND|fs.constants.O_NOFOLLOW,0o600);try{if(fs.fstatSync(fd).nlink===1)fs.writeSync(fd,row);}finally{fs.closeSync(fd);}});
-  }catch{}
-}
+function log(event,detail={}){diagnosticWriter?.log(event,detail);}
 // Store only state transitions; maintain() can repeatedly write identical task
 // snapshots, and tail readers should not turn them into an endless log flood.
 function executionToLog(row){
-  const signature=[row.state,row.delivery,row.error_code,row.task_finished].join('|');
+  const signature=[row.state,row.delivery,row.error_code,row.execution_state,row.recovery_kind,row.task_finished].join('|');
   if(seenExecutionStates.get(row.request_id)===signature)return;
   seenExecutionStates.set(row.request_id,signature);
   if(seenExecutionStates.size>1024)seenExecutionStates.delete(seenExecutionStates.keys().next().value);
   log('execution',{request_id:row.request_id,tool:row.tool,service:row.service,
-    state:row.state,delivery:row.delivery,error_code:row.error_code||undefined});
+    state:row.state,delivery:row.delivery,error_code:row.error_code||undefined,
+    execution_state:row.execution_state,recovery_kind:row.recovery_kind});
 }
-function state(){return {settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
+function state(){return {diagnostics:diagnosticWriter?.status()||{state:diagnosticError?'unavailable':'starting',error_code:diagnosticError},settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
 function publish(){const value=state();if(window&&!window.isDestroyed())window.webContents.send('localharness:state',value);refreshTray();}
 function show(){if(quitting)return;if(!window||window.isDestroyed())createWindow();if(window.isMinimized())window.restore();window.show();window.focus();}
+function restart(){
+  if(quitting||installing||restarting)return;
+  restarting=true;app.quit();
+}
+function restartMenuItem(){return {label:t('重启 {product}',{product}),enabled:!quitting&&!installing,click:restart};}
 function createWindow(){
   window=new BrowserWindow({width:1160,height:850,minWidth:920,minHeight:690,show:false,title:product,...(platform==='darwin'?{titleBarStyle:'hiddenInset'}:{}),backgroundColor:'#f4f6f8',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
@@ -79,7 +76,7 @@ function refreshTray(){
   if(!tray)return;const labels={unconfigured:'尚未配置',stopped:'已停止',authorizing:'等待系统授权',checking:'正在检查',starting:'正在连接',ready:'通道就绪',reconnecting:'正在重连',failed:'需要处理'};
   const current=state().runtime;tray.setToolTip(product+' · '+t(labels[current.state]||'尚未配置'));
   const active=['authorizing','checking','starting','ready','reconnecting'].includes(current.state);
-  trayMenu=Menu.buildFromTemplate([{label:product+' · '+t(labels[current.state]||'尚未配置'),enabled:false},{label:t('打开窗口'),click:show},{type:'separator'},{label:t(active?'重新连接':'连接'),enabled:Boolean(settings?.public().keySaved)&&!fatal&&!quitting&&!installing&&!['authorizing','checking','starting'].includes(current.state),click:()=>void connect().catch(()=>show())},{label:t('停止连接'),enabled:active||Boolean(runtime?.desired)||Boolean(mcpManager&&[...mcpManager.records.values()].some(record=>['connecting','ready','reconnecting'].includes(record.phase))),click:()=>void stopConnection().catch(()=>show())},{type:'separator'},{label:t('检查更新'),enabled:Boolean(updater)&&!updater.busy&&!quitting,click:()=>{show();window?.webContents.send('localharness:show-updates');void checkUpdate();}},{label:t('查看日志'),click:()=>void openLogs().catch(()=>show())},{label:t('退出 {product}',{product}),accelerator:'CommandOrControl+Q',click:()=>app.quit()}]);
+  trayMenu=Menu.buildFromTemplate([{label:product+' · '+t(labels[current.state]||'尚未配置'),enabled:false},{label:t('打开窗口'),click:show},{type:'separator'},{label:t(active?'重新连接':'连接'),enabled:Boolean(settings?.public().keySaved)&&!fatal&&!quitting&&!installing&&!['authorizing','checking','starting'].includes(current.state),click:()=>void connect().catch(()=>show())},{label:t('停止连接'),enabled:active||Boolean(runtime?.desired)||Boolean(mcpManager&&[...mcpManager.records.values()].some(record=>['connecting','ready','reconnecting'].includes(record.phase))),click:()=>void stopConnection().catch(()=>show())},{type:'separator'},{label:t('检查更新'),enabled:Boolean(updater)&&!updater.busy&&!quitting,click:()=>{show();window?.webContents.send('localharness:show-updates');void checkUpdate();}},{label:t('查看日志'),click:()=>void openLogs().catch(()=>show())},restartMenuItem(),{label:t('退出 {product}',{product}),accelerator:'CommandOrControl+Q',click:()=>app.quit()}]);
 }
 function createTray(){
   let icon;
@@ -200,15 +197,26 @@ function registerIPC(){
 function applicationMenu(){
   const edit={label:t('编辑'),submenu:[{role:'undo',label:t('撤销')},{role:'redo',label:t('重做')},{type:'separator'},{role:'cut',label:t('剪切')},{role:'copy',label:t('复制')},{role:'paste',label:t('粘贴')},{role:'selectAll',label:t('全选')}]};
   const updateItem={label:t('检查更新'),click:()=>{show();window?.webContents.send('localharness:show-updates');void checkUpdate();}};
-  const common=[{label:t('打开窗口'),click:show},{type:'separator'},{label:t('退出 {product}',{product}),role:'quit',accelerator:'CommandOrControl+Q'}];
-  return Menu.buildFromTemplate(platform==='darwin'?[{label:product,submenu:[{label:t('关于 {product}',{product}),role:'about'},common[0],updateItem,{type:'separator'},{role:'hide',label:t('隐藏 {product}',{product})},{role:'hideOthers',label:t('隐藏其他应用')},{role:'unhide',label:t('显示全部')},{type:'separator'},common[2]]},edit]:[{label:product,submenu:[common[0],updateItem,...common.slice(1)]},edit]);
+  const openItem={label:t('打开窗口'),click:show};
+  const quitItem={label:t('退出 {product}',{product}),role:'quit',accelerator:'CommandOrControl+Q'};
+  const ending=[{type:'separator'},restartMenuItem(),quitItem];
+  return Menu.buildFromTemplate(platform==='darwin'?[{label:product,submenu:[{label:t('关于 {product}',{product}),role:'about'},openItem,updateItem,{type:'separator'},{role:'hide',label:t('隐藏 {product}',{product})},{role:'hideOthers',label:t('隐藏其他应用')},{role:'unhide',label:t('显示全部')},...ending]},edit]:[{label:product,submenu:[openItem,updateItem,...ending]},edit]);
 }
 if(!acquireInstance({app,show,host:process})){}
 else{
   app.on('activate',show);app.on('window-all-closed',()=>{});
   app.on('before-quit',event=>{
     if(quitReady)return;event.preventDefault();if(quitting)return;quitting=true;++actionEpoch;updater?.dispose();
-    void Promise.resolve(runtime?.close()).finally(()=>{history?.close();tray?.destroy();tray=null;log('quit');quitReady=true;app.quit();});
+    void Promise.resolve(runtime?.close()).finally(async()=>{
+      await history?.close();tray?.destroy();tray=null;log('quit');await diagnosticWriter?.close();quitReady=true;
+      if(restarting){
+        // The launcher owns the process tree (a Job on Windows). Let it restart
+        // after cleanup; a self-relaunched child would lose its owner or Job.
+        if(supervisedDevelopment({app,host:process})){app.exit(MENU_RESTART_EXIT_CODE);return;}
+        app.relaunch();
+      }
+      app.quit();
+    });
   });
   installExitHandlers({app,host:process});
   app.whenReady().then(async()=>{
@@ -227,14 +235,17 @@ else{
       settings=new Settings(home,safeStorage);
       const tunnelScript=testMode&&process.env.LOCALHARNESS_TEST_TUNNEL_SCRIPT;
       if(tunnelScript&&(!path.isAbsolute(tunnelScript)||!fs.statSync(tunnelScript).isFile()))throw new Error();
-      history=new ExecutionHistory(home,{version:app.getVersion(),onChange:executionToLog});
+      diagnosticWriter=new DiagnosticWriter(home,{onError:error=>{diagnosticError=sanitize(error?.code||'DIAGNOSTICS_UNAVAILABLE',120);publish();}});
+      await diagnosticWriter.ready.catch(error=>{diagnosticError=sanitize(error?.code||'DIAGNOSTICS_UNAVAILABLE',120);});
+      history=new ExecutionHistory(home,{writer:diagnosticWriter,version:app.getVersion(),onChange:executionToLog});
+      await history.ready;
       runtime=new RuntimeManager({home,resources,log,tunnelScript});runtime.on('state',publish);
       const {McpSettings}=require('./mcp-settings.cjs');
       const {McpManager}=require('./mcp-manager.cjs');
       const {McpGateway}=require('./mcp-gateway.cjs');
       mcpSettings=new McpSettings(home,safeStorage);
       const {HarnessServices}=require('./harness-services.cjs');
-      const services=new HarnessServices({home,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,engineEntry:runtime.paths.desktopCommander,configHome:runtime.localHome,versions,
+      const services=new HarnessServices({home,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,engineEntry:runtime.paths.desktopCommander,configHome:runtime.localHome,versions,history,
         build:require('./build-identity.cjs').captureBuild({root:path.join(__dirname,'..'),resources,packaged:app.isPackaged}),
         runtime:()=>runtime.status(),catalog:()=>mcpManager?.visibleTools()||[],mcp:()=>mcpManager?.status()||{}});
       mcpManager=new McpManager({settings:mcpSettings,services,enableContent:true,enableProjectGrants:true,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,fetcher:(url,options)=>net.fetch(url,options),log,

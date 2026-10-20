@@ -126,7 +126,7 @@ test('a failed check awaiting cleanup cannot overwrite a later explicit Stop', {
   assert.equal(stopCalls, 2);
 });
 
-function desktopHarness(t) {
+function desktopHarness(t, {packaged=false,argv=[],platform='darwin'}={}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'localharness-desktop-test-'));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const handlers = new Map();
@@ -139,7 +139,9 @@ function desktopHarness(t) {
     destroy() { this.destroyed = true; }
   }
   const app = {
-    quitCalls: 0, setName() {}, setPath() {}, getVersion() { return 'test'; },
+    quitCalls: 0, relaunchCalls: 0, exits: [], isPackaged: packaged,
+    relaunch() { this.relaunchCalls++; }, exit(code) { this.exits.push(code); },
+    setName() {}, setPath() {}, getVersion() { return 'test'; },
     requestSingleInstanceLock() { return true; }, whenReady() { return new Promise(() => {}); },
     on(name, handler) { handlers.set(name, handler); }, quit() { this.quitCalls++; },
   };
@@ -150,12 +152,12 @@ function desktopHarness(t) {
   const context = { require(name) {
     if (name === 'electron') return electron;
     if (name === './settings.cjs' || name === './runtime.cjs') return {};
-    if (['./platform.cjs','./help-links.cjs','./preferences.cjs','./i18n.js','./updater.cjs','./dev-lifecycle.cjs','./execution-history.cjs','./live-logs.cjs','./diagnostic-budget.cjs','./durable-files.cjs'].includes(name)) return require('../app/'+name.slice(2));
+    if (['./platform.cjs','./help-links.cjs','./preferences.cjs','./i18n.js','./updater.cjs','./dev-lifecycle.cjs','./execution-history.cjs','./live-logs.cjs','./diagnostic-budget.cjs','./diagnostic-writer.cjs','./durable-files.cjs'].includes(name)) return require('../app/'+name.slice(2));
     return require(name);
-  }, __dirname: path.dirname(mainPath), process: { platform: 'darwin', env: { LOCALHARNESS_HOME: home } }, Buffer, Promise, setTimeout };
+  }, __dirname: path.dirname(mainPath), process: { platform, argv, env: { LOCALHARNESS_HOME: home } }, Buffer, Promise, setTimeout };
   vm.runInNewContext(fs.readFileSync(mainPath, 'utf8') + `
     locale='zh-CN';
-    globalThis.harness={action,connect,stopConnection,createTray,refreshTray,state,checkUpdate,installUpdate,setUpdater(value){updater=value;},
+    globalThis.harness={action,connect,stopConnection,createTray,refreshTray,applicationMenu,state,checkUpdate,installUpdate,setUpdater(value){updater=value;},
       set(s,r,w){settings=s;runtime=r;window=w;},getTray(){return tray;},getMenu(){return trayMenu;}};
   `, context);
   const harness = context.harness;
@@ -241,6 +243,37 @@ test('Quit closes managed processes and removes the menu bar icon', async (t) =>
   assert.equal(tray.destroyed, true);
   assert.equal(app.quitCalls, 1);
   await assert.rejects(harness.action(() => {}), /正在退出/);
+});
+
+test('application and tray Restart wait for cleanup and schedule only one native relaunch',async t=>{
+  for(const packaged of [false,true]){
+    const {harness,app,handlers,runtime}=desktopHarness(t,{packaged});
+    harness.createTray();const tray=harness.getTray();
+    const menu=harness.applicationMenu()[0];assert.equal(menu.label,'ChatToHarness');
+    const restart=menu.submenu.find(item=>item.label==='重启 ChatToHarness');
+    assert.ok(restart);assert.equal(restart.enabled,true);
+    const cleanup=deferred();runtime.close=()=>{runtime.closes++;return cleanup.promise;};
+    restart.click();tray.emit('right-click');tray.menu.find(item=>item.label==='重启 ChatToHarness').click();
+    assert.equal(app.quitCalls,1,'repeated requests do not duplicate the restart');
+    handlers.get('before-quit')({preventDefault(){}});
+    assert.equal(app.relaunchCalls,0);assert.equal(tray.destroyed,false);
+    await assert.rejects(harness.connect(),/正在退出/);
+    cleanup.resolve();await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(runtime.closes,1);assert.equal(tray.destroyed,true);assert.equal(app.relaunchCalls,1);
+    assert.equal(app.quitCalls,2);assert.deepEqual(app.exits,[]);
+  }
+});
+
+test('supervised development Restart exits for its launcher only after cleanup on both platforms',async t=>{
+  for(const platform of ['darwin','win32']){
+    const {harness,app,handlers,runtime}=desktopHarness(t,{platform,argv:['--localharness-dev-restart','--localharness-dev-owner=42']});
+    const cleanup=deferred();runtime.close=()=>cleanup.promise;
+    harness.applicationMenu()[0].submenu.find(item=>item.label==='重启 ChatToHarness').click();
+    handlers.get('before-quit')({preventDefault(){}});
+    assert.deepEqual(app.exits,[]);assert.equal(app.relaunchCalls,0);
+    cleanup.resolve();await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(app.exits,[76]);assert.equal(app.relaunchCalls,0);assert.equal(app.quitCalls,1);
+  }
 });
 
 test('development replacement waits for runtime cleanup and rejects queued reconnects',async(t)=>{

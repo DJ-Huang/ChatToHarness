@@ -71,6 +71,23 @@ test('page budget counts multibyte paths, metadata and individually oversized ro
   assert.equal(result.results[0].relative_path,'0');
 });
 
+test('default search pages contain 20 matches and keep domain cursors within the full wire budget', {skip:!binary}, async t=>{
+  const f=fixture(t);f.put('default.txt',Array.from({length:35},(_,index)=>`token ${index}`).join('\n'));
+  const first=await f.search.search({project_path:f.root,pattern:'token',context_lines:0});
+  assert.equal(first.results.length,20);assert.equal(first.has_more,true);assert.ok(first.next_cursor);
+  const second=await f.search.search({project_path:f.root,cursor:first.next_cursor});
+  assert.equal(second.results.length,15);assert.equal(second.has_more,false);
+  assert.equal(second.next_cursor,undefined);
+  assert.equal(second.results[0].line,21);assert.equal(second.results.at(-1).line,35);
+  const wire=value=>Buffer.byteLength(JSON.stringify({content:[{type:'text',text:JSON.stringify(value)}],structuredContent:value}));
+  assert.ok(wire(first)<16*1024);
+  const snapshot={root:f.root,complete:true,reason:'completed',truncated:false,searched_at:'2026-10-20T00:00:00.000Z',diagnostics:[],results:Array.from({length:30},(_,index)=>({path:f.root+'/escaped.txt',relative_path:'escaped.txt',line:index+1,text:('中文\\\"\t').repeat(300),context:[]}))};
+  const page=f.search.page('w'.repeat(32),snapshot,0,200);
+  assert.ok(page.results.length>0);assert.ok(page.has_more);assert.ok(wire(page)<16*1024);
+  assert.equal(page.results[0].line,1,'a wide first match remains useful rather than being omitted');
+  assert.equal(snapshot.results[0].truncated,undefined,'compaction does not change the immutable snapshot');
+});
+
 function slowSpawner(onSpawn = () => {}) {
   return () => {
     const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough();

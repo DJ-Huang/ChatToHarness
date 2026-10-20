@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {safeFields, sanitize} = require('./diagnostic-budget.cjs');
+const {recoveryKind} = require('./tool-recovery.cjs');
 
 const MAX_BYTES = 128 * 1024;
 const MAX_LINES = 200;
@@ -30,10 +31,18 @@ function format(line, source, offset) {
   try { data = JSON.parse(line); } catch { return null; }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const safe = safeFields(data);
+  // Older releases serialized absent execution metadata as [omitted]. This is
+  // not an error code or state, and must not obscure the real transition.
+  if (safe.event === 'execution') for (const key of ['state', 'phase', 'error_code', 'errorCode', 'code', 'error', 'delivery', 'execution_state', 'recovery_kind']) {
+    if (safe[key] === '[omitted]') delete safe[key];
+  }
   const event = sanitize(safe.event || 'event', 120);
   const state = String(safe.state || safe.phase || '');
   const code = String(safe.error_code || safe.errorCode || safe.code || safe.error || '');
-  const severity = /(?:fail|error|timeout|denied|disconnect|interrupted|unknown)/i.test([event, state, code].join(' ')) ? 'error' : 'info';
+  const recovery = event === 'execution' ? recoveryKind(safe) : undefined;
+  const active = ['received', 'waiting_approval', 'submitted', 'running', 'cancelling'].includes(state);
+  const delivery = safe.delivery === 'unknown' && active ? '' : safe.delivery;
+  const severity = recovery ? 'info' : /(?:fail|error|timeout|denied|disconnect|interrupted|unknown)/i.test([event, state, code, delivery].join(' ')) ? 'error' : 'info';
   const category = event === 'execution' || /^mcp-(?:call|tool|catalog|session|list)/.test(event) ? 'tool'
     : /(?:connection|connect|runtime|tunnel|gateway|start|stop)/i.test(event) ? 'connection' : 'system';
   const extra = {...safe};
@@ -52,6 +61,8 @@ function format(line, source, offset) {
     at: typeof safe.time === 'string' ? sanitize(safe.time, 40) : '',
     event, category, severity,
     message: sanitize(message, 1100),
+    ...(event === 'execution' ? {request_id: safe.request_id, service: safe.service, tool: safe.tool,
+      state, error_code: code, delivery: safe.delivery, recovery_kind: recovery} : {}),
   };
 }
 function take(source, offset, {tail = false, limit = MAX_LINES} = {}) {

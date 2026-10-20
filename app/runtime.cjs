@@ -5,6 +5,7 @@ const path = require('node:path');
 const http = require('node:http');
 const {EventEmitter} = require('node:events');
 const {bundledPaths, defaultShell, developmentEnvironment, tunnelCommand, spawnManaged, stopTree} = require('./platform.cjs');
+const {prepareRuntimeComponents,componentFailure} = require('./runtime-components.cjs');
 
 const ERRORS = {
   binary:'应用组件不完整，请重新安装应用，或使用一键启动入口准备组件。',
@@ -58,7 +59,10 @@ class RuntimeManager extends EventEmitter {
     this.desired=null;this.process=null;this.generation=0;this.attempts=0;this.retryAt=0;this.monitorBusy=false;this.closed=false;
     this.timer=setInterval(()=>void this.monitor(),2000);this.timer.unref();
   }
-  status(){return {...this.value};}
+  status(){
+    const health=this.gateway?.status?.();
+    return {...this.value,...(health?{tools_health:health.tools_health,tools_ready:health.tools_ready,missing_capabilities:health.missing_capabilities||[]}:{} )};
+  }
   update(values){
     const next={...this.value,...values};if(JSON.stringify(next)===JSON.stringify(this.value))return;
     this.value=next;this.log('runtime',{state:next.state,error:next.error});this.emit('state',this.status());
@@ -72,7 +76,7 @@ class RuntimeManager extends EventEmitter {
       fs.mkdirSync(this.localHome,{recursive:true,mode:0o700});
       if (fs.lstatSync(this.localHome).isSymbolicLink()) throw new Error();
       fs.chmodSync(this.localHome,0o700);
-    } catch {throw new Error(ERRORS.binary);}
+    } catch(error) {throw Object.assign(new Error(ERRORS.binary),{code:componentFailure(error).code});}
     try {
       const file=path.join(this.localHome,'config.json');let value={blockedCommands:BLOCKED};
       if(fs.existsSync(file)) {
@@ -82,16 +86,8 @@ class RuntimeManager extends EventEmitter {
       Object.assign(value,{defaultShell:defaultShell(),allowedDirectories:settings.directories,telemetryEnabled:false,pendingWelcomeOnboarding:false,welcomeOnboardingEligible:false});
       const temp=file+'.'+process.pid+'.tmp';
       try {fs.writeFileSync(temp,JSON.stringify(value,null,2)+'\n',{mode:0o600,flag:'wx'});fs.renameSync(temp,file);} finally {try{fs.unlinkSync(temp);}catch{}}
-      // A private copy works with standalone Node even when Electron uses asar.
-      // The protocol adapter and context reader must travel with the launcher;
-      // standalone Node cannot resolve helpers from Electron's asar archive.
-      for(const name of ['platform.cjs','project-context.cjs','project-search.cjs','mcp-proxy.cjs',path.basename(this.launcherSource)]){
-        const source=path.join(path.dirname(this.launcherSource),name);
-        const destination=name===path.basename(this.launcherSource)?this.launcher:path.join(this.home,name);
-        const temporary=destination+'.'+process.pid+'.tmp';
-        try{fs.writeFileSync(temporary,fs.readFileSync(source),{mode:0o600,flag:'wx'});fs.renameSync(temporary,destination);}finally{try{fs.unlinkSync(temporary);}catch{}}
-      }
-    } catch {throw new Error(ERRORS.config);}
+      prepareRuntimeComponents({sourceDirectory:path.dirname(this.launcherSource),home:this.home,launcherName:path.basename(this.launcherSource)});
+    } catch(error) {if(/^MCP_(?:MODULE_NOT_FOUND|FILE_NOT_FOUND|ACCESS_DENIED|COMPONENT_INVALID)$/.test(error.code||''))throw error;throw new Error(ERRORS.config);}
   }
   childEnvironment(settings={}){
     const env=developmentEnvironment(cleanEnvironment(),this.paths.node);env.LOCALHARNESS_DC_HOME=this.localHome;env.DO_NOT_TRACK='1';
@@ -104,9 +100,7 @@ class RuntimeManager extends EventEmitter {
       fs.mkdirSync(this.home,{recursive:true,mode:0o700});
       if(fs.lstatSync(this.home).isSymbolicLink())throw new Error(ERRORS.config);
       for(const name of ['node','tunnel'])fs.accessSync(this.paths[name],fs.constants.X_OK);
-      const source=path.join(path.dirname(this.launcherSource),'mcp-gateway-stdio.cjs');
-      const temporary=this.gatewayLauncher+'.'+process.pid+'.tmp';
-      try{fs.writeFileSync(temporary,fs.readFileSync(source),{mode:0o600,flag:'wx'});fs.renameSync(temporary,this.gatewayLauncher);}finally{try{fs.unlinkSync(temporary);}catch{}}
+      prepareRuntimeComponents({sourceDirectory:path.dirname(this.launcherSource),home:this.home,kind:'gateway'});
       return this.gateway.start(settings);
     }
     this.prepare(settings);

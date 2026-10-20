@@ -124,11 +124,17 @@ test('worker retention marks expired task output, respects active output budget 
 });
 
 test('worker task synchronization replaces queued flags, captures failed exit and does not require a log-read round trip', async t => {
-  const {home, history} = await fixture(t), task = 'task_' + '6'.repeat(64), directory = path.join(home, 'tasks', task);
+  const {home, history, writer} = await fixture(t), task = 'task_' + '6'.repeat(64), directory = path.join(home, 'tasks', task);
   fs.mkdirSync(directory, {recursive: true});
   const id = history.begin('start_task', {});
   history.complete(id, {structuredContent: {task_id: task, execution_state: 'not_started'}});
   fs.writeFileSync(path.join(directory, 'state.json'), JSON.stringify({state: 'failed', execution_state: 'completed', operation_executed: true, exit_code: 13, finished_at: history.now()}));
   await history.maintain();
   const row = history.get(id); assert.equal(row.state, 'failed'); assert.equal(row.execution_state, 'completed'); assert.equal(row.operation_executed, true); assert.equal(row.exit_code, 13);
+  assert.equal(row.error_code,'TASK_EXIT_NONZERO');assert.match(row.error_summary,/13/);
+  const rejected=history.begin('start_task',{});
+  history.complete(rejected,{isError:true,structuredContent:{task_id:task,code:'IDEMPOTENCY_CONFLICT',message:'Inspect original task.',execution_state:'not_started'}});
+  await history.maintain();await writer.flush();
+  const persisted=JSON.parse(fs.readFileSync(path.join(home,'executions',rejected+'.json'),'utf8'));
+  assert.equal(persisted.error_code,'IDEMPOTENCY_CONFLICT');assert.equal(persisted.execution_state,'not_started');assert.equal(persisted.task_accepted,false);
 });

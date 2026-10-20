@@ -11,6 +11,35 @@ const {readJson, atomicJson} = require('../app/durable-files.cjs');
 const {defaultShell} = require('../app/platform.cjs');
 const {windowsProcessHost} = require('./native-helper.cjs');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+test('bounded waits preserve output, durable identity and the worker after a chat disconnect', {timeout:60000}, async t=>{
+  const f=fixture(t);
+  // Synchronize on the actual program, not worker/PowerShell startup time under
+  // CI load. The response wait remains capped at 10 seconds on every platform.
+  const quick=f.start('const fs=require("fs");console.log("short result");console.error("stderr result");fs.writeFileSync("short-ready","1");const timer=setInterval(()=>{if(fs.existsSync("finish-short")){clearInterval(timer);process.exitCode=3;}},25)','short-wait',{runtime_limit_ms:30000});
+  await until(()=>fs.existsSync(path.join(f.project,'short-ready')),30000);
+  const finishing=f.store.waitResult(quick.task_id,f.project,{wait_ms:10000});
+  fs.writeFileSync(path.join(f.project,'finish-short'),'1');
+  const done=await finishing;
+  assert.equal(done.terminal,true);assert.equal(done.state,'failed');assert.equal(done.exit_code,3);
+  assert.match(done.stdout,/short result/);assert.match(done.stderr,/stderr result/);
+  const code='require("fs").appendFileSync("wait-once.txt","1");setTimeout(()=>console.log("finished later"),900)';
+  const task=f.start(code,'disconnected-wait',{runtime_limit_ms:30000}),controller=new AbortController();
+  const waiting=f.store.waitResult(task.task_id,f.project,{wait_ms:10000,signal:controller.signal});
+  setTimeout(()=>controller.abort(),20);
+  const active=await waiting;
+  assert.equal(active.wait_interrupted,true);assert.equal(active.terminal,false);
+  assert.equal(active.next_arguments.task_id,task.task_id);assert.equal(active.next_tool,'get_task_result');
+  assert.ok(!fs.existsSync(path.join(f.store.taskPath(task.task_id),'cancel.request')));
+  const reopened=new TaskStore(f.config);
+  const same=reopened.start({project_path:f.project,idempotency_key:'disconnected-wait',command:f.command(code),runtime_limit_ms:30000,wait_ms:0});
+  assert.equal(same.task_id,task.task_id);assert.equal(same.reused,true);
+  await until(()=>fs.existsSync(path.join(f.project,'wait-once.txt'))||reopened.status(task.task_id,f.project).terminal,30000);
+  const final=await reopened.waitResult(task.task_id,f.project,{wait_ms:10000});
+  assert.equal(final.state,'succeeded');assert.match(final.stdout,/finished later/);
+  assert.equal(fs.readFileSync(path.join(f.project,'wait-once.txt'),'utf8'),'1');
+  assert.equal((await reopened.waitResult(task.task_id,f.project,{wait_ms:0})).terminal,true);
+  await assert.rejects(reopened.waitResult(task.task_id,f.project,{wait_ms:10001}),{code:'INVALID_ARGUMENT'});
+});
 async function until(predicate, timeout = 10000) { const deadline = Date.now() + timeout; for (;;) { const value = predicate(); if (value) return value; if (Date.now() > deadline) throw new Error('Task did not reach the expected state.'); await pause(50); } }
 function fixture(t, options = {}) {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cth-tasks 中文 '))), project = path.join(home, 'project'); fs.mkdirSync(project);
@@ -25,8 +54,10 @@ function fixture(t, options = {}) {
     const name = '.task-' + crypto.createHash('sha256').update(code).digest('hex').slice(0, 16) + '.cjs';
     const script = path.join(project, name);
     if (!fs.existsSync(script)) fs.writeFileSync(script, code);
+    // PowerShell otherwise maps a native nonzero exit to 1. Explicitly forward
+    // this fixture's Node exit code so the same strict assertions run on Windows.
     return process.platform === 'win32'
-      ? `& '${process.execPath.replace(/'/g, "''")}' '${script.replace(/'/g, "''")}'`
+      ? `& '${process.execPath.replace(/'/g, "''")}' '${script.replace(/'/g, "''")}'; exit $LASTEXITCODE`
       : `'${process.execPath.replace(/'/g, "'\\''")}' '${script.replace(/'/g, "'\\''")}'`;
   };
   const start = (code, key, extra = {}) => { const value = store.start({project_path: project, idempotency_key: key, command: command(code), runtime_limit_ms: 10000, ...extra}); if (!ids.includes(value.task_id)) ids.push(value.task_id); return value; };
@@ -41,7 +72,7 @@ test('persistent task returns immediately, survives a new store and executes eac
   await until(() => restored.status(first.task_id, f.project).terminal);
   assert.equal(restored.status(first.task_id, f.project).state, 'succeeded'); assert.equal(fs.readFileSync(path.join(f.project, 'once.txt'), 'utf8'), '1');
   assert.equal(restored.start({project_path: f.project, idempotency_key: 'stable-request', command: f.command(code), runtime_limit_ms: 10000}).reused, true);
-  assert.throws(() => f.start('console.log("different")', 'stable-request'), {code: 'IDEMPOTENCY_CONFLICT'});
+  assert.throws(() => f.start('console.log("different")', 'stable-request'), error=>error.code==='IDEMPOTENCY_CONFLICT'&&error.details.next_tool==='get_task_result'&&error.details.next_arguments.task_id===first.task_id);
   assert.equal(fs.readFileSync(path.join(f.project, 'once.txt'), 'utf8'), '1');
   const page = restored.logs(first.task_id, f.project, {limit: 1}), next = restored.logs(first.task_id, f.project, {cursor: page.next_cursor});
   assert.match([...page.entries, ...next.entries].map(item => item.text).join(''), /中文 start[\s\S]*complete/);
@@ -134,4 +165,32 @@ test('task result tails account for JSON escaping in the complete wire result',t
   assert.ok(Buffer.byteLength(JSON.stringify({content:[{type:'text',text:result.summary}],structuredContent:result}))<16*1024);
   assert.equal(result.output_truncated,true);
   assert.ok(result.stdout.length>0);
+});
+
+test('log cursors reject mid-record offsets and bounded tail reads do not scan earlier pages', t=>{
+  const f=fixture(t,{launch:()=>{throw new Error('synthetic launch failure');}}),job=f.start('console.log("unused")','log-boundaries');
+  const directory=f.store.taskPath(job.task_id),file=path.join(directory,'output.jsonl');
+  const entries=Array.from({length:1800},(_,index)=>({stream:'stdout',text:`${index}: 中文 日本語 ${'x'.repeat(70)}\n`}));
+  fs.writeFileSync(file,entries.map(entry=>JSON.stringify(entry)).join('\n')+'\n');
+  const original=fs.readFileSync(file);
+  assert.throws(()=>f.store.logs(job.task_id,f.project,{cursor:`${job.task_id}:17`}),error=>error.code==='INVALID_CURSOR'&&error.details.next_arguments.tail===true);
+  assert.throws(()=>f.store.logs(job.task_id,f.project,{cursor:`${job.task_id}:${original.length+1}`}),{code:'INVALID_CURSOR'});
+  assert.throws(()=>f.store.logs(job.task_id,f.project,{tail:true,cursor:`${job.task_id}:0`}),{code:'INVALID_ARGUMENT'});
+  assert.throws(()=>f.store.logs(job.task_id,f.project,{tail:'true'}),{code:'INVALID_ARGUMENT'});
+  const first=f.store.logs(job.task_id,f.project,{limit:2});
+  assert.deepEqual(first.entries,entries.slice(0,2));
+  assert.deepEqual(f.store.logs(job.task_id,f.project,{limit:2,cursor:first.next_cursor}).entries,entries.slice(2,4));
+  const tail=f.store.logs(job.task_id,f.project,{tail:true,limit:3});
+  assert.deepEqual(tail.entries,entries.slice(-3));assert.equal(tail.has_more,false);assert.equal(tail.has_earlier,true);
+  assert.equal(tail.next_cursor,`${job.task_id}:${original.length}`);
+  assert.deepEqual(f.store.logs(job.task_id,f.project,{cursor:tail.start_cursor,limit:3}).entries,tail.entries);
+  assert.deepEqual(f.store.logs(job.task_id,f.project,{cursor:tail.next_cursor}).entries,[]);
+  assert.deepEqual(fs.readFileSync(file),original);
+  fs.appendFileSync(file,'{"stream":"stdout","text":"later');
+  const incomplete=f.store.logs(job.task_id,f.project,{cursor:tail.next_cursor});
+  assert.equal(incomplete.incomplete_tail,true);assert.equal(incomplete.next_cursor,tail.next_cursor);
+  fs.appendFileSync(file,'"}\n');
+  assert.equal(f.store.logs(job.task_id,f.project,{cursor:incomplete.next_cursor}).entries[0].text,'later');
+  fs.writeFileSync(file,'invalid record\n');
+  assert.throws(()=>f.store.logs(job.task_id,f.project),error=>error.code==='TASK_LOG_UNREADABLE'&&!error.message.includes('invalid record'));
 });

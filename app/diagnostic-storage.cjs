@@ -6,7 +6,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {readJson} = require('./durable-files.cjs');
 const {sanitize} = require('./diagnostic-budget.cjs');
-const {presentExecution} = require('./tool-recovery.cjs');
+const {presentExecution, taskError} = require('./tool-recovery.cjs');
+
+function followsTask(row) {
+  if (!row || row.tool !== 'start_task' || !/^task_[a-f0-9]{64}$/.test(row.task_id || '') || row.task_finished || row.task_accepted === false) return false;
+  // Legacy rejected requests can reference an existing task without having
+  // accepted it. Following that worker would erase the rejection's cause.
+  return row.task_accepted === true || !(row.state === 'failed' && row.execution_state === 'not_started' && row.error_code);
+}
 
 function readRows(home) {
   const rows = new Map(), directory = path.join(home, 'executions');
@@ -22,6 +29,7 @@ function readRows(home) {
 }
 
 function taskPatch(home, row, now = Date.now()) {
+  if (!followsTask(row)) return {};
   try {
     const directory = path.join(home, 'tasks', row.task_id);
     for (const folder of [path.join(home, 'tasks'), directory]) {
@@ -39,12 +47,13 @@ function taskPatch(home, row, now = Date.now()) {
     // must never survive once the worker records spawn or process completion.
     const execution = ['not_started', 'unknown', 'running', 'completed'].includes(task.execution_state)
       ? task.execution_state : terminal && task.operation_executed === true ? 'completed' : task.state === 'running' ? 'running' : task.operation_executed === false ? 'not_started' : undefined;
+    const failure = taskError(task);
     return {state,
       ...(execution ? {execution_state: stale && task.operation_executed !== false ? 'unknown' : execution} : {}),
       ...(Object.hasOwn(task, 'operation_executed') ? {operation_executed: task.operation_executed} : {}),
       ...(Object.hasOwn(task, 'exit_code') ? {exit_code: task.exit_code} : {}),
       ...(task.started_at ? {started_at: task.started_at} : {}),
-      ...(finishedAt ? {finished_at: finishedAt, task_finished: true, error_code: sanitize(task.error?.code || '', 256), error_summary: sanitize(task.error?.message || '', 16384)}
+      ...(finishedAt ? {finished_at: finishedAt, task_finished: true, error_code: sanitize(failure.code || '', 256), error_summary: sanitize(failure.message || '', 16384)}
         : stale ? {finished_at: new Date(now).toISOString(), error_code: 'TASK_HEARTBEAT_UNAVAILABLE'} : {finished_at: undefined, error_code: ''})};
   } catch { return {state: 'unknown', error_code: 'TASK_RECORD_UNAVAILABLE'}; }
 }
@@ -71,4 +80,4 @@ function taskDetail(home, row) {
   return row;
 }
 
-module.exports = {readRows, taskPatch, taskDetail};
+module.exports = {readRows, taskPatch, taskDetail, followsTask};

@@ -2,7 +2,7 @@
 
 [English](../en/uncertain-results.md) | [简体中文](../zh-CN/uncertain-results.md) | [日本語](../ja/uncertain-results.md)
 
-> For ChatToHarness 0.6.0.
+> For the current source; these changes have not been released.
 
 ## Your goal
 
@@ -40,6 +40,20 @@ You distinguish a missing response from a missing execution and avoid duplicate 
 ## If it does not work
 
 A response written locally does not prove remote receipt. Reconnection does not replay operations. Cancellation also requires a final-state check; requesting cancellation does not prove termination.
+
+### Recover saved results (current source)
+
+Execution details show result availability and provide Copy recovery information for querying the original task or saved result in chat. `get_execution_summary` also returns result references. Small and large ordinary tool results can be saved. The separate cache holds at most seven days and 50 MiB; capacity pressure can expire results earlier. Native previews retain their format, and recovery reads do not create another snapshot. Results may contain file bodies and other user content and are stored in a private local directory; current source permissions still apply. Storage failures, expired snapshots and legacy records without saved results are explicit and never authorize replaying a mutation.
+
+### Query diagnostics without guessing log paths
+
+- For tool failures, call `get_execution_summary` with an authorized `project_path`, `state:"errors"` and an optional `since`. Add `include_connection:true` for bounded app connection events.
+- For disconnects, reconnects and retry delays, call `get_harness_status` and read `connection.events`. These application-wide records contain states, timestamps and retry delays, excluding other projects’ calls, raw log messages and credentials. History is bounded; an empty list does not prove there were no earlier disconnects.
+- For task stdout/stderr, call `get_task_result` or `get_task_logs` with the original `task_id`.
+
+Do not guess OS log directories or app-storage paths, or broaden project scope to read diagnostics. A rejected log read retains its rejection and suggests a callable diagnostic tool; it neither expands permissions nor automatically calls an alternative.
+
+The tunnel requests a one-second initial poll. Unexpected exit triggers immediate detection; brief outages use fast retries and sustained failures back off to 10/30 seconds. Backoff resets after 30 seconds of continuous readiness; stopping cancels scheduled retries. Network, server and proxy delays still affect recovery. Tool deadlines and task replay behavior do not change.
 
 ## Next steps
 

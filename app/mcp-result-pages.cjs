@@ -3,7 +3,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const {MAX_MESSAGE_BYTES} = require('./mcp-transport.cjs');
+const {ResultCache} = require('./result-cache.cjs');
 
 // This is a delivery budget, not a claimed ChatGPT attachment threshold.
 const INLINE_BYTES = 16 * 1024;
@@ -92,8 +92,9 @@ function project(result) {
 }
 
 class McpResultPages {
-  constructor({directory,authorize=()=>true,log=()=>{}}={}) {
+  constructor({directory,authorize=()=>true,log=()=>{},cacheOptions={}}={}) {
     this.directory=directory;this.temporary=!directory;this.authorize=authorize;this.log=log;
+    this.cache=new ResultCache({...cacheOptions,storage:()=>this.storage()});
   }
   tools(){return TOOLS;}
   has(name){return TOOLS.some(tool=>tool.name===name);}
@@ -106,20 +107,22 @@ class McpResultPages {
     })().catch(error=>{this.ready=null;throw error;});
     return this.ready;
   }
-  async deliver(result,source,{explicitFiles=false,knownBuiltin=false}={}) {
+  async deliver(result,source,{explicitFiles=false,knownBuiltin=false,capture=false,preserveOriginal=false,onSaved=()=>{}}={}) {
     if(!result||typeof result!=='object')return result;
     const projected=project(result);
-    if((explicitFiles||!projected.files.length)&&Buffer.byteLength(JSON.stringify(result))<=INLINE_BYTES)return result;
+    const inline=(explicitFiles||!projected.files.length)&&Buffer.byteLength(JSON.stringify(result))<=INLINE_BYTES;
     // An explicit artifact preview retains the existing native delivery format.
-    if(explicitFiles&&projected.files.length)return result;
+    const original=inline||explicitFiles&&projected.files.length||preserveOriginal;
+    if(original&&!capture)return result;
     const result_id=`result_${crypto.randomBytes(16).toString('hex')}`;
-    const record={version:1,result_id,source,result};
+    const record={version:1,result_id,source,result,created_at:new Date(this.cache.clock()).toISOString()};
     try{
-      const directory=await this.storage();
-      await fs.writeFile(path.join(directory,`${result_id}.json`),JSON.stringify(record),{flag:'wx',mode:0o600});
-      return knownBuiltin?this.summary(record,projected):this.page(record,projected,{});
+      const ref=await this.cache.save(record);
+      await onSaved(ref);
+      return original?result:knownBuiltin?this.summary(record,projected):this.page(record,projected,{});
     }catch{
       // A completed mutation must never be hidden or replayed if disk storage fails.
+      try{await onSaved({result_status:'storage_failed'});}catch{}
       this.log('mcp-result-delivery',{state:'storage_failed',fallback:'original_result'});return result;
     }
   }
@@ -166,9 +169,8 @@ class McpResultPages {
     if(typeof result_id!=='string'||!ID.test(result_id))throw problem('MCP_INVALID_ARGUMENTS','Pass a result_id returned by a paged tool result.');
     let record;
     try{
-      const file=await fs.open(path.join(await this.storage(),`${result_id}.json`),'r');
-      try{const stat=await file.stat();if(!stat.isFile()||stat.size>MAX_MESSAGE_BYTES+65536)throw new Error();record=JSON.parse(await file.readFile('utf8'));}finally{await file.close();}
-    }catch{throw problem('MCP_RESULT_UNAVAILABLE','This saved result is unavailable. Inspect the original operation state; do not automatically replay a mutation.');}
+      record=await this.cache.read(result_id);
+    }catch(error){if(error.code==='MCP_RESULT_EXPIRED')throw error;throw problem('MCP_RESULT_UNAVAILABLE','This saved result is unavailable. Inspect the original task or artifacts; do not automatically replay a mutation.');}
     if(record.version!==1||record.result_id!==result_id||!record.result||!record.source||!await this.authorize(record.source))throw problem('MCP_RESULT_DENIED','The source tool or its authorized folders changed or are no longer available.');
     return record;
   }
@@ -181,6 +183,7 @@ class McpResultPages {
       return {content:[projected.files[args.file_index]],...(record.result._meta?{_meta:record.result._meta}:{})};
     }catch(error){return response({code:error.code||'MCP_RESULT_UNAVAILABLE',message:error.code?error.message:'The saved result could not be read.',next_action:'Check the result ID and source permissions. Do not automatically replay the original operation.'},{isError:true});}
   }
-  async close(){if(this.temporary&&this.directory)await fs.rm(this.directory,{recursive:true,force:true});}
+  describe(row){return this.cache.info(row);}
+  async close(){await this.cache.close();if(this.temporary&&this.directory)await fs.rm(this.directory,{recursive:true,force:true});}
 }
 module.exports={McpResultPages,INLINE_BYTES,PAGE_BYTES,decorateTool,project};

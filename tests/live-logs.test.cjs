@@ -75,6 +75,13 @@ test('old/invalid records cannot expose sensitive keys, and errors have a separa
   assert.equal(result.entries[1].category, 'connection');
 });
 
+test('command failures expose their exit code without copying task output into live logs',t=>{
+  const dir=home(t),feed=new LiveLogs(dir);
+  append(dir,row('execution',{service:'Harness',tool:'start_task',state:'failed',error_code:'TASK_EXIT_NONZERO',exit_code:23}));
+  const entry=feed.read().entries[0];
+  assert.equal(entry.exit_code,23);assert.equal(entry.severity,'error');assert.match(entry.message,/TASK_EXIT_NONZERO.*exit_code=23/);
+});
+
 test('only known built-in pre-execution recovery is informational and transport failures remain errors',t=>{
   const dir=home(t),feed=new LiveLogs(dir);
   const base={request_id:'exec_fixture',tool:'start_process',service:'builtin',state:'failed',error_code:'PROJECT_CONTEXT_REFRESH_REQUIRED'};

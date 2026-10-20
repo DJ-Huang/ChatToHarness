@@ -25,6 +25,42 @@ function fixture(t) {
   fs.writeFileSync(path.join(project, 'hello 中文.txt'), 'first\nsecond\n'); git('add', '.'); git('commit', '-m', 'synthetic baseline');
   return {directory, project, inspector, contexts, services, git};
 }
+test('task service validates waits before execution and applies short/default query waits with durable linkage', async t=>{
+  const f=fixture(t),task_id='task_'+'b'.repeat(64),calls=[],updates=[];
+  f.services.configure({directories:[f.project],autoProjectContext:false});
+  f.services.history={update:(id,patch)=>updates.push({id,...patch})};
+  f.services.tasks.existing=()=>undefined;
+  f.services.tasks.start=()=>{calls.push('start');return {task_id,reused:false,execution_state:'not_started'};};
+  f.services.tasks.waitResult=async(id,project,options)=>{calls.push(options.wait_ms);return {task_id:id,terminal:false,state:'running',execution_state:'running'};};
+  const input={project_path:f.project,command:'fixture',idempotency_key:'stable'};
+  for(const wait_ms of [-1,10001,1.5,'5'])assert.equal((await f.services.call('start_task',{...input,wait_ms})).isError,true);
+  assert.deepEqual(calls,[]);
+  const started=await f.services.call('start_task',input,{executionId:'original-request'});
+  assert.equal(started.structuredContent.task_id,task_id);assert.deepEqual(calls,['start',2000]);
+  assert.equal(updates[0].task_id,task_id);assert.equal(updates[0].id,'original-request');
+  assert.equal(updates[0].task_accepted,true);
+  await f.services.call('get_task_result',{project_path:f.project,task_id});assert.equal(calls.at(-1),5000);
+  f.services.tasks.existing=()=>({task_id,execution_state:'running',reused:true});
+  const retry=await f.services.call('start_task',{...input,wait_ms:0});
+  assert.equal(retry.structuredContent.reused,true);assert.equal(calls.at(-1),0);assert.equal(calls.filter(x=>x==='start').length,1);
+  f.services.tasks.waitResult=async()=>{throw Error('unreadable state after submission');};
+  const unavailable=await f.services.call('start_task',{...input,wait_ms:0});
+  assert.equal(unavailable.structuredContent.task_id,task_id);assert.equal(unavailable.structuredContent.execution_state,'unknown');
+  assert.equal(unavailable.structuredContent.operation_executed,null);assert.equal(calls.filter(x=>x==='start').length,1);
+});
+
+test('task conflicts guide a read of the original task without bypassing its identity',async t=>{
+  const f=fixture(t),task='task_'+'c'.repeat(64);
+  f.services.configure({directories:[f.project],autoProjectContext:false});
+  f.services.tasks.existing=()=>{throw require('../app/project-inspect.cjs').fail('IDEMPOTENCY_CONFLICT','Inspect original task.',{task_id:task,next_tool:'get_task_result',next_arguments:{project_path:f.project,task_id:task,wait_ms:0}});};
+  f.services.tasks.start=()=>assert.fail('A rejected key must not launch a worker.');
+  const error=await f.services.call('start_task',{project_path:f.project,idempotency_key:'same',command:'changed'});
+  assert.equal(error.isError,true);assert.equal(error.structuredContent.code,'IDEMPOTENCY_CONFLICT');
+  assert.equal(error.structuredContent.next_tool,'get_task_result');assert.equal(error.structuredContent.next_arguments.task_id,task);
+  assert.equal(error.structuredContent.execution_state,'not_started');
+  const definition=f.services.tools().find(tool=>tool.name==='get_task_logs');
+  assert.equal(definition.inputSchema.properties.tail.type,'boolean');assert.match(definition.description,/never calculate byte offsets/);
+});
 test('project overview and read-only Git cover unicode files, staged changes and immutable pages', async t => {
   const f = fixture(t); fs.writeFileSync(path.join(f.project, 'AGENTS.md'), '# Project\nUse local project conventions.\n');
   fs.appendFileSync(path.join(f.project, 'hello 中文.txt'), 'third\nfourth\n');
@@ -109,6 +145,7 @@ test('edits and persistent tasks return direct guidance retry patches without ex
 
   const starts=[];
   f.services.tasks.start=args=>{starts.push(args);return {task_id:'task_'+'e'.repeat(64),state:'queued'};};
+  f.services.tasks.waitResult=async task_id=>({task_id,state:'queued',terminal:false});
   const taskInput={project_path:f.project,command:'synthetic fixture',idempotency_key:'task-guidance-retry'};
   const taskFirst=await f.services.call('start_task',taskInput),taskData=taskFirst.structuredContent;
   assert.equal(taskData.code,'PROJECT_CONTEXT_REFRESH_REQUIRED');assert.equal(taskData.next_tool,'start_task');
@@ -152,6 +189,33 @@ test('execution summaries authorize the project and expose state and errors with
   assert.equal((await f.services.call('get_execution_summary',{project_path:path.dirname(f.directory)})).isError,true);
   const definition=f.services.tools().find(tool=>tool.name==='get_execution_summary');
   assert.deepEqual(definition.inputSchema.required,['project_path']);assert.equal(definition.annotations.readOnlyHint,true);
+});
+
+test('saved connection diagnostics avoid log paths and cannot expose other project executions or raw messages',async t=>{
+  const f=fixture(t),logs=path.join(f.services.home,'logs');fs.mkdirSync(logs,{recursive:true});
+  const raw=[
+    {time:'2026-10-20T00:00:00.000Z',event:'runtime',state:'ready'},
+    {time:'2026-10-20T00:00:01.000Z',event:'execution',state:'failed',project:'OTHER_PROJECT',command:'PRIVATE_COMMAND',stdout:'PRIVATE_OUTPUT'},
+    {time:'2026-10-20T00:00:02.000Z',event:'runtime-retry',attempt:1,delay_ms:250,reason:'process',headers:{authorization:'PRIVATE_AUTH'},error:'PRIVATE_MESSAGE'},
+    {time:'2026-10-20T00:00:03.000Z',event:'runtime',state:'reconnecting',error:'PRIVATE_MESSAGE',api_key:'PRIVATE_KEY'},
+    {time:'2026-10-20T00:00:04.000Z',event:'runtime',state:'ready',path:'PRIVATE_PATH'},
+    {time:'2026-10-20T00:00:05.000Z',event:'runtime',state:'PRIVATE_STATE'},
+  ];
+  fs.writeFileSync(path.join(logs,'app.log'),raw.map(row=>JSON.stringify(row)).join('\n')+'\n');
+  f.services.history={rows:()=>[]};
+  const args={project_path:f.project,state:'errors',since:'2026-10-20T00:00:01.000Z',include_connection:true};
+  const result=await f.services.call('get_execution_summary',args),connection=result.structuredContent.connection;
+  assert.equal(result.isError,undefined);assert.deepEqual(result.structuredContent.items,[]);
+  assert.equal(connection.scope,'application_connection');assert.equal(connection.bounded,true);
+  assert.deepEqual(connection.events.map(row=>row.state),['retry_scheduled','reconnecting','ready']);
+  assert.equal(connection.events[0].delay_ms,250);
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_|OTHER_PROJECT/);
+  const status=await f.services.call('get_harness_status',{});
+  assert.equal(status.structuredContent.connection.events.length,4);
+  assert.doesNotMatch(JSON.stringify(status),/PRIVATE_|OTHER_PROJECT/);
+  const ordinary=await f.services.call('get_execution_summary',{project_path:f.project});assert.equal(ordinary.structuredContent.connection,undefined);
+  assert.equal((await f.services.call('get_execution_summary',{...args,include_connection:'yes'})).isError,true);
+  assert.equal((await f.services.call('get_execution_summary',{...args,project_path:path.dirname(f.directory)})).isError,true);
 });
 
 test('read-only domain pages budget a long Unicode Git line without opaque transport pagination',t=>{

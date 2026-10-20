@@ -70,6 +70,7 @@
             <progress id="update-progress" class="update-progress" max="100" value="0" aria-label="更新下载进度" hidden></progress>
             <div class="update-actions"><button id="download-update" class="button primary compact-button" type="button" hidden>下载并安装</button><button id="update-release" class="text-button" type="button" hidden>查看版本说明 ↗</button></div>
             <p id="update-install-help" class="update-install-help" hidden></p>
+            <p class="update-install-help">更新应用后，建议刷新聊天客户端中的插件工具列表，以加载最新工具和参数说明。</p>
             <div class="setting-row"><div><label class="checkbox-label" for="auto-check-updates"><input id="auto-check-updates" type="checkbox" checked /><span>自动检查更新</span></label><p>启动后检查，此后每 24 小时检查一次。发现新版本时提醒。</p></div></div>
           </section>
           <div class="section-heading"><h2>连接你的客户端</h2><p>以下接入方式有官方支持，实际可用性取决于账号权限与客户端配置。</p></div><div class="client-grid"><article class="card client-card"><div class="client-card-heading"><div class="client-avatar" aria-hidden="true">C</div><span class="support-tag">官方支持</span></div><h3>ChatGPT</h3><p>在支持的工作区添加自定义 MCP，选择与本应用相同的 Tunnel，再确认工具权限。</p><div class="client-card-actions"><button class="button secondary compact-button" type="button" data-external="chatgpt">打开 ChatGPT <span aria-hidden="true">↗</span></button><button class="text-button" type="button" data-external="docs-chatgpt">接入说明 ↗</button></div></article><article class="card client-card"><div class="client-card-heading"><div class="client-avatar code-avatar" aria-hidden="true">&gt;_</div><span class="support-tag">官方支持</span></div><h3>Codex</h3><p>使用账号所支持的 Tunnel 接入入口。确认通道所属组织与客户端账号具有访问权限。</p><div class="client-card-actions"><button class="button secondary compact-button" type="button" data-external="docs-codex">查看 Codex 指引 <span aria-hidden="true">↗</span></button></div></article></div>
@@ -112,7 +113,7 @@
           <label><input id="history-diagnostics" type="checkbox">详细诊断（30 分钟后自动关闭）</label>
           <div class="history-scroll"><table class="history-table"><thead><tr><th>选择</th><th>时间</th><th>工具与操作</th><th>项目或 MCP</th><th>状态</th><th>耗时</th></tr></thead><tbody id="history-rows"></tbody></table></div>
           <div class="mcp-actions"><button id="history-prev" type="button" class="button secondary">上一页</button><span id="history-page"></span><button id="history-next" type="button" class="button secondary">下一页</button><button id="history-export" type="button" class="button secondary">导出所选记录</button></div>
-          <div id="history-detail" hidden><h3>记录详情</h3><pre id="history-detail-text" class="code-example"></pre><button id="history-copy" type="button" class="button secondary">复制诊断摘要</button></div>
+          <div id="history-detail" hidden><h3>记录详情</h3><p id="history-result-status" role="status"></p><pre id="history-detail-text" class="code-example"></pre><button id="history-copy" type="button" class="button secondary">复制诊断摘要</button> <button id="history-recovery" type="button" class="button secondary">复制恢复信息</button></div>
           <p id="history-error" role="alert"></p>
         </section>
       </section>

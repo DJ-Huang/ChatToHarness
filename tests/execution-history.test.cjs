@@ -64,6 +64,23 @@ test('asynchronous submission links worker updates, cancellation and restart wit
   fs.writeFileSync(path.join(dir,'state.json'),JSON.stringify({state:'running',updated_at:history.now(),started_at:history.now()}));history.maintain();assert.equal(history.get(id).state,'running');
   fs.writeFileSync(path.join(dir,'state.json'),JSON.stringify({state:'succeeded',finished_at:history.now()}));history.maintain();assert.equal(history.get(id).state,'succeeded');assert.equal(history.get(id).task_id,task);
 });
+
+test('task synchronization preserves rejected idempotency requests and reports accepted command exits',t=>{
+  const {history,home}=fixture(t),task='task_'+'3'.repeat(64),dir=path.join(home,'tasks',task);fs.mkdirSync(dir,{recursive:true});
+  const accepted=history.begin('start_task',{});
+  history.complete(accepted,{structuredContent:{task_id:task,state:'queued',execution_state:'not_started'}});
+  fs.writeFileSync(path.join(dir,'state.json'),JSON.stringify({state:'failed',execution_state:'completed',operation_executed:true,exit_code:23,finished_at:history.now()}));
+  const rejected=history.begin('start_task',{});
+  history.complete(rejected,{isError:true,structuredContent:{task_id:task,code:'IDEMPOTENCY_CONFLICT',message:'Inspect original task.',execution_state:'not_started',operation_executed:false}});
+  const original=history.get(rejected);assert.equal(original.task_accepted,false);
+  history.maintain();assert.deepEqual(history.get(rejected),original);
+  assert.equal(history.get(accepted).error_code,'TASK_EXIT_NONZERO');assert.match(history.get(accepted).error_summary,/23/);
+  const legacy=history.begin('start_task',{}),legacyRow={...original,request_id:legacy};delete legacyRow.task_accepted;
+  fs.writeFileSync(history.file(legacy),JSON.stringify(legacyRow));
+  history.close();const restored=new ExecutionHistory(home);t.after(()=>restored.close());restored.maintain();
+  assert.equal(restored.get(rejected).error_code,'IDEMPOTENCY_CONFLICT');assert.equal(restored.get(rejected).execution_state,'not_started');
+  assert.equal(restored.get(legacy).error_code,'IDEMPOTENCY_CONFLICT');assert.equal(restored.get(legacy).task_finished,undefined);
+});
 test('safe summaries, bounded errors and opt-in diagnostic expiry use an injected clock',t=>{
   const {history,advance}=fixture(t);const args={command:'echo hidden',env:{KEY:'secret'},content:'file body',api_key:'credential',path:'/a'};
   const summary=argumentSummary(args);for(const value of ['echo hidden','secret','file body','credential'])assert.ok(!summary.includes(value));

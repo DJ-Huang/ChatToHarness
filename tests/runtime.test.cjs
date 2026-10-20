@@ -8,7 +8,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { spawn, execFileSync } = require('node:child_process');
 const { once } = require('node:events');
-const { RuntimeManager, ERRORS, reason, cleanEnvironment, shellQuote, stopTree, healthRequest } = require('../app/runtime.cjs');
+const { RuntimeManager, ERRORS, reason, cleanEnvironment, shellQuote, stopTree, healthRequest, reconnectDelay } = require('../app/runtime.cjs');
 const {RUNTIME_COMPONENTS,RUNTIME_ENTRYPOINTS,prepareRuntimeComponents,verifyRuntimeComponents}=require('../app/runtime-components.cjs');
 const {defaultShell,tunnelCommand,spawnManaged}=require('../app/platform.cjs');
 const {windowsProcessHost}=require('./native-helper.cjs');
@@ -125,6 +125,7 @@ setInterval(()=>{},1000);
   await waitFor(()=>{try{first=JSON.parse(fs.readFileSync(report,'utf8'));return Boolean(first?.endpoint);}catch{return false;}},'gateway Tunnel fixture did not start');
   assert.equal(first.endpoint,'synthetic-private-endpoint');
   assert.equal(first.args[first.args.indexOf('--mcp.command')+1],tunnelCommand([process.execPath,manager.gatewayLauncher]));
+  assert.equal(first.args[first.args.indexOf('--control-plane.initial-poll-timeout')+1],'1s');
   assert.equal(fs.existsSync(manager.gatewayLauncher),true);
   assert.equal(gateway.starts,1);
   await manager.stopProcess();manager.launch();
@@ -150,6 +151,41 @@ test('authentication failures map to actionable reasons', () => {
   assert.equal(reason('connection reset'), '');
   assert.equal(reason({ status: 'ok', polls: 401, duration_ms: 403, requests: 404 }), '');
   assert.equal(reason({ status_code: 401 }), 'key');
+});
+
+test('brief outages use fast retries while sustained failures retain bounded backoff',()=>{
+  assert.deepEqual([0,1,2,3,4,20].map(attempt=>reconnectDelay(attempt,15000)),[250,1000,2000,5000,5000,5000]);
+  assert.equal(reconnectDelay(10,30000),10000);
+  assert.equal(reconnectDelay(10,60000),30000);
+});
+
+test('an exited tunnel restarts by event and retry timer without waiting for the periodic monitor', {timeout:10000},async t=>{
+  const f=fixture(t),tunnel=writeScript(path.join(f.root,'idle-tunnel.cjs'),'setInterval(()=>{},1000);');
+  const logs=[],gateway={async start(){return 1;},environment(){return {};},async stop(){},async close(){}};
+  const manager=new RuntimeManager({home:f.home,paths:{node:process.execPath,tunnel:process.execPath,processHost:windowsProcessHost()},gateway,tunnelScript:tunnel,log:(event,value)=>logs.push({event,...value})});
+  f.cleanup.push(()=>manager.close());
+  clearInterval(manager.timer); // Only the exit event and retry timer can recover.
+  await manager.connect({directories:[],tunnelId:'tunnel_'+'a'.repeat(32)},fakeKey);
+  const original=manager.process;assert.ok(original.pid);
+  original.kill();
+  await waitFor(()=>manager.process&&manager.process!==original,'exit did not schedule a replacement',5000);
+  assert.equal(logs.find(row=>row.event==='runtime-retry').delay_ms,250);
+  assert.equal(manager.attempts,1);
+  assert.equal(manager.status().state,'reconnecting');
+  // A quick ready/flapping period preserves the existing recovery budget.
+  assert.notEqual(manager.recoveryStartedAt,null);
+  await manager.disconnect();assert.equal(manager.retryTimer,null);
+});
+
+test('explicit disconnect cancels a scheduled reconnect and a stale timer cannot relaunch',async t=>{
+  const f=fixture(t),manager=new RuntimeManager({home:f.home,paths:{}});f.cleanup.push(()=>manager.close());
+  clearInterval(manager.timer);
+  let launches=0;manager.launch=()=>launches++;
+  manager.desired={};manager.processError='network';manager.process={exitCode:null,signalCode:null};
+  manager.stopProcess=async()=>{manager.process=null;};
+  await manager.monitor();assert.ok(manager.retryTimer);assert.equal(manager.attempts,1);
+  await manager.disconnect();await delay(350);
+  assert.equal(launches,0);assert.equal(manager.retryTimer,null);assert.equal(manager.status().state,'stopped');
 });
 
 test('health checks accept only an unauthenticated HTTP endpoint on IPv4 loopback', async (t) => {
@@ -240,6 +276,10 @@ server.listen(0,'127.0.0.1',()=>{const pending=file+'.tmp';fs.writeFileSync(pend
   await manager.monitor();
   assert.equal(manager.status().state, 'ready');
   assert.equal(manager.status().localReady, true);
+  manager.attempts=4;manager.recoveryStartedAt=Date.now()-20000;manager.readySince=null;
+  await manager.monitor();assert.equal(manager.attempts,4,'a briefly ready connection must not reset flapping backoff');
+  manager.readySince=Date.now()-31000;
+  await manager.monitor();assert.equal(manager.attempts,0);assert.equal(manager.recoveryStartedAt,null);
   fs.writeFileSync(mode, JSON.stringify({ status: 'degraded', error: { status: 403, message: 'Forbidden' } }));
   await manager.monitor();
   assert.equal(manager.status().state, 'failed');

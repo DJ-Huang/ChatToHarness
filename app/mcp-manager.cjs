@@ -55,6 +55,7 @@ function failed(code,started=false) {
     MCP_SERVICE_UNAVAILABLE:['The registered MCP service is currently unavailable; this request has not been executed.','Check this service connection in the desktop app. Once restored, retry this unstarted request; query saved tasks before repeating earlier operations.'],
     MCP_APPROVAL_DENIED:['The local confirmation was declined or expired.','Approve a new request in the desktop app if you still want to run it.'],
     MCP_TIMEOUT:['The service exceeded its request deadline.','Inspect the saved task or service state before retrying a mutation.'],
+    MCP_MESSAGE_TOO_LARGE:['The service returned a message exceeding the local 8 MiB limit.','Inspect the original execution state first. For subsequent reads, use source-side pagination, narrower fields or a file artifact. Do not replay a mutation to split its output.'],
     MCP_DISCONNECTED:['The MCP service disconnected.','Wait for reconnection; query existing tasks instead of restarting them.'],
     MCP_STOPPED:['The local gateway is stopped.','Connect the desktop app before calling this tool.'],
     MCP_TOOLS_CHANGED:['This tool definition changed during the call.','Refresh its definition and review its saved permission.'],

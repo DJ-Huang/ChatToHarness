@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-20",
+  "timezone": "Asia/Shanghai",
+  "kind": "local-preview-uncommitted",
+  "artifact": "dist/ChatToHarness-0.6.0-windows-x64-setup.exe",
+  "bytes": 200251354,
+  "sha256": "ac4322a65627d59ef330a697df1124cbf8eb2c4f1d8e3959e46a9ad071c6784d",
+  "signature": "NotSigned",
+  "buildExit": 0,
+  "bundledNode": "v24.22.0",
+  "syntax": {"passed": 14},
+  "targetedTests": {"total": 32, "passed": 31, "failed": 0, "skipped": 1},
+  "portableService": {"relocated": true, "mcpDiscovery": true, "invalidSessionRejection": true, "noSystemNodeOrCheckoutRequired": true},
+  "nativeFixture": {"png": true, "unicodeLiteralInput": true, "keyboard": true, "click": true, "wheelSubmission": true, "geometryRejection": true, "foregroundRejection": true, "productionConsentPicker": true, "stopButton": true, "emergencyHotkey": true},
+  "packagedAppUi": {"passed": true, "languages": ["zh-CN", "en", "ja"], "baseTools": 45, "remoteTunnel": "isolated fixture only"},
+  "fullRegression": {"total": 301, "passed": 287, "failed": 11, "skipped": 3, "exit": 1},
+  "installerAcceptance": {"executed": false, "exit": 1, "reason": "Windows installer acceptance requires a dedicated CI profile."},
+  "published": false
+}

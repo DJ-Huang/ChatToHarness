@@ -1,0 +1,12 @@
+{
+  "realMcp": true,
+  "recoveredLostOpen": true,
+  "nativeScreenshot": true,
+  "nativeUnicodeInput": true,
+  "closeWithoutId": true,
+  "localHarnessGateway": true,
+  "tool": "windows-computer__computer_use",
+  "authorizationMode": "per_window",
+  "noInputReplay": true,
+  "pendingConsentCleanup": true
+}

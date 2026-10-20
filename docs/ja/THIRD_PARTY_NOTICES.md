@@ -20,3 +20,5 @@ Desktop Commander には、ChatToHarness 用のビルド時修正が 1 か所あ
 リリースの取得対象はバージョンと SHA-256 で固定します。npm 依存関係はコミット済みロックファイルと npm の整合性ハッシュで固定します。Tunnel のチェックサムとライセンス報告は[公式リリース](https://github.com/openai/tunnel-client/releases/tag/v0.0.16)、Node.js のハッシュは[公式チェックサム一覧](https://nodejs.org/dist/v24.22.0/SHASUMS256.txt)に基づきます。第三者ライセンスの原文は保持し、この説明で置き換えません。
 
 MCP SDK はアプリのゲートウェイと下流クライアントの直接実行依存です。元のライセンスと依存ライセンスを同梱 npm 依存関係内に保持します。ユーザーが設定する MCP サーバーは独立したプログラムやサービスで、アプリの同梱コンポーネントではありません。それぞれのライセンスとアクセス要件を確認してください。
+
+Windows computer-use screenshot compression uses sharp 0.35.5 (Apache-2.0), including the Windows native package and its libvips dependency (Apache-2.0 AND LGPL-3.0-or-later). Original notices are retained in `computer-use/node_modules/sharp/LICENSE` and `computer-use/node_modules/@img/sharp-win32-x64/LICENSE`; bundled library notices remain in that package. Upstream: https://github.com/lovell/sharp and https://github.com/libvips/libvips.

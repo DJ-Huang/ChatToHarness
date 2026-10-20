@@ -90,7 +90,8 @@ function main() {
   if (process.platform === 'win32' && config.signed) {
     const pin = versions.forPlatform();
     const signedFiles = [executable, path.join(resources, 'node', pin.node.binary),
-      path.join(resources, 'tunnel', pin.tunnel.binary), path.join(resources, 'managed-process', 'ChatToHarness.ProcessHost.exe')];
+      path.join(resources, 'tunnel', pin.tunnel.binary), path.join(resources, 'managed-process', 'ChatToHarness.ProcessHost.exe'),
+      path.join(resources, 'computer-use', 'ChatToHarness.ComputerUse.exe')];
     const script = "$ErrorActionPreference='Stop'; foreach ($file in ($env:CTH_SIGNATURE_FILES | ConvertFrom-Json)) { if ((Get-AuthenticodeSignature -LiteralPath $file).Status -ne 'Valid') { throw ('Invalid executable signature: ' + [IO.Path]::GetFileName($file)) } }";
     const verified = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
       { stdio: 'inherit', windowsHide: true, env: { ...config.env, CTH_SIGNATURE_FILES: JSON.stringify(signedFiles) } });

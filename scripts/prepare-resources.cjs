@@ -203,6 +203,7 @@ async function main() {
   await prepareTunnel(pin.tunnel);
   prepareDesktopCommander(node, pin.node);
   prepareProcessHost();
+  const computerUseFiles = require('./prepare-computer-use.cjs').prepareComputerUse(root, node);
   collectLicenses();
   const files = {};
   for (const file of [`node/${pin.node.binary}`, `tunnel/${pin.tunnel.binary}`,
@@ -210,7 +211,7 @@ async function main() {
     'desktop-commander/node_modules/@wonderwhy-er/desktop-commander/dist/utils/toolHistory.js',
     'desktop-commander/node_modules/@wonderwhy-er/desktop-commander/dist/utils/fuzzySearchLogger.js',
     'desktop-commander/node_modules/@opendocsg/pdf2md/lib/models/transformations/text-item/CalculateGlobalStats.js',
-    ...(isWindows ? ['managed-process/ChatToHarness.ProcessHost.exe'] : [])]) files[file] = sha(path.join(resources, file));
+    ...(isWindows ? ['managed-process/ChatToHarness.ProcessHost.exe'] : []), ...computerUseFiles]) files[file] = sha(path.join(resources, file));
   fs.writeFileSync(path.join(resources, 'bundle.json'), JSON.stringify({
     platform: platformId, node: versions.node.version, tunnel: versions.tunnel.version,
     desktopCommander: versions.desktopCommander.version, nodeArchiveSha256: pin.node.sha256,

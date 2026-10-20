@@ -1,0 +1,15 @@
+{
+  "realMcp": true,
+  "recoveredLostOpen": true,
+  "nativeScreenshot": true,
+  "nativeUnicodeInput": true,
+  "closeWithoutId": true,
+  "localHarnessGateway": true,
+  "tool": "windows-computer__computer_use",
+  "authorizationMode": "per_window",
+  "focusRecovery": true,
+  "minimizedRestore": true,
+  "structuredScreenshotFallback": true,
+  "noInputReplay": true,
+  "pendingConsentCleanup": true
+}

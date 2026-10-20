@@ -31,7 +31,9 @@ test('development environment removes Electron Node mode and test overrides whil
 test('component fingerprint changes only for component inputs, platform, or dependencies',t=>{
   const root=fixture(t);
   put(root,'package.json',JSON.stringify({version:'1.0.0',scripts:{dev:'first'},devDependencies:{electron:'44.7.2'}}));
-  for(const name of ['package-lock.json','scripts/versions.cjs','scripts/prepare-resources.cjs','scripts/engine-isolation.cjs','native/ManagedProcess.cs','vendor/desktop-commander/package.json','vendor/desktop-commander/package-lock.json'])put(root,name,'original');
+  for(const name of ['package-lock.json','scripts/versions.cjs','scripts/prepare-resources.cjs','scripts/engine-isolation.cjs','native/ManagedProcess.cs',
+    'native/ComputerUse.cs','scripts/build-computer-use.cjs','scripts/prepare-computer-use.cjs','scripts/computer-use-config.cjs','app/windows-computer-use.cjs','app/windows-computer-use-stdio.cjs',
+    'vendor/desktop-commander/package.json','vendor/desktop-commander/package-lock.json'])put(root,name,'original');
   const before=componentFingerprint(root,'darwin','arm64');
   put(root,'app/main.cjs','source edit');put(root,'package.json',JSON.stringify({version:'1.0.1',scripts:{dev:'changed'},devDependencies:{electron:'44.7.2'}}));
   assert.equal(componentFingerprint(root,'darwin','arm64'),before);

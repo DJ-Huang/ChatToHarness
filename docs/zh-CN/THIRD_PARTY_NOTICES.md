@@ -20,3 +20,5 @@ Desktop Commander 有一处 ChatToHarness 专用的构建时适配：`dist/confi
 下载的发布组件按版本和 SHA-256 固定；npm 依赖由已提交的锁文件和 npm 完整性校验固定。Tunnel 的校验值和许可证报告来自[官方版本](https://github.com/openai/tunnel-client/releases/tag/v0.0.16)，Node.js 校验值来自[官方校验清单](https://nodejs.org/dist/v24.22.0/SHASUMS256.txt)。第三方许可证原文保留，不以本说明代替。
 
 MCP SDK 是应用网关及下游客户端的直接运行依赖，原始许可证及其依赖许可证随打包的 npm 依赖保留。用户配置的 MCP 服务是独立程序或服务，不属于应用内置组件，需自行遵守其许可证与访问要求。
+
+Windows computer-use screenshot compression uses sharp 0.35.5 (Apache-2.0), including the Windows native package and its libvips dependency (Apache-2.0 AND LGPL-3.0-or-later). Original notices are retained in `computer-use/node_modules/sharp/LICENSE` and `computer-use/node_modules/@img/sharp-win32-x64/LICENSE`; bundled library notices remain in that package. Upstream: https://github.com/lovell/sharp and https://github.com/libvips/libvips.

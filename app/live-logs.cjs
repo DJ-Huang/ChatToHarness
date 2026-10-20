@@ -51,6 +51,7 @@ function format(line, source, offset) {
   if (event === 'execution') {
     message = [extra.service, extra.tool, extra.state].filter(Boolean).join(' · ');
     if (extra.error_code) message += ' · ' + extra.error_code;
+    if (Number.isInteger(extra.exit_code)) message += ' · exit_code=' + extra.exit_code;
     if (extra.delivery && extra.delivery !== 'unknown') message += ' · ' + extra.delivery;
   } else {
     const detail = Object.keys(extra).length ? sanitize(JSON.stringify(extra), 900) : '';
@@ -61,8 +62,10 @@ function format(line, source, offset) {
     at: typeof safe.time === 'string' ? sanitize(safe.time, 40) : '',
     event, category, severity,
     message: sanitize(message, 1100),
+    ...(event==='runtime'?{state}:{}),
+    ...(event==='runtime-retry'?{attempt:safe.attempt,delay_ms:safe.delay_ms,reason:safe.reason}:{}),
     ...(event === 'execution' ? {request_id: safe.request_id, service: safe.service, tool: safe.tool,
-      state, error_code: code, delivery: safe.delivery, recovery_kind: recovery} : {}),
+      state, error_code: code, delivery: safe.delivery, recovery_kind: recovery, ...(Number.isInteger(safe.exit_code)?{exit_code:safe.exit_code}:{})} : {}),
   };
 }
 function take(source, offset, {tail = false, limit = MAX_LINES} = {}) {
@@ -142,4 +145,18 @@ class LiveLogs {
     }
   }
 }
-module.exports = {LiveLogs, MAX_BYTES, MAX_LINES};
+// Connection diagnostics are application-wide metadata, never project tool
+// history. Do not expose arbitrary JSONL fields, raw messages, paths or URLs.
+function connectionDiagnostics(home,{since,limit=10}={}) {
+  const events=[],states=new Set(['unconfigured','stopped','authorizing','checking','starting','ready','reconnecting','failed']);
+  for(const name of SOURCES){
+    const source=openLog(home,name);if(!source)continue;
+    try{for(const entry of take(source,0,{tail:true}).entries){
+      if(!Number.isFinite(Date.parse(entry.at))||since&&Date.parse(entry.at)<Date.parse(since))continue;
+      if(entry.event==='runtime'&&states.has(entry.state))events.push({at:entry.at,state:entry.state});
+      if(entry.event==='runtime-retry'&&Number.isSafeInteger(entry.attempt)&&entry.attempt>0&&Number.isSafeInteger(entry.delay_ms)&&entry.delay_ms>=0&&entry.delay_ms<=30000&&['network','process'].includes(entry.reason))events.push({at:entry.at,state:'retry_scheduled',attempt:entry.attempt,delay_ms:entry.delay_ms,reason:entry.reason});
+    }}finally{fs.closeSync(source.fd);}
+  }
+  return {scope:'application_connection',bounded:true,history_may_be_incomplete:true,events:events.slice(-Math.max(1,Math.min(20,limit)))};
+}
+module.exports = {LiveLogs, MAX_BYTES, MAX_LINES, connectionDiagnostics};

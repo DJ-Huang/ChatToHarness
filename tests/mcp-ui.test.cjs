@@ -80,7 +80,7 @@ const initialState = () => ({
   runtime: { state: 'stopped' }, system: { platform: 'darwin', locale: 'zh-CN' }, mcp: { servers: [], approvals: [] },
 });
 const settled = () => new Promise(resolve => setImmediate(resolve));
-async function rendererFixture(state = initialState(), overrides = {}) {
+async function rendererFixture(state = initialState(), overrides = {}, clipboard) {
   const document = documentFixture();
   let subscriber;
   const calls = [];
@@ -89,7 +89,7 @@ async function rendererFixture(state = initialState(), overrides = {}) {
   Object.assign(api, overrides);
   vm.runInNewContext(renderer, {
     window: { localHarness: api, CTHI18n: { ...i18n, documentTranslator: () => () => {} }, addEventListener() {} },
-    document, navigator: { language: 'zh-CN' },
+    document, navigator: { language: 'zh-CN', clipboard },
   }, { filename: 'renderer.js' });
   await settled();
   return { document, calls, node: id => document.getElementById(id), update: value => subscriber(value), api };
@@ -286,6 +286,19 @@ test('all MCP error messages have Chinese, English and Japanese translations wit
   }
 });
 
+test('recovery copy uses bounded metadata and all result states have translations',async()=>{
+  const {recoveryInfo}=require('../app/tool-recovery.cjs'),copied=[];
+  const record={request_id:'exec_fixture',project:'/project',tool:'start_task',task_id:'task_fixture',state:'running',received_at:'2026-01-01T00:00:00Z',result_status:'available'};
+  const detail={...record,stdout:'private body',recovery:recoveryInfo(record)};
+  const f=await rendererFixture(initialState(),{executionList:async()=>({records:[record],total:1,usage:0,diagnostics:{}}),executionDetail:async()=>detail},{writeText:async text=>copied.push(text)});
+  await f.node('nav-history').emit('click');await settled();
+  await f.node('history-rows').children[0].children[2].children[0].emit('click');
+  assert.equal(f.node('history-result-status').textContent,'结果已保存，可恢复');
+  await f.node('history-recovery').emit('click');assert.equal(copied.length,1);
+  assert.equal(JSON.parse(copied[0]).next_arguments.task_id,record.task_id);assert.doesNotMatch(copied[0],/private body/);
+  for(const key of ['复制恢复信息','结果已保存，可恢复','保存的结果已过期','此记录未保存结果','结果保存失败，请先核对任务与产物','保存的结果暂不可用'])
+    for(const locale of ['en','ja'])assert.notEqual(i18n.translate(locale,key),key);
+});
 test('execution page loads only on navigation, paginates and renders hostile records as text',async()=>{
   const calls=[];const record={request_id:'exec_'+ 'a'.repeat(36),received_at:'2026-01-01T00:00:00Z',tool:'<img onerror=alert(1)>',operation:'<script>private</script>',service:'test',state:'succeeded',duration_ms:3};
   const f=await rendererFixture(initialState(),{executionList:async query=>{calls.push(query);return {records:[record],total:80,usage:1024,diagnostics:{enabled:false}};},executionDetail:async()=>({...record,error_summary:'<script>detail</script>'})});
@@ -384,6 +397,15 @@ test('execution history labels recoverable failures and translations describe lo
     assert.equal(messages[key].length,2);
     assert.notEqual(i18n.translate('en',key),key);assert.notEqual(i18n.translate('ja',key),key);
   }
+});
+
+test('live command failures display a localized exit code',async()=>{
+  const entry={id:'exit:23',at:'2026-10-20T08:34:34Z',event:'execution',category:'tool',severity:'error',request_id:'exec_exit',service:'Harness',tool:'start_task',state:'failed',error_code:'TASK_EXIT_NONZERO',exit_code:23};
+  const f=await rendererFixture(initialState(),{readLiveLogs:async()=>({entries:[entry],cursor:null,reset:false,more:false})});
+  await f.node('nav-logs').emit('click');await settled();
+  assert.match(f.node('log-entries').textContent,/TASK_EXIT_NONZERO.*退出码 23/);
+  assert.equal(i18n.translate('en','退出码 {code}',{code:23}),'Exit code 23');
+  assert.equal(i18n.translate('ja','退出码 {code}',{code:23}),'終了コード 23');
 });
 
 test('log pages share a labelled group, with nested history icon and accessible keyboard order', async () => {

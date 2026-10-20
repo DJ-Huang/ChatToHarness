@@ -124,7 +124,8 @@ class DiagnosticWriter extends EventEmitter {
   }
   async maintain(tasks = []) {
     await this.ready;
-    const result = await this.request('maintain', {tasks: tasks.slice(0, 10000).map(({request_id, task_id}) => ({request_id, task_id}))});
+    const result = await this.request('maintain', {tasks: tasks.slice(0, 10000).map(({request_id, task_id, tool, task_accepted, task_finished, state, execution_state, error_code}) =>
+      ({request_id, task_id, tool, task_accepted, task_finished, state, execution_state, error_code}))});
     this.usage = result.usage; this.emit('maintenance', result); return result;
   }
   async detail(row) { await this.ready; return this.request('detail', {row}); }

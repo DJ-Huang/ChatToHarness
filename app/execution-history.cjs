@@ -3,8 +3,8 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const {privateDirectory,readJson,atomicJson}=require('./durable-files.cjs');
 const {cleanup,locked,writeBudgeted,sanitize,regular}=require('./diagnostic-budget.cjs');
-const {presentExecution}=require('./tool-recovery.cjs');
-const {readRows,taskPatch,taskDetail}=require('./diagnostic-storage.cjs');
+const {presentExecution,taskError}=require('./tool-recovery.cjs');
+const {readRows,taskPatch,taskDetail,followsTask}=require('./diagnostic-storage.cjs');
 const ACTIVE=new Set(['received','waiting_approval','submitted','running','cancelling']);
 function argumentSummary(args,secrets=[]){
   if(!args||typeof args!=='object')return 'Invalid arguments';
@@ -92,7 +92,7 @@ class ExecutionHistory{
     if(poll)for(const value of [tool,service,args?.task_id,args?.project_path,args?.pid,args?.sessionId])pollHash.update(typeof value==='string'?value:typeof value==='number'?String(value):'').update('\0');
     const pollKey=poll?pollHash.digest('hex'):null;
     const prior=pollKey&&this.polls.get(pollKey);
-    if(prior&&this.clock()-prior.at<60000){const saved=this.get(prior.id);if(saved&&!ACTIVE.has(saved.state)){this.update(prior.id,{state:'received',delivery:'unknown',execution_state:undefined,recovery_kind:undefined,finished_at:undefined,duration_ms:undefined,last_received_at:this.now(),poll_count:(saved.poll_count||1)+1});return prior.id;}}
+    if(prior&&this.clock()-prior.at<60000){const saved=this.get(prior.id);if(saved&&!ACTIVE.has(saved.state)){this.update(prior.id,{state:'received',delivery:'unknown',execution_state:undefined,recovery_kind:undefined,finished_at:undefined,duration_ms:undefined,result_id:undefined,result_status:undefined,result_version:undefined,result_expires_at:undefined,last_received_at:this.now(),poll_count:(saved.poll_count||1)+1});return prior.id;}}
     const row={schema:1,request_id:'exec_'+crypto.randomUUID(),tool:sanitize(tool,256,secrets),service:sanitize(service,256,secrets),operation:argumentSummary(args,secrets),received_at:this.now(),state:'received',delivery:'unknown',remote_ack:'unknown',instance_id:this.instance,app_version:this.version};
     if(typeof args?.project_path==='string')row.project=sanitize(args.project_path,512,secrets);
     else{const scopes=scopePaths(tool,args,service,secrets);if(scopes.length)row.scope_paths=scopes;}
@@ -108,10 +108,15 @@ class ExecutionHistory{
     const code=String(error?.code||data.code||'');
     const row=this.get(id);if(!row)return;
     const uncertain=data.execution_state==='unknown'||error&&row.state==='running'&&!/^(-32602|MCP_INVALID_ARGUMENTS)$/.test(code)||/TIMEOUT|DISCONNECT|CANCELLED|CONNECTION_CLOSED/i.test(code);
-    const state=uncertain?'unknown':error||result?.isError?'failed':row.tool==='start_task'&&data.task_id?'submitted':'succeeded';
+    const taskTerminal=row.tool==='start_task'&&!error&&!result?.isError&&data.task_id&&data.terminal===true&&Boolean(data.finished_at);
+    const state=uncertain?'unknown':error||result?.isError?'failed':taskTerminal
+      ? data.state==='succeeded'?'succeeded':data.state==='failed'||data.state==='timed_out'?'failed':'interrupted'
+      :row.tool==='start_task'&&data.task_id?'submitted':'succeeded';
     const patch={state,...(state==='submitted'?{}:{finished_at:this.now()}),error_code:sanitize(code,256),error_summary:result?.isError||error?sanitize(data.message||error?.message||'Tool reported an error',16384,secrets):''};
     patch.execution_state=state==='unknown'?'unknown':['not_started','unknown','running','completed'].includes(data.execution_state)?data.execution_state:undefined;
     if(/^task_[a-f0-9]{64}$/.test(data.task_id||''))patch.task_id=data.task_id;
+    if(row.tool==='start_task'&&patch.task_id)patch.task_accepted=row.task_accepted===true||!(error||result?.isError);
+    if(taskTerminal){const failure=taskError(data);patch.task_finished=true;patch.exit_code=data.exit_code;patch.operation_executed=data.operation_executed;patch.error_code=sanitize(failure.code||code,256);patch.error_summary=failure.message?sanitize(failure.message,16384,secrets):patch.error_summary;}
     // Results can contain whole files, credentials and base64. Capture only an
     // explicit stdout field during the short opt-in window.
     if(this.detailedUntil>this.clock()&&typeof data.stdout==='string')patch.stdout=sanitize(data.stdout,2048,secrets);
@@ -119,11 +124,11 @@ class ExecutionHistory{
   }
   diagnostics(enabled){this.detailedUntil=enabled===true?this.clock()+30*60000:0;return {enabled:this.detailedUntil>this.clock(),until:this.detailedUntil};}
   maintain(){
-    const tasks=this.rows().filter(row=>row.tool==='start_task'&&row.task_id&&!row.task_finished);
+    const tasks=this.rows().filter(followsTask);
     if(this.writer){
       if(this.maintaining)return this.maintaining;
       this.maintaining=this.writer.maintain(tasks).then(result=>{
-        for(const {request_id,task_id,patch}of result.patches){const current=this.get(request_id);if(current?.task_id===task_id&&!current.task_finished)this.update(request_id,patch);}
+        for(const {request_id,task_id,patch}of result.patches){const current=this.get(request_id);if(current?.task_id===task_id&&followsTask(current))this.update(request_id,patch);}
       }).catch(()=>{}).finally(()=>{this.maintaining=null;});return this.maintaining;
     }
     for(const row of tasks)this.update(row.request_id,taskPatch(this.home,row,this.clock()));

@@ -819,6 +819,7 @@
   function liveMessage(entry){
     if(entry.event!=='execution'||!entry.state)return entry.message;
     return [entry.service,entry.tool,t(executionLabels[entry.recovery_kind||entry.state]||entry.state),entry.error_code,
+      Number.isInteger(entry.exit_code)?t('退出码 {code}',{code:entry.exit_code}):'',
       entry.delivery&&entry.delivery!=='unknown'?t(executionLabels[entry.delivery]||entry.delivery):''].filter(Boolean).join(' · ');
   }
   function liveExecutionKey(entry){
@@ -933,7 +934,7 @@
           const td=document.createElement('td');td.textContent=value;row.append(td);
         }
         const button=document.createElement('button');button.type='button';button.className='inline-link';button.textContent=row.children[2].textContent;row.children[2].replaceChildren(button);
-        button.addEventListener('click',async()=>{try{historyDetail=await api.executionDetail(record.request_id);byId('history-detail').hidden=false;byId('history-detail-text').textContent=JSON.stringify(historyDetail,null,2);}catch(error){byId('history-error').textContent=safeMessage(error);}});
+        button.addEventListener('click',async()=>{try{historyDetail=await api.executionDetail(record.request_id);byId('history-detail').hidden=false;byId('history-detail-text').textContent=JSON.stringify(historyDetail,null,2);byId('history-result-status').textContent=t(({available:'结果已保存，可恢复',expired:'保存的结果已过期',not_recorded:'此记录未保存结果',storage_failed:'结果保存失败，请先核对任务与产物',unavailable:'保存的结果暂不可用'})[historyDetail.result_status]||'此记录未保存结果');}catch(error){byId('history-error').textContent=safeMessage(error);}});
         body.append(row);
       }
     }catch(error){byId('history-error').textContent=safeMessage(error);}
@@ -945,6 +946,7 @@
   byId('history-next').addEventListener('click',()=>{historyOffset+=50;void loadHistory();});
   byId('history-diagnostics').addEventListener('change',async event=>{try{await api.executionDiagnostics(event.target.checked);await loadHistory();}catch(error){byId('history-error').textContent=safeMessage(error);}});
   byId('history-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(JSON.stringify(historyDetail,null,2));}catch(error){byId('history-error').textContent=safeMessage(error);}});
+  byId('history-recovery').addEventListener('click',async()=>{try{if(historyDetail?.recovery)await navigator.clipboard.writeText(JSON.stringify(historyDetail.recovery,null,2));}catch(error){byId('history-error').textContent=safeMessage(error);}});
   byId('history-export').addEventListener('click',async()=>{try{
     const records=await api.executionExport([...historySelected]);const url=URL.createObjectURL(new Blob([JSON.stringify(records,null,2)],{type:'application/json'}));
     const link=document.createElement('a');link.href=url;link.download='execution-records.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);

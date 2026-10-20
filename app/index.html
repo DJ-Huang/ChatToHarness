@@ -112,7 +112,7 @@
           <label><input id="history-diagnostics" type="checkbox">详细诊断（30 分钟后自动关闭）</label>
           <div class="history-scroll"><table class="history-table"><thead><tr><th>选择</th><th>时间</th><th>工具与操作</th><th>项目或 MCP</th><th>状态</th><th>耗时</th></tr></thead><tbody id="history-rows"></tbody></table></div>
           <div class="mcp-actions"><button id="history-prev" type="button" class="button secondary">上一页</button><span id="history-page"></span><button id="history-next" type="button" class="button secondary">下一页</button><button id="history-export" type="button" class="button secondary">导出所选记录</button></div>
-          <div id="history-detail" hidden><h3>记录详情</h3><pre id="history-detail-text" class="code-example"></pre><button id="history-copy" type="button" class="button secondary">复制诊断摘要</button></div>
+          <div id="history-detail" hidden><h3>记录详情</h3><p id="history-result-status" role="status"></p><pre id="history-detail-text" class="code-example"></pre><button id="history-copy" type="button" class="button secondary">复制诊断摘要</button> <button id="history-recovery" type="button" class="button secondary">复制恢复信息</button></div>
           <p id="history-error" role="alert"></p>
         </section>
       </section>

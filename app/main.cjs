@@ -47,13 +47,13 @@ function log(event,detail={}){diagnosticWriter?.log(event,detail);}
 // Store only state transitions; maintain() can repeatedly write identical task
 // snapshots, and tail readers should not turn them into an endless log flood.
 function executionToLog(row){
-  const signature=[row.state,row.delivery,row.error_code,row.execution_state,row.recovery_kind,row.task_finished].join('|');
+  const signature=[row.state,row.delivery,row.error_code,row.execution_state,row.recovery_kind,row.task_finished,row.exit_code].join('|');
   if(seenExecutionStates.get(row.request_id)===signature)return;
   seenExecutionStates.set(row.request_id,signature);
   if(seenExecutionStates.size>1024)seenExecutionStates.delete(seenExecutionStates.keys().next().value);
   log('execution',{request_id:row.request_id,tool:row.tool,service:row.service,
     state:row.state,delivery:row.delivery,error_code:row.error_code||undefined,
-    execution_state:row.execution_state,recovery_kind:row.recovery_kind});
+    execution_state:row.execution_state,recovery_kind:row.recovery_kind,exit_code:Number.isInteger(row.exit_code)?row.exit_code:undefined});
 }
 function state(){return {diagnostics:diagnosticWriter?.status()||{state:diagnosticError?'unavailable':'starting',error_code:diagnosticError},settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
 function publish(){const value=state();if(window&&!window.isDestroyed())window.webContents.send('localharness:state',value);refreshTray();}
@@ -149,7 +149,11 @@ function registerIPC(){
   bind('get-state',()=>state());
   bind('execution-list',input=>history?.list(input)||{records:[],total:0,usage:0});
   bind('live-logs-read',input=>new LiveLogs(home).read(input));
-  bind('execution-detail',id=>history?.detail(id));
+  bind('execution-detail',async id=>{
+    const row=await history?.detail(id);if(!row)return row;
+    const info=history.resultInfo?await history.resultInfo(row):{result_status:row.result_status||'not_recorded'};
+    const detail={...row,...info};return {...detail,recovery:require('./tool-recovery.cjs').recoveryInfo(detail)};
+  });
   bind('execution-export',ids=>history?.export(ids)||[]);
   bind('execution-diagnostics',enabled=>history?.diagnostics(enabled));
   bind('set-language',value=>{

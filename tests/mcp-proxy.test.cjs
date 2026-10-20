@@ -9,6 +9,20 @@ const projectB=path.resolve(path.sep,'project-b');
 const inProject=(target,root)=>target===root||target.startsWith(root+path.sep);
 const {McpProxy,wireProtocol,toolPaths}=require('../app/mcp-proxy.cjs');
 const {AjvJsonSchemaValidator}=require('@modelcontextprotocol/sdk/validation/ajv');
+test('terminal waits are bounded without changing commands, handles or third-party arguments',async()=>{
+  const f=fixture({enabled:false});
+  try{
+    await f.proxy.client(call('terminal-cap','start_process',{command:'interactive fixture',timeout_ms:120000,context_paths:[]}));
+    assert.equal(f.server[0].params.arguments.timeout_ms,10000);assert.equal(f.server[0].params.arguments.command,'interactive fixture');
+    await f.proxy.server({jsonrpc:'2.0',id:'terminal-cap',result:{content:[{type:'text',text:'Process started with PID 42'}]}});
+    assert.equal(f.client[0].result.structuredContent.effective_wait_ms,10000);
+    assert.equal(f.client[0].result.structuredContent.requested_wait_ms,120000);
+    await f.proxy.client(call('terminal-read','read_process_output',{pid:42,timeout_ms:20000}));
+    assert.equal(f.server[1].params.arguments.pid,42);assert.equal(f.server[1].params.arguments.timeout_ms,10000);
+    await f.proxy.client(call('external','external__run',{timeout_ms:120000}));
+    assert.equal(f.server[2].params.arguments.timeout_ms,120000);
+  }finally{f.proxy.dispose();}
+});
 
 function fixture(options={}) {
   const client=[],server=[],validations=[];
@@ -32,6 +46,23 @@ function fixture(options={}) {
   return {proxy,client,server,validations,contexts};
 }
 const call=(id,name,args)=>({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:args}});
+
+test('out-of-scope log reads suggest saved diagnostics without forwarding or expanding access',async()=>{
+  const f=fixture();
+  try{
+    f.contexts.prepare=async()=>{throw Object.assign(new Error('The explicit project does not contain every target.'),{code:'TARGET_OUTSIDE_PROJECT',details:{path:projectA}});};
+    await f.proxy.client(call('logs','list_directory',{project_path:projectA,path:path.join(projectB,'Library','Logs')}));
+    const result=f.client.at(-1).result.structuredContent;
+    assert.equal(result.code,'TARGET_OUTSIDE_PROJECT');assert.equal(result.operation_executed,false);
+    assert.equal(result.next_tool,'get_harness_status');assert.deepEqual(result.next_arguments,{});
+    assert.match(result.instructions,/get_execution_summary/);assert.match(result.instructions,/Do not broaden/);
+    assert.equal(f.server.length,0);
+    await f.proxy.client(call('other','read_file',{project_path:projectA,path:path.join(projectB,'data.txt')}));
+    assert.equal(f.client.at(-1).result.structuredContent.next_action,'choose_authorized_target');
+    assert.equal(f.client.at(-1).result.structuredContent.next_tool,undefined);
+    assert.equal(f.server.length,0);
+  }finally{f.proxy.dispose();}
+});
 
 test('first write is blocked, context is delivered, explicit retry strips adapter fields',async()=>{
   const f=fixture();

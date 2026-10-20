@@ -30,6 +30,11 @@ function reason(value) {
   return '';
 }
 function shellQuote(value) {return "'" + value.replace(/'/g, "'\\''") + "'";}
+// Recover brief outages promptly, then back off during a sustained outage.
+// A brief ready/flapping interval must not reset the recovery budget.
+function reconnectDelay(attempt, elapsed) {
+  return elapsed < 30000 ? [250,1000,2000,5000][Math.min(attempt,3)] : elapsed < 60000 ? 10000 : 30000;
+}
 function cleanEnvironment(source = process.env) {
   const env = {...source};
   for (const key of Object.keys(env)) if (/^(CONTROL_PLANE_|TUNNEL_CLIENT_|MCP_|HEALTH_|HARPOON_|LOG_)/i.test(key) || /^(OPENAI_API_KEY|OPENAI_ADMIN_KEY)$/i.test(key) || /^LOCALHARNESS_TEST_/i.test(key)) delete env[key];
@@ -56,7 +61,7 @@ class RuntimeManager extends EventEmitter {
     this.localHome=path.join(home,'desktop-commander');this.launcher=path.join(home,'mcp-launch.cjs');
     this.healthFile=path.join(home,'tunnel-health-url');this.launchId=0;this.probeOverride=probe;
     this.value={state:'unconfigured',error:'',localReady:false,toolsCount:0};
-    this.desired=null;this.process=null;this.generation=0;this.attempts=0;this.retryAt=0;this.monitorBusy=false;this.closed=false;
+    this.desired=null;this.process=null;this.generation=0;this.attempts=0;this.retryAt=0;this.retryTimer=null;this.recoveryStartedAt=null;this.readySince=null;this.monitorBusy=false;this.closed=false;
     this.timer=setInterval(()=>void this.monitor(),2000);this.timer.unref();
   }
   status(){
@@ -144,6 +149,7 @@ class RuntimeManager extends EventEmitter {
   }
   async connect(settings,key) {
     const generation=++this.generation;
+    this.clearRetry();
     this.desired=null;this.cancelProbe?.();await this.stopProcess();if(this.probeChild)await stopTree(this.probeChild);
     if(generation!==this.generation||this.closed)return this.status();
     if(!/^tunnel_[a-z0-9]{32}$/.test(settings.tunnelId))throw new Error('Tunnel ID 应为 tunnel_ 后跟 32 位小写字母或数字。');
@@ -151,13 +157,14 @@ class RuntimeManager extends EventEmitter {
     this.update({state:'checking',error:'',localReady:false,toolsCount:0});
     try{
       const toolsCount=await this.probe(settings);if(this.closed||generation!==this.generation)return this.status();
-      this.desired={settings:{...settings,directories:[...settings.directories]},key};this.attempts=0;this.retryAt=0;
+      this.desired={settings:{...settings,directories:[...settings.directories]},key};this.attempts=0;this.retryAt=0;this.recoveryStartedAt=null;this.readySince=null;
       this.update({localReady:true,toolsCount,state:'starting',error:''});this.launch();
     } catch(error){if(generation!==this.generation||this.closed)return this.status();this.desired=null;this.update({state:'failed',error:error.message,localReady:false});throw error;}
     return this.status();
   }
   launch() {
-    if(!this.desired||this.closed)return;
+    if(!this.desired||this.closed||this.process)return;
+    this.clearRetry();this.readySince=null;
     const {settings,key}=this.desired;this.processError='';
     // A delayed cleanup of an old connection must not remove the new URL file.
     this.healthFile=path.join(this.home,`tunnel-health-${process.pid}-${++this.launchId}`);
@@ -165,10 +172,11 @@ class RuntimeManager extends EventEmitter {
     if(this.gateway)Object.assign(env,this.gateway.environment());
     env.NO_PROXY=env.no_proxy=[env.NO_PROXY||env.no_proxy||'','127.0.0.1','localhost','::1'].filter(Boolean).join(',');
     const command=tunnelCommand(this.gateway?[this.paths.node,this.gatewayLauncher]:[this.paths.node,this.launcher,this.paths.desktopCommander,String(process.pid)]);
-    const args=['run','--control-plane.tunnel-id',settings.tunnelId,'--control-plane.api-key','env:CONTROL_PLANE_API_KEY','--mcp.command',command,'--mcp.stdio-send-initialized-notification','--health.listen-addr','127.0.0.1:0','--health.url-file',this.healthFile,'--log.format','json','--log.level','info'];
+    const args=['run','--control-plane.tunnel-id',settings.tunnelId,'--control-plane.api-key','env:CONTROL_PLANE_API_KEY','--control-plane.initial-poll-timeout','1s','--mcp.command',command,'--mcp.stdio-send-initialized-notification','--health.listen-addr','127.0.0.1:0','--health.url-file',this.healthFile,'--log.format','json','--log.level','info'];
     const child=spawnManaged(this.tunnelScript?this.paths.node:this.paths.tunnel,this.tunnelScript?[this.tunnelScript,...args]:args,{processHost:this.paths.processHost,cwd:settings.directories[0]||this.home,env,stdio:['ignore','pipe','pipe']});
     this.process=child;this.startedAt=Date.now();
-    child.once('error',()=>{if(this.process===child)this.processError='process';});
+    child.once('error',()=>{if(this.process===child){this.processError='process';void this.monitor();}});
+    child.once('exit',()=>{if(this.process===child)void this.monitor();});
     // Consume output without keeping request bodies, paths or auth headers.
     for(const stream of [child.stdout,child.stderr]){
       let buffered='';stream.setEncoding('utf8');stream.on('data',part=>{
@@ -187,25 +195,37 @@ class RuntimeManager extends EventEmitter {
       if(!this.process){if(Date.now()>=this.retryAt)this.launch();return;}
       if(this.processError)throw new Error(this.processError);
       if(this.process.exitCode!==null||this.process.signalCode!==null)throw new Error('process');
+      const child=this.process;
       if(!fs.existsSync(this.healthFile)){if(Date.now()-this.startedAt>45000)throw new Error('network');return;}
       const base=fs.readFileSync(this.healthFile,'utf8').trim();
       const [ready,detail]=await Promise.all([healthRequest(base,'/readyz'),healthRequest(base,'/health?details=true')]);
-      if(generation!==this.generation||!this.desired)return;
+      if(generation!==this.generation||!this.desired||this.process!==child)return;
+      if(child.exitCode!==null||child.signalCode!==null)throw new Error('process');
       const control=detail.body?.components?.['control-plane'];const failure=reason(control||{});if(failure)throw new Error(failure);
-      if(ready.code===200&&control?.status==='ok'){this.attempts=0;this.update({state:'ready',error:''});}
-      else if(control?.status==='degraded'||this.value.state==='ready'||Date.now()-this.startedAt>30000)this.update({state:'reconnecting',error:ERRORS.network});
+      if(ready.code===200&&control?.status==='ok'){
+        this.readySince??=Date.now();
+        if(Date.now()-this.readySince>=30000){this.attempts=0;this.recoveryStartedAt=null;}
+        this.update({state:'ready',error:''});
+      }
+      else {this.readySince=null;if(control?.status==='degraded'||this.value.state==='ready'||Date.now()-this.startedAt>30000)this.update({state:'reconnecting',error:ERRORS.network});}
     }catch(error){
       if(generation!==this.generation||!this.desired)return;
       const code=Object.hasOwn(ERRORS,error.message)?error.message:'network';
       if(['key','permission','tunnel'].includes(code)){
-        this.desired=null;await this.stopProcess();if(generation!==this.generation||this.closed)return;this.update({state:'failed',error:ERRORS[code]});
+        this.desired=null;this.clearRetry();await this.stopProcess();if(generation!==this.generation||this.closed)return;this.update({state:'failed',error:ERRORS[code]});
       }else{
-        await this.stopProcess();if(generation!==this.generation||!this.desired||this.closed)return;this.retryAt=Date.now()+[2000,5000,15000,30000][Math.min(this.attempts++,3)];this.update({state:'reconnecting',error:ERRORS[code]||ERRORS.network});
+        this.readySince=null;this.recoveryStartedAt??=Date.now();
+        await this.stopProcess();if(generation!==this.generation||!this.desired||this.closed)return;
+        const delay=reconnectDelay(this.attempts++,Date.now()-this.recoveryStartedAt);this.retryAt=Date.now()+delay;
+        this.log('runtime-retry',{attempt:this.attempts,delay_ms:delay,reason:code});
+        this.clearRetry();this.retryTimer=setTimeout(()=>{this.retryTimer=null;if(generation===this.generation)void this.monitor();},delay);this.retryTimer.unref?.();
+        this.update({state:'reconnecting',error:ERRORS[code]||ERRORS.network});
       }
     }finally{this.monitorBusy=false;}
   }
+  clearRetry(){clearTimeout(this.retryTimer);this.retryTimer=null;}
   async stopProcess(){const child=this.process,file=this.healthFile;this.process=null;try{fs.unlinkSync(file);}catch{}await stopTree(child);try{fs.unlinkSync(file);}catch{}}
-  async disconnect(){const generation=++this.generation;this.desired=null;this.cancelProbe?.();await this.stopProcess();if(this.probeChild)await stopTree(this.probeChild);await this.gateway?.stop();if(generation===this.generation)this.update({state:'stopped',error:''});return this.status();}
+  async disconnect(){const generation=++this.generation;this.desired=null;this.clearRetry();this.readySince=null;this.cancelProbe?.();await this.stopProcess();if(this.probeChild)await stopTree(this.probeChild);await this.gateway?.stop();if(generation===this.generation)this.update({state:'stopped',error:''});return this.status();}
   async close(){this.closed=true;clearInterval(this.timer);await this.disconnect();await this.gateway?.close();}
 }
-module.exports={RuntimeManager,ERRORS,reason,cleanEnvironment,shellQuote,stopTree,healthRequest};
+module.exports={RuntimeManager,ERRORS,reason,cleanEnvironment,shellQuote,stopTree,healthRequest,reconnectDelay};

@@ -14,9 +14,18 @@ function syncDirectory(directory) {
   finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 function readJson(file, maxBytes = 512 * 1024) {
-  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-  try { const stat = fs.fstatSync(fd); if (!stat.isFile() || stat.nlink !== 1 || stat.size > maxBytes) throw Object.assign(new Error('Stored record is not a bounded private file.'), {code: 'UNSAFE_STORAGE'}); return JSON.parse(fs.readFileSync(fd, 'utf8')); }
-  finally { fs.closeSync(fd); }
+  for (let attempt = 0; ; attempt++) {
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const stat = fs.fstatSync(fd);
+      // An atomic writer can replace the path after open, unlinking this old
+      // inode before fstat. Reopen the current record; never accept the stale
+      // unlinked bytes or relax the symlink/hard-link checks.
+      if (stat.isFile() && stat.nlink === 0 && attempt < 2) continue;
+      if (!stat.isFile() || stat.nlink !== 1 || stat.size > maxBytes) throw Object.assign(new Error('Stored record is not a bounded private file.'), {code: 'UNSAFE_STORAGE'});
+      return JSON.parse(fs.readFileSync(fd, 'utf8'));
+    } finally { fs.closeSync(fd); }
+  }
 }
 function atomicJson(file, value) {
   const temporary = `${file}.${crypto.randomBytes(8).toString('hex')}.tmp`;

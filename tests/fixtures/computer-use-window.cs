@@ -14,6 +14,11 @@ using System.Windows.Forms;
 class ComputerUseWindowFixture {
     [StructLayout(LayoutKind.Sequential)] struct ProcessInfo { public IntPtr Reserved1,Peb,Reserved2a,Reserved2b,Pid,Parent; }
     [StructLayout(LayoutKind.Sequential)] struct Rect { public int Left,Top,Right,Bottom; }
+    [StructLayout(LayoutKind.Sequential)] struct CursorInfo { public int Size,Flags; public IntPtr Cursor; public Point Position; }
+    [StructLayout(LayoutKind.Sequential)] struct IconInfo { [MarshalAs(UnmanagedType.Bool)] public bool IsIcon; public uint HotspotX,HotspotY; public IntPtr Mask,Color; }
+    [DllImport("user32.dll")] static extern bool GetCursorInfo(ref CursorInfo info);
+    [DllImport("user32.dll")] static extern bool GetIconInfo(IntPtr h,out IconInfo info);
+    [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr handle);
     [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr process,int kind,out ProcessInfo info,int size,out int length);
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window,out Rect rect);
     [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
@@ -84,25 +89,46 @@ class ComputerUseWindowFixture {
     }
     static void CheckCursorGlow(Process helper, Form target, Point physicalCursor) {
         FocusFixture(target);
+        target.Cursor = Cursors.Arrow;
         if (!SetCursorPos(physicalCursor.X, physicalCursor.Y)) throw new Exception("Cannot move real cursor");
         Pump();
-        IntPtr cursorLayer=IntPtr.Zero;
-        EnumWindows(delegate(IntPtr h, IntPtr state) {
-            uint owner; GetWindowThreadProcessId(h, out owner);
-            if (owner != (uint)helper.Id) return true;
-            Rect rect; if (!GetWindowRect(h,out rect)) return true;
-            if(rect.Right-rect.Left==76 && rect.Bottom-rect.Top==76
-                && rect.Left==physicalCursor.X-38 && rect.Top==physicalCursor.Y-38) cursorLayer=h;
-            return true;
-        }, IntPtr.Zero);
-        if (cursorLayer==IntPtr.Zero)throw new Exception("Real mouse pointer has no correctly positioned gradient highlight");
-        if (GetAncestor(WindowFromPoint(physicalCursor), 2) != target.Handle)
-            throw new Exception("Cursor highlight blocks mouse hit testing");
-        using(var pixel = new Bitmap(1,1)) {
-            using(var g=Graphics.FromImage(pixel))g.CopyFromScreen(physicalCursor.X+12, physicalCursor.Y+12,0,0,new Size(1,1));
-            Color c=pixel.GetPixel(0,0);
-            if(c.G<=c.R+4 || c.B<=c.G+4)throw new Exception("Cursor highlight is not blue gradient");
+        var current = new CursorInfo { Size = Marshal.SizeOf(typeof(CursorInfo)) };
+        if (!GetCursorInfo(ref current) || current.Cursor == IntPtr.Zero) throw new Exception("System pointer unavailable");
+        IconInfo icon;
+        if (!GetIconInfo(current.Cursor,out icon)) throw new Exception("Cursor hotspot unavailable");
+        try {
+            object[] args = { current.Cursor, new Point() };
+            using(var shape = (Bitmap)Native.GetMethod("MakeCursorGlow",BindingFlags.NonPublic|BindingFlags.Static).Invoke(null,args)) {
+                if(shape == null) throw new Exception("Cannot derive native cursor silhouette");
+                Point origin = (Point)args[1];
+                if(origin.X != -(int)icon.HotspotX - 14 || origin.Y != -(int)icon.HotspotY - 14)
+                    throw new Exception("Glow incorrectly centered rather than aligned to cursor hotspot");
+                // A cursor silhouette must NOT generate a radial disk in its empty corners.
+                if(shape.GetPixel(shape.Width-1,shape.Height-1).A != 0)
+                    throw new Exception("Glow incorrectly fills the old circular bounding box");
+                int visible=0;
+                for(int y=0;y<shape.Height;y++)for(int x=0;x<shape.Width;x++)
+                    if(shape.GetPixel(x,y).A>12)visible++;
+                if(visible < 10) throw new Exception("Cursor glow did not generate a real silhouette");
+                var expected=new Rect {Left=physicalCursor.X+origin.X,Top=physicalCursor.Y+origin.Y,
+                    Right=physicalCursor.X+origin.X+shape.Width,Bottom=physicalCursor.Y+origin.Y+shape.Height};
+                IntPtr layer=IntPtr.Zero;
+                EnumWindows(delegate(IntPtr h,IntPtr state) {
+                    uint owner;GetWindowThreadProcessId(h,out owner);
+                    if(owner!=(uint)helper.Id)return true;
+                    Rect r;if(!GetWindowRect(h,out r))return true;
+                    if(r.Left==expected.Left&&r.Top==expected.Top&&r.Right==expected.Right&&r.Bottom==expected.Bottom)layer=h;
+                    return true;
+                },IntPtr.Zero);
+                if(layer==IntPtr.Zero)throw new Exception("Live glow does not match native cursor hotspot and image bounds");
+                Console.WriteLine("CURSOR_HOTSPOT="+icon.HotspotX+","+icon.HotspotY+"; GLOW_OFFSET="+origin.X+","+origin.Y+"; GLOW_SIZE="+shape.Width+"x"+shape.Height);
+            }
+        } finally {
+            if(icon.Mask != IntPtr.Zero)DeleteObject(icon.Mask);
+            if(icon.Color != IntPtr.Zero)DeleteObject(icon.Color);
         }
+        if(GetAncestor(WindowFromPoint(physicalCursor),2)!=target.Handle)
+            throw new Exception("Real cursor glow blocks target hit testing");
     }
     static void AssertMouseFeedback(Process helper, Form target) {
         FocusFixture(target);

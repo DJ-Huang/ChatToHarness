@@ -56,6 +56,8 @@ class ComputerUse {
         public int XPelsPerMeter, YPelsPerMeter; public uint ClrUsed, ClrImportant;
     }
     [StructLayout(LayoutKind.Sequential)] struct BITMAPINFO { public BITMAPINFOHEADER Header; public uint Color; }
+    [StructLayout(LayoutKind.Sequential)] struct GDI_BITMAP { public int Type, Width, Height, WidthBytes; public ushort Planes, BitsPixel; public IntPtr Bits; }
+    [DllImport("gdi32.dll", EntryPoint="GetObjectW")] static extern int GetGdiObject(IntPtr handle, int size, out GDI_BITMAP bitmap);
     [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr hwnd);
     [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
     [DllImport("user32.dll", SetLastError=true)] static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr dstDC, ref POINT dst, ref SIZE size, IntPtr srcDC, ref POINT src, uint key, ref BLENDFUNCTION blend, uint flags);
@@ -152,22 +154,79 @@ class ComputerUse {
             }
         }
     }
-    // Continuous radial glow behind the real system pointer, never a click-location ring.
-    // Only this small overlay follows the mouse; the full-window outline is not rerendered per move.
-    static Bitmap MakeCursorGlow() {
-        const int size = 76;
-        var result = new Bitmap(size, size, PixelFormat.Format32bppPArgb);
-        for (int y = 0; y < size; y++) for (int x = 0; x < size; x++) {
-            double dx = x - (size - 1) / 2.0, dy = y - (size - 1) / 2.0;
-            double radius = Math.Sqrt(dx * dx + dy * dy);
-            double t = Math.Max(0, 1.0 - radius / 37.0);
-            int alpha = (int)Math.Round(122.0 * t * t);
-            result.SetPixel(x, y, Color.FromArgb(alpha, 126, 202, 255));
+    // Cursor-shaped halo: derive the actual Windows cursor silhouette instead of
+    // assuming a circle centered on its hotspot. The real OS cursor stays visible.
+    static Bitmap MakeCursorGlow(IntPtr cursor, out Point origin) {
+        origin = Point.Empty;
+        ICONINFO icon;
+        if (cursor == IntPtr.Zero || !GetIconInfo(cursor, out icon)) return null;
+        try {
+            GDI_BITMAP native;
+            IntPtr imageBitmap = icon.Color != IntPtr.Zero ? icon.Color : icon.Mask;
+            if (imageBitmap == IntPtr.Zero || GetGdiObject(imageBitmap, Marshal.SizeOf(typeof(GDI_BITMAP)), out native) == 0)
+                return null;
+            int width = native.Width, height = icon.Color != IntPtr.Zero ? native.Height : native.Height / 2;
+            if (width < 1 || width > 128 || height < 1 || height > 128) return null;
+            const int glow = 14;
+            // Black/white background comparison also supports monochrome AND/XOR cursors.
+            // Transparent pixels retain their background; opaque pixels converge.
+            using (var black = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+            using (var white = new Bitmap(width, height, PixelFormat.Format32bppArgb)) {
+                foreach (var pair in new[] { new { Bitmap = black, Background = Color.Black },
+                                              new { Bitmap = white, Background = Color.White } }) {
+                    using (var g = Graphics.FromImage(pair.Bitmap)) {
+                        g.Clear(pair.Background);
+                        IntPtr dc = g.GetHdc();
+                        try { if (!DrawIconEx(dc, 0, 0, cursor, width, height, 0, IntPtr.Zero, 3)) return null; }
+                        finally { g.ReleaseHdc(dc); }
+                    }
+                }
+                var solid = new bool[width * height];
+                int count = 0;
+                for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
+                    var a = black.GetPixel(x, y); var b = white.GetPixel(x, y);
+                    int separation = (Math.Abs(b.R - a.R) + Math.Abs(b.G - a.G) + Math.Abs(b.B - a.B)) / 3;
+                    bool visible = separation < 210;
+                    solid[y * width + x] = visible;
+                    if (visible) count++;
+                }
+                if (count == 0) return null;
+                int fullWidth = width + glow * 2, fullHeight = height + glow * 2;
+                var opacity = new byte[fullWidth * fullHeight];
+                for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
+                    if (!solid[y * width + x]) continue;
+                    for (int dy = -glow; dy <= glow; dy++) for (int dx = -glow; dx <= glow; dx++) {
+                        int xx = x + glow + dx, yy = y + glow + dy;
+                        if (xx < 0 || yy < 0 || xx >= fullWidth || yy >= fullHeight) continue;
+                        double distance = Math.Sqrt(dx * dx + dy * dy);
+                        if (distance > glow) continue;
+                        double fade = 1 - distance / glow;
+                        byte alpha = (byte)Math.Round(155 * fade * fade);
+                        int idx = yy * fullWidth + xx;
+                        if (alpha > opacity[idx]) opacity[idx] = alpha;
+                    }
+                }
+                var result = new Bitmap(fullWidth, fullHeight, PixelFormat.Format32bppPArgb);
+                for (int y = 0; y < fullHeight; y++) for (int x = 0; x < fullWidth; x++) {
+                    int iconX = x - glow, iconY = y - glow;
+                    if (iconX >= 0 && iconY >= 0 && iconX < width && iconY < height
+                        && solid[iconY * width + iconX]) continue;
+                    byte alpha = opacity[y * fullWidth + x];
+                    if (alpha > 0) result.SetPixel(x, y, Color.FromArgb(alpha, 126, 202, 255));
+                }
+                origin = new Point(-(int)icon.HotspotX - glow, -(int)icon.HotspotY - glow);
+                return result;
+            }
+        } finally {
+            if (icon.Color != IntPtr.Zero) DeleteObject(icon.Color);
+            if (icon.Mask != IntPtr.Zero) DeleteObject(icon.Mask);
         }
-        return result;
     }
     class CursorHighlight : Form {
         bool painted;
+        IntPtr paintedCursor;
+        Bitmap glowImage;
+        Point glowOrigin;
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams {
             get {
@@ -178,7 +237,11 @@ class ComputerUse {
         }
         public CursorHighlight() {
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
-            StartPosition = FormStartPosition.Manual; Size = new Size(76, 76);
+            StartPosition = FormStartPosition.Manual; Size = new Size(32, 32);
+        }
+        protected override void OnFormClosed(FormClosedEventArgs e) {
+            if (glowImage != null) { glowImage.Dispose(); glowImage = null; }
+            base.OnFormClosed(e);
         }
         public void FollowRealCursor() {
             if (GetForegroundWindow() != Target || !IsWindow(Target) || IsIconic(Target)) { Hide(); return; }
@@ -189,11 +252,18 @@ class ComputerUse {
                 !GetCursorPos(out pos) || pos.X < r.Left || pos.Y < r.Top || pos.X >= r.Right || pos.Y >= r.Bottom) {
                 Hide(); return;
             }
-            Point topLeft = new Point(pos.X - 38, pos.Y - 38);
+            if (paintedCursor != info.Cursor || glowImage == null) {
+                var next = MakeCursorGlow(info.Cursor, out glowOrigin);
+                if (glowImage != null) glowImage.Dispose();
+                glowImage = next; paintedCursor = info.Cursor; painted = false;
+            }
+            if (glowImage == null) { Hide(); return; }
+            if (Size != glowImage.Size) Size = glowImage.Size;
+            Point topLeft = new Point(pos.X + glowOrigin.X, pos.Y + glowOrigin.Y);
             if (Location != topLeft) Location = topLeft;
             if (!Visible) { Show(); painted = false; }
             if (!painted) {
-                using (var glow = MakeCursorGlow()) {
+                var glow = glowImage;
                     var bits = glow.LockBits(new Rectangle(0, 0, glow.Width, glow.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppPArgb);
                     IntPtr screen = IntPtr.Zero, memory = IntPtr.Zero, dib = IntPtr.Zero, previous = IntPtr.Zero;
                     try {
@@ -226,7 +296,6 @@ class ComputerUse {
                         if (screen != IntPtr.Zero) ReleaseDC(IntPtr.Zero, screen);
                         glow.UnlockBits(bits);
                     }
-                }
             }
         }
     }
@@ -346,8 +415,11 @@ class ComputerUse {
         ICONINFO icon;
         if (!GetIconInfo(info.Cursor, out icon)) return;
         try {
-            using (var glow = MakeCursorGlow())
-                graphics.DrawImage(glow, info.Position.X - r.Left - 38, info.Position.Y - r.Top - 38);
+            Point glowOrigin;
+            using (var glow = MakeCursorGlow(info.Cursor, out glowOrigin)) {
+                if (glow != null)
+                    graphics.DrawImage(glow, info.Position.X - r.Left + glowOrigin.X, info.Position.Y - r.Top + glowOrigin.Y);
+            }
             // Draw the actual Windows cursor with its hotspot at its physical screen coordinates.
             IntPtr dc = graphics.GetHdc();
             try { DrawIconEx(dc, info.Position.X - r.Left - (int)icon.HotspotX,

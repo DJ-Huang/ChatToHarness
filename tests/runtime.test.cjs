@@ -221,7 +221,9 @@ const fs=require('node:fs'),http=require('node:http');
 const args=process.argv.slice(2),file=args[args.indexOf('--health.url-file')+1];
 fs.writeFileSync(${JSON.stringify(report)},JSON.stringify({pid:process.pid,args,home:process.env.HOME,key:process.env.CONTROL_PLANE_API_KEY}));
 const server=http.createServer((req,res)=>{let control=JSON.parse(fs.readFileSync(${JSON.stringify(mode)},'utf8'));res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(req.url==='/readyz'?{status:'ok'}:{components:{'control-plane':control}}));});
-server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server.address().port+'/'));
+// The parent waits for existence: publish a complete URL atomically so it
+// cannot observe the empty file between open and write on a busy CI runner.
+server.listen(0,'127.0.0.1',()=>{const pending=file+'.tmp';fs.writeFileSync(pending,'http://127.0.0.1:'+server.address().port+'/');fs.renameSync(pending,file);});
 `);
   const manager = new RuntimeManager({ home: f.home, paths: { node: process.execPath, tunnel:process.execPath, desktopCommander: entry, processHost:windowsProcessHost() }, launcherSource, tunnelScript:tunnel, probe: async () => 2 });
   f.cleanup.push(() => manager.close());

@@ -1,5 +1,14 @@
 # Development record — Windows computer use
 
+## macOS Computer Use P0 permission correction — 2026-10-20
+
+- User challenged why both Accessibility and Input Monitoring were required for Mac Computer Use. Apple Developer Technical Support confirms Accessibility grants both event posting and listening; separate Input Monitoring authorization is unnecessary when Accessibility is granted.
+- Removed CGRequestListenEventAccess and CGPreflightListenEventAccess from native/MacComputerUse.swift diagnostics, removed the Input Monitoring grant request/status gate from scripts/mac-computer-use-permissions.cjs, and updated tests/mac-permission-diagnostics.test.cjs. The CGEvent passive Esc event tap remains mandatory for input to start; if it fails, control is denied. Mac read-only observation remains Screen Recording only.
+- Only two OS grants are requested: Screen Recording for window observation, Accessibility for input and Esc interception. ChatGPT official Computer Use documentation describes the same permission model. The helper may still require OS approval for the actual signed process identity.
+- Verification: npm run test:computer-use-mac PASS 14/14; permission status reports Screen Recording GRANTED and Accessibility MISSING on this Mac. Input Monitoring was not requested. Real input and Esc/STOP not yet accepted.
+- Issue #1; branch feat/computer-use; Windows native acceptance remains deferred, native/ComputerUse.cs and tests/windows-cursor-motion.test.cjs not changed or included in Mac commit.
+
+
 ## macOS Computer Use P0 continued — 2026-10-20
 
 - Issue #1; branch feat/computer-use. Windows native/visual acceptance remains deferred. Windows pointer changes in native/ComputerUse.cs and tests/windows-cursor-motion.test.cjs deliberately remain uncommitted and are not staged.

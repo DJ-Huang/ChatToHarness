@@ -548,11 +548,11 @@ struct MacComputerUseMain {
             let screen = request ? CGRequestScreenCaptureAccess() : CGPreflightScreenCaptureAccess()
             let options: CFDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: request] as CFDictionary
             let accessibility = request ? AXIsProcessTrustedWithOptions(options) : AXIsProcessTrusted()
-            let inputMonitoring = request ? CGRequestListenEventAccess() : CGPreflightListenEventAccess()
+            // Accessibility authorizes both CGEvent posting and the listen-only Esc tap.
+            // Do not separately request Input Monitoring: it is redundant for this helper.
             let data: [String: Any] = [
                 "screen_recording": screen,
                 "accessibility": accessibility,
-                "input_monitoring": inputMonitoring,
                 "request_attempted": request,
                 "identity_hint": "TCC grants belong to the actual process/app identity; restart the helper after changing macOS Privacy & Security."
             ]

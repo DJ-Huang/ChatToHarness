@@ -21,15 +21,12 @@ Windows native/installer acceptance is explicitly **deferred**. Do not change Wi
 | Gate | Result |
 | --- | --- |
 | Swift arm64 source compiles with macOS SDK | **PASS** |
-| `npm run test:computer-use-mac
-npm run computer-use:mac:permissions -- --status
-# Explicitly request system permission prompts when needed:
-npm run computer-use:mac:permissions -- --request` | **PASS: 14/14**, exit 0 |
+| `npm run test:computer-use-mac` | **PASS: 14/14**, exit 0 (prior run; repeat after permission change) |
 | MCP tool discovery and error path | **PASS** |
 | One-use observation, chunking, screenshot metadata | **PASS** mocked protocol + real read-only MCP native session |
 | Direct native helper launch | **PASS** native permission status/list_windows/window probe |
 | Actual ScreenCaptureKit window screenshot | **PASS** real ChatToHarness window 1160×850, 211,199 PNG bytes, negative-coordinate geometry `[1759,-1328,2919,-478]`, memory-only |
-| Actual clicks/scroll/Unicode/keyboard and Esc/STOP | **BLOCKED** because helper's Accessibility and Input Monitoring TCC grants are still missing, input safely rejected |
+| Actual clicks/scroll/Unicode/keyboard and Esc/STOP | **BLOCKED** because helper's Accessibility TCC grant is still missing; Input Monitoring is not required; input safely rejected |
 | Retina, multiple displays, moving/resizing windows | **NOT TESTED** |
 | Resource staging, manifest SHA-256 and bundled Node/MCP test | **PASS** (staging exit 0; bundle manifest includes Mac helper and adapter) |
 | Actual signed/installed DMG TCC permissions | **NOT TESTED** |
@@ -38,8 +35,13 @@ npm run computer-use:mac:permissions -- --request` | **PASS: 14/14**, exit 0 |
 
 From the repository root, on a Mac with Swift toolchain and `npm ci` already executed:
 
+Grant only **Screen Recording** (observation) and **Accessibility** (input and Esc listener). Apple's DTS notes that Accessibility authorizes posting and listening events; the helper must still prove its own Esc event tap works before activating input.
+
 ```sh
 npm run test:computer-use-mac
+npm run computer-use:mac:permissions -- --status
+# Explicit local TCC request; requires user approval:
+npm run computer-use:mac:permissions -- --request
 ```
 
 To prepare the optional MCP service, after application resources have been prepared:
@@ -53,7 +55,7 @@ The configuration prints a `macos-computer` MCP server. Enable it explicitly in 
 
 ### Remaining work and real-device acceptance
 
-1. Screen Recording is already granted for the executing helper. Grant the still-missing **Accessibility** and **Input Monitoring** in macOS System Settings → Privacy & Security to the exact running helper identity. Reopen the relevant service afterward. Avoid granting unrelated processes permission.
+1. Screen Recording is already granted for the executing helper. Grant the still-missing **Accessibility** permission (no additional Input Monitoring required) in macOS System Settings → Privacy & Security to the exact running helper identity. Reopen the relevant service afterward. Avoid granting unrelated processes permission.
 2. Use a disposable native test window to verify window selection, correct PNG, real cursor click/scroll/Unicode and re-observation. Ensure secure/system windows are rejected.
 3. Press Esc while input is in progress and use the STOP panel across desktop Spaces/full-screen; neither must leak a click to another app. Test owner exit, timeout, user interference and TCC revocation.
 4. Validate the newly implemented mouse-transparent native blue window border on real macOS Spaces/full-screen and multiple displays. Native cursor-silhouette Glow code is implemented and compiled, but real pointer appearance is not yet visually verified; do not substitute a click-location circle.

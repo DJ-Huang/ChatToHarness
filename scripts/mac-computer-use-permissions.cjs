@@ -19,7 +19,7 @@ if (!fs.existsSync(helper)) {
   process.exit(2);
 }
 if (option === '--request') {
-  console.log('macOS may display Screen Recording, Accessibility and Input Monitoring permission prompts.');
+  console.log('macOS may display Screen Recording and Accessibility permission prompts.');
   console.log('Permissions require the local user to approve them. Do not grant access to unknown applications.');
 }
 const run = spawnSync(helper, [option === '--request' ? 'request_permissions' : 'permission_status'], {
@@ -33,17 +33,15 @@ let status;
 try { status = JSON.parse(run.stdout.trim()); }
 catch { console.error('Unexpected native permission response'); process.exit(1); }
 if (typeof status.screen_recording !== 'boolean' ||
-    typeof status.accessibility !== 'boolean' ||
-    typeof status.input_monitoring !== 'boolean') {
+    typeof status.accessibility !== 'boolean') {
   console.error('Unexpected permissions schema'); process.exit(1);
 }
 console.log('macOS Computer Use permissions for this helper process:');
 console.log('  Screen Recording: ', status.screen_recording ? 'GRANTED' : 'MISSING');
 console.log('  Accessibility:    ', status.accessibility ? 'GRANTED' : 'MISSING');
-console.log('  Input Monitoring: ', status.input_monitoring ? 'GRANTED' : 'MISSING');
-if (!status.screen_recording || !status.accessibility || !status.input_monitoring) {
+if (!status.screen_recording || !status.accessibility) {
   console.log('Open System Settings > Privacy & Security.');
-  console.log('For Screen Recording (or Screen & System Audio Recording), Accessibility and Input Monitoring,');
+  console.log('For Screen Recording (or Screen & System Audio Recording) and Accessibility,');
   console.log('enable the entry for the actual app/helper/terminal running Computer Use.');
   console.log('Close and restart the service after granting permissions; TCC follows application identity.');
 }

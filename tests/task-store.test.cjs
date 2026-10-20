@@ -106,3 +106,32 @@ test('asynchronous worker launch errors are terminal',t=>{
   assert.equal(state.state,'failed');
   assert.ok(state.finished_at);
 });
+
+test('task results combine terminal state and bounded tails with recoverable log cursors',t=>{
+  const f=fixture(t,{launch:()=>{throw new Error('synthetic launch failure');}}),job=f.start('console.log("unused")','tail-result');
+  const directory=f.store.taskPath(job.task_id),stateFile=path.join(directory,'state.json');
+  atomicJson(stateFile,{...readJson(stateFile),state:'failed',execution_state:'completed',operation_executed:true,exit_code:7});
+  const entries=[...Array.from({length:100},(_,index)=>({stream:'stdout',text:`row ${index} ${'中文'.repeat(500)}\n`})),{stream:'stderr',text:'final failure marker'},{stream:'stdout',text:'final output marker'}];
+  fs.writeFileSync(path.join(directory,'output.jsonl'),entries.map(item=>JSON.stringify(item)).join('\n')+'\n');
+  const result=f.store.result(job.task_id,f.project);
+  assert.equal(result.state,'failed');assert.equal(result.exit_code,7);assert.equal(result.execution_state,'completed');
+  assert.match(result.stdout,/final output marker/);assert.match(result.stderr,/final failure marker/);
+  assert.ok(Buffer.byteLength(result.stdout)<=4096);assert.equal(result.output_truncated,true);assert.equal(result.has_more,true);
+  assert.equal(result.log_cursor,`${job.task_id}:0`);assert.ok(result.next_cursor!==result.log_cursor);
+  assert.equal(f.store.logs(job.task_id,f.project,{cursor:result.log_cursor,limit:1}).entries[0].text,entries[0].text);
+  assert.deepEqual(f.store.result(job.task_id,f.project),result,'result reads never consume logs or relaunch tasks');
+  assert.throws(()=>f.store.result(job.task_id,f.home),{code:'TASK_SCOPE_MISMATCH'});
+  fs.writeFileSync(path.join(directory,'output.expired'),'expired');
+  const expired=f.store.result(job.task_id,f.project);
+  assert.equal(expired.output_expired,true);assert.equal(expired.stdout,'');assert.equal(expired.state,'failed');assert.equal(expired.exit_code,7);
+});
+
+test('task result tails account for JSON escaping in the complete wire result',t=>{
+  const f=fixture(t,{launch:()=>{throw new Error('synthetic launch failure');}}),job=f.start('console.log("unused")','escaped-result');
+  const directory=f.store.taskPath(job.task_id);
+  fs.writeFileSync(path.join(directory,'output.jsonl'),Array.from({length:8},()=>JSON.stringify({stream:'stdout',text:'\u0001'.repeat(2048)})).join('\n')+'\n');
+  const result=f.store.result(job.task_id,f.project);
+  assert.ok(Buffer.byteLength(JSON.stringify({content:[{type:'text',text:result.summary}],structuredContent:result}))<16*1024);
+  assert.equal(result.output_truncated,true);
+  assert.ok(result.stdout.length>0);
+});

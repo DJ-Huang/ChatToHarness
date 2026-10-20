@@ -25,6 +25,27 @@ async function until(predicate, timeout = 5000) {
 }
 function readCount(file) { try { return Number(fs.readFileSync(file, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return 0; throw error; } }
 
+test('catalog pages cover 64 tools while preserving byte limits, copies and versioned cursors',()=>{
+  const manager=Object.create(McpManager.prototype);
+  manager.toolsVersion=7;
+  const tools=Array.from({length:130},(_,index)=>({name:'tool_'+String(index).padStart(3,'0'),description:'Small tool',inputSchema:{type:'object'}}));
+  manager.visibleTools=()=>tools;
+  const first=manager.listTools();assert.equal(first.tools.length,64);assert.equal(first.nextCursor,'7:64');
+  const second=manager.listTools(first.nextCursor);assert.equal(second.tools.length,64);assert.equal(second.nextCursor,'7:128');
+  const third=manager.listTools(second.nextCursor);assert.equal(third.tools.length,2);assert.equal(third.nextCursor,undefined);
+  assert.deepEqual([...first.tools,...second.tools,...third.tools].map(tool=>tool.name),tools.map(tool=>tool.name));
+  first.tools[0].inputSchema.type='changed';assert.equal(tools[0].inputSchema.type,'object');
+  manager.toolsVersion=8;assert.throws(()=>manager.listTools(first.nextCursor),{code:'MCP_CURSOR_EXPIRED'});
+  for(const cursor of ['8:130','8:999','invalid'])assert.throws(()=>manager.listTools(cursor),{code:'MCP_CURSOR_EXPIRED'});
+  const {MAX_MESSAGE_BYTES}=require('../app/mcp-transport.cjs');
+  manager.visibleTools=()=>[{name:'large_a',description:'x'.repeat(MAX_MESSAGE_BYTES/2)},{name:'large_b',description:'x'.repeat(MAX_MESSAGE_BYTES/2)}];
+  const bounded=manager.listTools();assert.equal(bounded.tools.length,1);assert.equal(bounded.nextCursor,'8:1');
+  assert.ok(Buffer.byteLength(JSON.stringify(bounded))<MAX_MESSAGE_BYTES);
+  assert.equal(manager.listTools(bounded.nextCursor).tools.length,1);
+  manager.visibleTools=()=>[{name:'oversized',description:'x'.repeat(MAX_MESSAGE_BYTES)}];
+  assert.throws(()=>manager.listTools(),{code:'MCP_MESSAGE_TOO_LARGE'});
+});
+
 function fixture(t, options = {}) {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cth-mcp-manager-')));
   const encryptionKey = crypto.randomBytes(32);
@@ -78,6 +99,54 @@ test('concurrent connections reuse one process, discover every page and default 
   assert.equal(denied.structuredContent.code, 'MCP_TOOL_DENIED');
   assert.equal(denied.structuredContent.execution_state, 'not_started');
   assert.equal(readCount(f.calls('one')), 0);
+});
+
+test('permitted offline tools fail immediately as unavailable while denied and disabled tools stay denied', {timeout:10000}, async t => {
+  const f=fixture(t);await Promise.all([f.connect('offline'),f.connect('healthy')]);
+  f.policy('offline','echo');f.policy('healthy','echo');f.manager.running=true;
+  await f.manager.disconnect(f.manager.record('offline'));
+  const result=await f.manager.call('offline__echo',{});
+  assert.equal(result.structuredContent.code,'MCP_SERVICE_UNAVAILABLE');
+  assert.equal(result.structuredContent.operation_executed,false);
+  assert.equal(result.structuredContent.execution_state,'not_started');
+  assert.equal(readCount(f.calls('offline')),0);
+  assert.equal((await f.manager.call('offline__hang',{})).structuredContent.code,'MCP_TOOL_DENIED');
+  const status=f.manager.status();
+  assert.equal(status.tools_health,'degraded');assert.equal(status.tools_ready,false);
+  assert.deepEqual(status.missing_capabilities,[{service_id:'offline',capability:'tools',phase:'stopped',code:'MCP_SERVICE_UNAVAILABLE'}]);
+  assert.equal((await f.manager.call('healthy__echo',{})).structuredContent.server,'healthy');
+  // Discovery state is process local, while grants survive a desktop restart.
+  f.manager.records.delete('offline');
+  assert.equal((await f.manager.call('offline__echo',{})).structuredContent.code,'MCP_SERVICE_UNAVAILABLE');
+  await f.manager.setEnabled('offline',false);
+  assert.equal((await f.manager.call('offline__echo',{})).structuredContent.code,'MCP_TOOL_DENIED');
+});
+
+test('missing startup components expose a sanitized permanent cause and do not retry', {timeout:10000}, async t => {
+  const f=fixture(t),privatePath=path.join(f.directory,'private-missing-component.cjs');
+  f.save('broken',{args:[privatePath]});f.manager.running=true;
+  await assert.rejects(f.manager.connect('broken'),{code:'MCP_MODULE_NOT_FOUND'});
+  const record=f.manager.record('broken'),status=f.manager.status();
+  assert.equal(record.phase,'failed');assert.equal(record.retryTimer,undefined);
+  assert.equal(status.servers[0].startup_error.code,'MCP_MODULE_NOT_FOUND');
+  assert.equal(status.tools_health,'unavailable');
+  assert.equal(status.missing_capabilities[0].code,'MCP_MODULE_NOT_FOUND');
+  assert.equal(JSON.stringify({diagnostic:status.servers[0].startup_error,logs:f.logs}).includes(privatePath),false);
+  // Generic launch errors can be transient (resource limits, file locks, etc.).
+  record.error='MCP_START_FAILED';f.manager.retry(record);
+  assert.equal(record.phase,'reconnecting');assert.ok(record.retryTimer);
+});
+
+test('builtin component failure is visible even when Harness tools keep the gateway usable', {timeout:10000}, async t => {
+  const services={configure(){},tools(){return [{name:'harness_status',inputSchema:{type:'object'}}];},has(){return false;},dispose(){}};
+  const f=fixture(t,{services,builtinFactory:async()=>{throw Object.assign(new Error('private-module-and-path'),{code:'MODULE_NOT_FOUND'});}});
+  assert.equal(await f.manager.start({directories:[f.directory]}),1);
+  const status=f.manager.status();
+  assert.equal(status.tools_health,'degraded');assert.equal(status.tools_ready,false);
+  assert.equal(status.builtin.startup_error.code,'MCP_MODULE_NOT_FOUND');
+  assert.deepEqual(status.missing_capabilities,[{service_id:'builtin',capability:'tools',phase:'failed',code:'MCP_MODULE_NOT_FOUND'}]);
+  assert.equal((await f.manager.call('read_file',{path:'unused'})).structuredContent.code,'MCP_SERVICE_UNAVAILABLE');
+  assert.equal(f.manager.record('builtin').retryTimer,undefined);
 });
 
 test('namespaces isolate identical tool names and preserve schemas, arguments, images and errors', { timeout: 10000 }, async t => {

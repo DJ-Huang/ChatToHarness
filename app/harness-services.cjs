@@ -8,6 +8,8 @@ const {TaskStore} = require('./task-store.cjs');
 const {SafeEdits} = require('./safe-edits.cjs');
 const {ProjectContexts, inside} = require('./project-context.cjs');
 const {ProjectInspector, integer, fail} = require('./project-inspect.cjs');
+const {guidanceRetry} = require('./tool-recovery.cjs');
+const {sanitize} = require('./diagnostic-budget.cjs');
 
 const DC_TOOLS = Object.freeze(['get_config', 'set_config_value', 'read_file', 'read_multiple_files', 'write_file', 'write_pdf', 'create_directory', 'list_directory', 'move_file', 'start_search', 'get_more_search_results', 'stop_search', 'list_searches', 'get_file_info', 'edit_block', 'start_process', 'read_process_output', 'interact_with_process', 'force_terminate', 'list_sessions', 'list_processes', 'kill_process', 'get_usage_stats', 'get_recent_tool_calls', 'give_feedback_to_desktop_commander']);
 const project = {type: 'string', description: 'Absolute project directory within the desktop app authorized folders.'};
@@ -20,20 +22,23 @@ const taskFields = {project_path: project, task_id: {type: 'string'}};
 const taskHints = {readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true};
 const TASK_TOOLS = [
   tool('start_task', 'Start persistent task', 'Record an idempotent local shell task and return immediately. Reuse the same idempotency_key after a timeout or reconnect. The worker applies the official command policy; project_path supplies guidance and cwd, not a shell sandbox.', {project_path: project, command: {type: 'string', maxLength: 65536}, idempotency_key: {type: 'string', minLength: 1, maxLength: 128}, runtime_limit_ms: {type: 'integer', minimum: 1, maximum: 604800000}, artifact_paths: {type: 'array', items: {type: 'string'}, maxItems: 32}, context_paths: {type: 'array', items: {type: 'string'}, maxItems: 128}, project_context_tokens: {type: 'array', items: {type: 'string'}, maxItems: 128}}, ['project_path', 'command', 'idempotency_key'], taskHints),
-  ...['status', 'result'].map(kind => tool(`get_task_${kind}`, `Task ${kind}`, 'Read a durable task record after disconnect or app restart. Interrupted tasks are reported with unknown execution state and are never replayed.', taskFields, ['project_path', 'task_id'])),
+  tool('get_task_status', 'Task status', 'Read durable task state after disconnect or app restart. Interrupted tasks have unknown execution state and are never replayed. Prefer get_task_result when output or an exit code is also needed.', taskFields, ['project_path','task_id']),
+  tool('get_task_result', 'Task result', 'Read task state, exit code and bounded saved stdout/stderr tails in one call. Includes a log cursor for further output; never executes the command again. Interrupted tasks retain unknown execution state.', taskFields, ['project_path','task_id']),
   tool('get_task_logs', 'Task logs', 'Read bounded saved stdout/stderr entries. A cursor remains valid after reconnect or app restart; offsets never consume or delete logs.', {...taskFields, ...pagination}, ['project_path', 'task_id']),
   tool('list_tasks', 'Project tasks', 'Find persistent tasks and results for an authorized project.', {project_path: project, ...pagination}, ['project_path']),
   tool('cancel_task', 'Cancel task', 'Record cancellation of a task owned by this project. Query its status until the worker confirms termination; no arbitrary PID is accepted.', taskFields, ['project_path', 'task_id'], {...taskHints, openWorldHint: false})
 ];
 const EDIT_TOOLS = [
-  tool('apply_project_edit', 'Safe project edit', 'Create or replace UTF-8 text using an expected SHA-256 and an idempotency key. An existing mismatch is never overwritten. Save the returned undo_id; legacy format tools remain available for binary documents.', {project_path:project,file_path:{type:'string'},content:{type:'string',maxLength:1048576},expected_sha256:{type:'string'},idempotency_key:{type:'string',minLength:1,maxLength:128},project_context_tokens:{type:'array',items:{type:'string'},maxItems:128}}, ['project_path','file_path','content','expected_sha256','idempotency_key'], {...taskHints,openWorldHint:false}),
+  {...tool('apply_project_edit', 'Write and verify project text', 'Create or replace UTF-8 text, then reopen and checksum the actual saved file in this call. New files use expected_sha256="absent"; existing files require their current SHA-256 from get_file_result. Returns undo_id and verification with up to 4 KiB of actual readback text. When status="matched" and complete=true, answer from that text without another read solely to confirm this write. A mismatch never overwrites newer content. Retries reuse the same intent and idempotency_key; they verify without rewriting. Use native format tools for binary documents.', {project_path:project,file_path:{type:'string',description:'Absolute target file or a path relative to project_path.'},content:{type:'string',maxLength:1048576},expected_sha256:{type:'string',pattern:'^(absent|[a-f0-9]{64})$',description:'Use absent to create a new file, or the current SHA-256 from get_file_result to replace existing text.'},idempotency_key:{type:'string',minLength:1,maxLength:128,description:'Stable key for this intended edit; reuse unchanged arguments and key after interruption.'},project_context_tokens:{type:'array',items:{type:'string'},maxItems:128}}, ['project_path','file_path','content','expected_sha256','idempotency_key'], {...taskHints,openWorldHint:false}),
+    outputSchema:{type:'object',additionalProperties:true,properties:{verification:{type:'object',description:'Fresh observation from reopening the target after the edit or exact-key retry. The checksum covers the entire file; complete/truncated apply only to the bounded text preview.',properties:{status:{type:'string',enum:['matched','changed','unavailable']},expected_sha256:{type:'string'},sha256:{type:['string','null']},bytes:{type:['integer','null']},text:{type:'string',description:'Actual reopened UTF-8 text, at most 4096 bytes; absent when verification is unavailable.'},complete:{type:'boolean'},truncated:{type:'boolean'},checked_at:{type:'string'},error:{type:'object',additionalProperties:true}},required:['status','expected_sha256','sha256','bytes','complete','truncated','checked_at'],additionalProperties:false}}}},
   tool('undo_project_edit', 'Undo project edit', 'Restore the saved bytes only if the file still matches the edited SHA-256. Later user changes are preserved and reported as a conflict.', {project_path:project,undo_id:{type:'string'},expected_sha256:{type:'string'},project_context_tokens:{type:'array',items:{type:'string'},maxItems:128}}, ['project_path','undo_id','expected_sha256'], {...taskHints,openWorldHint:false})
 ];
 const TOOLS = [
   tool('get_harness_status', 'Harness status', 'Read the running build, device, connection and current capability inventory. Tool names are paginated; availability is distinct from acceptance evidence.', {...pagination}),
   tool('get_project_overview', 'Project overview', 'Read a bounded directory summary, Git status, AGENTS and on-demand rule/skill indexes in one call.', {project_path: project, depth: {type: 'integer', minimum: 1, maximum: 3}, target_paths: {type: 'array', items: {type: 'string'}, maxItems: 128}, task: {type: 'string', maxLength: 4096}}, ['project_path']),
+  tool('get_execution_summary', 'Project execution summary', 'Read recent execution states, durations and error reasons for an authorized project in one bounded call. Use state:errors to diagnose failures. Commands, arguments and full output are excluded; use task_id to inspect an existing task without replaying it.', {project_path:project,state:{type:'string',enum:['all','errors','received','waiting_approval','submitted','running','cancelling','succeeded','failed','unknown','interrupted','needs_context','needs_arguments']},tool:{type:'string',maxLength:256},since:{type:'string',description:'ISO date-time lower bound for when a request was received.'},cursor:{type:'string'},limit:{type:'integer',minimum:1,maximum:50,default:10}}, ['project_path']),
   ...['status', 'diff', 'log'].map(kind => tool(`git_${kind}`, `Git ${kind}`, `Read project-scoped Git ${kind} without a shell. Result pages use a five-minute immutable snapshot. Diff defaults to unstaged changes; log covers up to 100 commits.`, {project_path: project, paths: {type: 'array', items: {type: 'string'}, maxItems: 64}, ...(kind === 'diff' ? {staged: {type: 'boolean'}} : {}), ...pagination}, ['project_path'])),
-  tool('get_file_result', 'File result', 'Return an authorized artifact with a SHA-256 fingerprint, size and bounded text/base64 page; supported small images also return native MCP image content. Use the exact returned path for subsequent pages.', {project_path: project, path: {type: 'string'}, offset: {type: 'integer', minimum: 0}, length: {type: 'integer', minimum: 1, maximum: 65536}, preview: {type: 'boolean'}}, ['project_path', 'path'])
+  tool('get_file_result', 'File result', 'Read an authorized artifact as a SHA-256 fingerprint, size and bounded text/base64 page. Set preview:true explicitly to deliver a native image or embedded resource; default reads do not attach files. Use the exact returned path for subsequent pages.', {project_path: project, path: {type: 'string'}, offset: {type: 'integer', minimum: 0}, length: {type: 'integer', minimum: 1, maximum: 65536}, preview: {type: 'boolean'}}, ['project_path', 'path'])
 ];
 function response(value, content = []) { return {content: [{type: 'text', text: value.summary || JSON.stringify(value)}, ...content], structuredContent: value}; }
 function errorResult(error) {
@@ -41,8 +46,8 @@ function errorResult(error) {
   return {...response(value), isError: true};
 }
 class HarnessServices {
-  constructor({home, build = {}, versions = {}, runtime = () => ({}), catalog = () => [], mcp = () => ({}), nodePath = process.execPath, processHost, engineEntry, configHome} = {}) {
-    Object.assign(this, {home, build, versions, runtime, catalog, mcp, nodePath, processHost});
+  constructor({home, build = {}, versions = {}, runtime = () => ({}), catalog = () => [], mcp = () => ({}), nodePath = process.execPath, processHost, engineEntry, configHome, history} = {}) {
+    Object.assign(this, {home, build, versions, runtime, catalog, mcp, nodePath, processHost, history});
     this.edits = new SafeEdits(home);
     this.tasks = new TaskStore({home,nodePath,processHost,engineEntry,configHome});
     this.configure({directories: []});
@@ -65,16 +70,50 @@ class HarnessServices {
       if (EDIT_TOOLS.some(tool => tool.name === name)) return response(await this.edit(name,args,options));
       if (TASK_TOOLS.some(tool => tool.name === name)) return response(await this.task(name,args,options));
       if (name === 'get_project_overview') return response(await this.inspector.overview(args, options));
+      if (name === 'get_execution_summary') return response(await this.executionSummary(args, options));
       if (['git_status', 'git_diff', 'git_log'].includes(name)) return response(await this.inspector.git(name.slice(4), args, options));
       if (name === 'get_file_result') return await this.file(args, options);
       throw fail('UNKNOWN_TOOL', 'This Harness tool is unavailable.');
     } catch (error) { return errorResult(error); }
   }
+  async executionSummary(args,{signal}={}) {
+    const root=await this.inspector.root(args),limit=integer(args.limit,10,50),state=args.state||'all';
+    const states=this.tools().find(item=>item.name==='get_execution_summary').inputSchema.properties.state.enum;
+    if(!states.includes(state)||args.tool!==undefined&&(typeof args.tool!=='string'||!args.tool||args.tool.length>256)||args.since!==undefined&&(typeof args.since!=='string'||args.since.length>64||!Number.isFinite(Date.parse(args.since))))throw fail('INVALID_ARGUMENT','Use a supported state, a tool name, and an ISO date-time for since.');
+    const kind=`executions:${JSON.stringify([state,args.tool||'',args.since||''])}`;
+    if(args.cursor)return this.inspector.page(kind,root,null,null,{...args,limit});
+    if(!this.history||typeof this.history.rows!=='function')throw fail('EXECUTION_HISTORY_UNAVAILABLE','Execution history is unavailable in this application instance.');
+    const rows=[],projects=new Map([[`project:${root}`,root]]);
+    for(const row of this.history.rows()) {
+      signal?.throwIfAborted();
+      if(args.tool&&row.tool!==args.tool||args.since&&Date.parse(row.last_received_at||row.received_at)<Date.parse(args.since))continue;
+      const errors=['failed','unknown','interrupted'].includes(row.state)&&!row.recovery_kind||row.delivery==='local_write_failed';
+      if(state==='errors'?!errors:state!=='all'&&state!==row.state&&state!==row.recovery_kind)continue;
+      const explicitProject=typeof row.project==='string'&&path.isAbsolute(row.project),scopes=explicitProject?[row.project]:row.scope_paths;
+      if(!Array.isArray(scopes)||!scopes.length||scopes.length>128||scopes.some(scope=>typeof scope!=='string'||!path.isAbsolute(scope)||!inside(root,path.resolve(scope))))continue;
+      let scoped=true;
+      for(const scope of scopes) {
+        const key=`${explicitProject?'project':'path'}:${scope}`;let canonical=projects.get(key);
+        if(canonical===undefined){try{canonical=explicitProject?await this.contexts.resolveProject(scope):await this.contexts.authorize(scope);}catch{canonical=null;}projects.set(key,canonical);}
+        if(!canonical||!inside(root,canonical)){scoped=false;break;}
+      }
+      if(!scoped)continue;
+      rows.push({request_id:row.request_id,tool:row.tool,state:row.state,...(row.recovery_kind?{recovery_kind:row.recovery_kind}:{}),received_at:row.last_received_at||row.received_at,
+        ...(row.started_at?{started_at:row.started_at}:{}),...(row.finished_at?{finished_at:row.finished_at}:{}),...(Number.isFinite(row.duration_ms)?{duration_ms:row.duration_ms}:{}),
+        ...(row.execution_state?{execution_state:row.execution_state}:{}),...(row.delivery?{delivery:row.delivery}:{}),...(row.task_id?{task_id:row.task_id}:{}),
+        ...(row.error_code||row.error_summary?{error:{code:sanitize(row.error_code||'',256),message:sanitize(row.error_summary||'',512)}}:{})});
+    }
+    rows.sort((a,b)=>(b.received_at||'').localeCompare(a.received_at||''));
+    return this.inspector.page(kind,root,rows,{project_path:root,summary:`${rows.length} matching execution records.`,total:rows.length}, {...args,limit});
+  }
   status(args) {
     const catalog = this.catalog().map(item => ({name: item.name, read_only: item.annotations?.readOnlyHint === true}));
     const page = this.inspector.page('catalog', 'harness', catalog, {}, args);
     const available = new Set(catalog.map(item => item.name)), runtime = this.runtime(), mcp = this.mcp();
-    return {summary: `ChatToHarness ${this.versions.app || this.build.version || 'unknown'}; ${runtime.state || 'unknown'}; ${catalog.length} available tools.`,
+    const missing_capabilities=mcp.missing_capabilities??runtime.missing_capabilities??[];
+    const tools_health=mcp.tools_health??runtime.tools_health??'unknown',tools_ready=mcp.tools_ready??runtime.tools_ready??false;
+    return {summary: `ChatToHarness ${this.versions.app || this.build.version || 'unknown'}; connection ${runtime.state || 'unknown'}; tools ${tools_health}; ${catalog.length} available tools.`,
+      tools_health,tools_ready,missing_capabilities,
       app: {version: this.versions.app || this.build.version || null, build: this.build}, components: {node: this.versions.node || process.versions.node, tunnel: this.versions.tunnel || null, desktop_commander: this.versions.desktopCommander || null},
       device: {platform: process.platform, arch: process.arch, os_release: os.release(), name: os.hostname()},
       connection: {state: runtime.state || 'unknown', local_ready: Boolean(runtime.localReady), gateway: 'app-owned', tools_version: mcp.toolsVersion ?? null},
@@ -92,7 +131,7 @@ class HarnessServices {
       if (existing) return existing;
     }
     const guidance = this.autoProjectContext ? await this.contexts.prepare(args.project_context_tokens,[file],{projectPath:root,signal,writing:true}) : {contexts: [], needsDelivery: false};
-    if (guidance.needsDelivery) throw fail('PROJECT_CONTEXT_REFRESH_REQUIRED','Read the supplied project guidance before editing.',{contexts:guidance.contexts,next_action:'read_contexts_then_retry'});
+    if (guidance.needsDelivery) throw fail('PROJECT_CONTEXT_REFRESH_REQUIRED','Read the project guidance before retrying the original tool. This operation has not run.',guidanceRetry(name,guidance.contexts));
     signal?.throwIfAborted();
     return name==='apply_project_edit' ? this.edits.apply({...args,project_path:root,file_path:file}) : this.edits.undo(args.undo_id,root,args.expected_sha256);
   }
@@ -109,12 +148,13 @@ class HarnessServices {
       if (!Array.isArray(related) || related.length > 128 || related.some(item=>typeof item!=='string'||!item||item.includes('\0'))) throw fail('INVALID_ARGUMENT','context_paths must contain at most 128 related project paths.');
       const targets = [...new Set([...related.map(item=>path.resolve(root,item)),...artifacts])];
       const guidance = this.autoProjectContext ? await this.contexts.prepare(args.project_context_tokens,targets,{projectPath:root,signal,writing:true}) : {contexts: [], needsDelivery: false};
-      if (guidance.needsDelivery) throw fail('PROJECT_CONTEXT_REFRESH_REQUIRED','Read the returned project instructions, then retry with the same idempotency_key and supplied tokens.',{contexts:guidance.contexts,next_action:'read_contexts_then_retry'});
+      if (guidance.needsDelivery) throw fail('PROJECT_CONTEXT_REFRESH_REQUIRED','Read the project guidance before retrying the original tool with the same idempotency_key. This operation has not run.',guidanceRetry(name,guidance.contexts));
       signal?.throwIfAborted();
       return {...this.tasks.start({...args,project_path:root,artifact_paths:artifacts}),project_contexts:guidance.contexts};
     }
     if (name === 'list_tasks') return this.inspector.page('tasks',root,this.tasks.list(root),{project_path:root,summary:'Saved tasks for this project.'},args);
     if (name === 'get_task_logs') return this.tasks.logs(args.task_id,root,args);
+    if (name === 'get_task_result') return this.tasks.result(args.task_id,root,args);
     if (name === 'cancel_task') return this.tasks.cancel(args.task_id,root);
     return this.tasks.status(args.task_id,root);
   }
@@ -142,10 +182,10 @@ class HarnessServices {
     if (mime === 'text/plain' || mime === 'application/json') {
       try { if (!buffer.includes(0)) value.text = new TextDecoder('utf-8', {fatal: true}).decode(buffer); } catch { /* Byte pages can split a UTF-8 sequence; exact base64 bytes remain available. */ }
     }
-    if (args.preview !== false && offset === 0 && mime.startsWith('image/') && stat.size <= 512 * 1024) {
+    if (args.preview === true && offset === 0 && mime.startsWith('image/') && stat.size <= 512 * 1024) {
       const image = await fs.readFile(file); if (crypto.createHash('sha256').update(image).digest('hex') !== digest) throw fail('FILE_CHANGED', 'The image changed while being prepared.');
       content.push({type: 'image', mimeType: mime, data: image.toString('base64')});
-    } else if (!value.has_more && offset === 0) content.push({type: 'resource', resource: {uri: pathToFileURL(file).href, mimeType: mime, ...(value.text !== undefined ? {text: value.text} : {blob: value.data})}});
+    } else if (args.preview === true && !value.has_more && offset === 0) content.push({type: 'resource', resource: {uri: pathToFileURL(file).href, mimeType: mime, ...(value.text !== undefined ? {text: value.text} : {blob: value.data})}});
     return response(value, content);
   }
   dispose() { this.contexts.dispose(); this.inspector.dispose(); }

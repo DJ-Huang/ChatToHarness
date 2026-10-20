@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { StringDecoder } = require('node:string_decoder');
 const { inside, ContextError } = require('./project-context.cjs');
-const MAX_MATCHES = 1000, MAX_BYTES = 2 * 1024 * 1024, PAGE_BYTES = 64 * 1024, MAX_LINE = 1024 * 1024;
+const MAX_MATCHES = 1000, MAX_BYTES = 2 * 1024 * 1024, PAGE_BYTES = 14 * 1024, MAX_LINE = 1024 * 1024;
 const CURSOR_TTL = 5 * 60 * 1000;
 const SEARCH_TOOL = {
   name: 'search_project', title: 'Search project files and text',
@@ -16,7 +16,7 @@ const SEARCH_TOOL = {
     search_type: { type: 'string', enum: ['content', 'files'], default: 'content' }, regex: { type: 'boolean', default: false, description: 'Use a ripgrep regular expression for content searches.' },
     include_globs: { type: 'array', items: { type: 'string' }, maxItems: 32 }, exclude_globs: { type: 'array', items: { type: 'string' }, maxItems: 32 },
     include_hidden: { type: 'boolean', default: false }, ignore_case: { type: 'boolean', default: false }, context_lines: { type: 'integer', minimum: 0, maximum: 10, default: 2 },
-    limit: { type: 'integer', minimum: 1, maximum: 200, default: 100 }, timeout_ms: { type: 'integer', minimum: 1, maximum: 10000, default: 2000 },
+    limit: { type: 'integer', minimum: 1, maximum: 200, default: 20 }, timeout_ms: { type: 'integer', minimum: 1, maximum: 10000, default: 2000 },
     cursor: { type: 'string', description: 'Opaque next_cursor; use the same project_path and omit pattern to read the saved search.' },
     project_context_tokens: { type: 'array', items: { type: 'string' }, maxItems: 128, description: 'Optional tokens from previous guidance delivery to reuse unchanged bodies.' },
   }, required: ['project_path'], additionalProperties: false },
@@ -88,7 +88,7 @@ class ProjectSearch {
   async search(args, { signal } = {}) {
     signal?.throwIfAborted();
     if (this.closed) throw error('SEARCH_UNAVAILABLE', 'The search service stopped; reconnect and start a new search.');
-    const root = await this.contexts.resolveProject(args.project_path), limit = integer(args.limit, 100, 1, 200, 'limit'); this.prune();
+    const root = await this.contexts.resolveProject(args.project_path), limit = integer(args.limit, 20, 1, 200, 'limit'); this.prune();
     if (args.cursor !== undefined) {
       const match = /^([A-Za-z0-9_-]{32})\.(\d+)$/.exec(args.cursor), snapshot = match && this.snapshots.get(match[1]);
       if (!snapshot) throw error('SEARCH_CURSOR_EXPIRED', 'This search snapshot expired; start a new search.');
@@ -108,28 +108,48 @@ class ProjectSearch {
     } finally { this.active.delete(task); }
   }
   page(id, snapshot, offset, limit) {
-    const results = []; let bytes = 0, index = offset;
+    const results = []; let index = offset;
     const page = { project_path: snapshot.root, results, complete: snapshot.complete, reason: snapshot.reason, truncated: snapshot.truncated,
       has_more: false, searched_at: snapshot.searched_at, diagnostics: [...snapshot.diagnostics] };
     // Account for UTF-8 paths and diagnostics as well as snippets. Reserve the
     // bounded cursor before adding each row so even unusual paths fit the wire budget.
-    const overhead = () => Buffer.byteLength(JSON.stringify(page)) - bytes + 128;
-    if (overhead() > PAGE_BYTES) throw error('SEARCH_PAGE_TOO_LARGE', 'Search metadata exceeds the page budget; choose a shorter project path.');
+    // The proxy returns both text and structuredContent. Count both, including
+    // JSON escaping, rather than assuming a domain byte count equals wire bytes.
+    const wireBytes = () => Buffer.byteLength(JSON.stringify({content:[{type:'text',text:JSON.stringify(page)}],structuredContent:page})) + 256;
+    if (wireBytes() > PAGE_BYTES) throw error('SEARCH_PAGE_TOO_LARGE', 'Search metadata exceeds the page budget; choose a shorter project path.');
     let skipped = false;
     while (index < snapshot.results.length && results.length < limit) {
-      const next = snapshot.results[index], size = Buffer.byteLength(JSON.stringify(next));
-      if (overhead() + bytes + size + (results.length ? 1 : 0) > PAGE_BYTES) {
+      const next = snapshot.results[index];
+      results.push(next);
+      page.has_more = index + 1 < snapshot.results.length;
+      if (page.has_more) page.next_cursor = `${id}.${index + 1}`;
+      else delete page.next_cursor;
+      if (wireBytes() > PAGE_BYTES) {
+        results.pop();
         if (results.length) break;
+        // A long match still needs a usable path and line. Shorten only its
+        // snippet when one row cannot fit; never modify the saved snapshot.
+        if (typeof next.text === 'string') {
+          let fitted = false;
+          for (const length of [512, 256, 128, 0]) {
+            const compact = {...next,text:next.text.slice(0,length),context:[],truncated:true};
+            results.push(compact);
+            if (wireBytes() <= PAGE_BYTES) { fitted = true; page.truncated = true; index++; break; }
+            results.pop();
+          }
+          if (fitted) continue;
+        }
         skipped = true; index++;
         if (!page.diagnostics.some(item => item.code === 'SEARCH_PAGE_ROW_TOO_LARGE')) page.diagnostics.push({code:'SEARCH_PAGE_ROW_TOO_LARGE',message:'A result was omitted because its paths and content exceed the page budget.'});
         continue;
       }
-      results.push(next); bytes += size + (results.length > 1 ? 1 : 0); index++;
+      index++;
     }
     page.has_more = index < snapshot.results.length;
     if (page.has_more) page.next_cursor = `${id}.${index}`;
+    else delete page.next_cursor;
     if (skipped) Object.assign(page, {complete:false,reason:'byte_limit',truncated:true});
-    if (Buffer.byteLength(JSON.stringify(page)) > PAGE_BYTES) throw error('SEARCH_PAGE_TOO_LARGE', 'Search metadata exceeds the page budget; narrow the search scope.');
+    if (wireBytes() > PAGE_BYTES) throw error('SEARCH_PAGE_TOO_LARGE', 'Search metadata exceeds the page budget; narrow the search scope.');
     return page;
   }
   run(root, query, task, signal) {

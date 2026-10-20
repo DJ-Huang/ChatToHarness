@@ -9,6 +9,7 @@ const http = require('node:http');
 const { spawn, execFileSync } = require('node:child_process');
 const { once } = require('node:events');
 const { RuntimeManager, ERRORS, reason, cleanEnvironment, shellQuote, stopTree, healthRequest } = require('../app/runtime.cjs');
+const {RUNTIME_COMPONENTS,RUNTIME_ENTRYPOINTS,prepareRuntimeComponents,verifyRuntimeComponents}=require('../app/runtime-components.cjs');
 const {defaultShell,tunnelCommand,spawnManaged}=require('../app/platform.cjs');
 const {windowsProcessHost}=require('./native-helper.cjs');
 
@@ -61,6 +62,49 @@ test('tool environments strip tunnel and API credentials while retaining HOME an
   const cleaned = cleanEnvironment(source);
   assert.deepEqual(cleaned, { HOME: source.HOME, PATH: source.PATH, SSH_AUTH_SOCK: source.SSH_AUTH_SOCK, GIT_CONFIG_GLOBAL: source.GIT_CONFIG_GLOBAL });
   assert.equal(source.CONTROL_PLANE_API_KEY, fakeKey);
+});
+
+test('the copied runtime manifest resolves actual helper dependencies without executing entrypoints', t => {
+  const f=fixture(t);
+  const files=prepareRuntimeComponents({sourceDirectory:path.dirname(launcherSource),home:f.home});
+  for(const name of RUNTIME_COMPONENTS.builtin)assert.ok(files.includes(path.join(f.home,name)),name);
+  assert.ok(files.includes(path.join(f.home,'tool-recovery.cjs')),'transitive recovery dependency must ship with the launcher');
+  fs.unlinkSync(path.join(f.home,'tool-recovery.cjs'));
+  assert.throws(()=>verifyRuntimeComponents({directory:f.home,entrypoints:['mcp-launch.cjs']}),{code:'MCP_MODULE_NOT_FOUND'});
+  const sideEffect=path.join(f.root,'must-not-exist');
+  fs.writeFileSync(path.join(f.home,'entry.cjs'),`require('node:fs').writeFileSync(${JSON.stringify(sideEffect)},'executed');require('./helper.cjs');`);
+  fs.writeFileSync(path.join(f.home,'helper.cjs'),'module.exports = 1;');
+  verifyRuntimeComponents({directory:f.home,entrypoints:['entry.cjs']});
+  assert.equal(fs.existsSync(sideEffect),false);
+  fs.writeFileSync(path.join(f.home,'helper.cjs'),'module.exports = ;');
+  assert.throws(()=>verifyRuntimeComponents({directory:f.home,entrypoints:['entry.cjs']}),{code:'MCP_COMPONENT_INVALID'});
+});
+
+test('runtime keeps tunnel readiness independent from managed tool readiness', t => {
+  const f=fixture(t),gateway={status(){return {tools_health:'degraded',tools_ready:false,missing_capabilities:[{service_id:'builtin',capability:'tools',phase:'failed',code:'MCP_MODULE_NOT_FOUND'}]};},async stop(){},async close(){}};
+  const manager=new RuntimeManager({home:f.home,paths:{},gateway});f.cleanup.push(()=>manager.close());
+  manager.update({state:'ready',localReady:true,toolsCount:3});
+  assert.equal(manager.status().state,'ready');assert.equal(manager.status().tools_health,'degraded');
+  assert.equal(manager.status().tools_ready,false);assert.equal(manager.status().missing_capabilities[0].service_id,'builtin');
+});
+
+test('diagnostic packaging verification covers writer and worker dependencies without starting a worker', t => {
+  const f=fixture(t);
+  assert.deepEqual(RUNTIME_ENTRYPOINTS.diagnostics,['diagnostic-writer.cjs','diagnostic-worker.cjs']);
+  const files=prepareRuntimeComponents({sourceDirectory:path.dirname(launcherSource),home:f.home,kind:'diagnostics'});
+  for(const name of RUNTIME_COMPONENTS.diagnostics)assert.ok(files.includes(path.join(f.home,name)),name);
+  // Evaluating the worker would require parentPort/workerData and would write
+  // storage. Packaging verification only compiles and resolves copied files.
+  assert.equal(fs.existsSync(path.join(f.home,'executions')),false);
+  assert.equal(fs.existsSync(path.join(f.home,'logs')),false);
+  fs.unlinkSync(path.join(f.home,'diagnostic-storage.cjs'));
+  assert.throws(()=>verifyRuntimeComponents({directory:f.home,entrypoints:RUNTIME_ENTRYPOINTS.diagnostics}),{code:'MCP_MODULE_NOT_FOUND'});
+});
+
+test('missing bundled executables keep a permanent component code alongside the localized message', t => {
+  const f=fixture(t);
+  const manager=new RuntimeManager({home:f.home,paths:{node:path.join(f.root,'missing-node'),tunnel:process.execPath}});f.cleanup.push(()=>manager.close());
+  assert.throws(()=>manager.prepare({directories:[f.notes]}),{code:'MCP_FILE_NOT_FOUND',message:ERRORS.binary});
 });
 
 test('app gateway supports MCP-only workspaces and Tunnel restarts reuse downstream ownership', {timeout:15000}, async t => {
@@ -160,7 +204,7 @@ process.on('SIGTERM',()=>{fs.writeFileSync(${JSON.stringify(stopped)},'stopped')
   assert.equal(config.defaultShell, defaultShell());
   assert.deepEqual(config.allowedDirectories, [f.notes]);
   assert.equal(config.telemetryEnabled, false);
-  for(const helper of ['mcp-launch.cjs','mcp-proxy.cjs','project-context.cjs','project-search.cjs'])assert.ok(fs.existsSync(path.join(f.home,helper)));
+  for(const helper of RUNTIME_COMPONENTS.builtin)assert.ok(fs.existsSync(path.join(f.home,helper)));
   assert.equal(manager.childEnvironment({autoProjectContext:false}).LOCALHARNESS_AUTO_PROJECT_CONTEXT,'0');
   assert.equal(manager.childEnvironment().LOCALHARNESS_AUTO_PROJECT_CONTEXT,'1');
   assert.equal(manager.probeChild, null);

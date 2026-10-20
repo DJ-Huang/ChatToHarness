@@ -9,9 +9,10 @@ const {createRequire} = require('node:module');
 const {verifyResources} = require('./build.cjs');
 const versions = require('./versions.cjs');
 const {spawnManaged,stopTree,bundledPaths} = require('../app/platform.cjs');
+const {RESTART_EXIT_CODE:RESTART_EXIT,MENU_RESTART_EXIT_CODE} = require('../app/dev-lifecycle.cjs');
+const {prepareDevelopmentApp} = require('./dev-app.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
-const RESTART_EXIT = 75;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const alive = pid => {try {process.kill(pid, 0);return true;} catch(error) {return error.code !== 'ESRCH';}};
 
@@ -144,7 +145,7 @@ class DevelopmentLauncher {
     this.child = null;this.finished = null;this.stopping = null;this.cancelled = false;
   }
   async launch() {
-    const deadline = this.now() + this.restartMs;
+    let deadline = this.now() + this.restartMs;
     while(!this.cancelled) {
       let child;
       try {
@@ -158,6 +159,7 @@ class DevelopmentLauncher {
         await this.stop(child);
         if(this.child===child){this.child=null;this.finished=null;}
         if(this.cancelled)return 0;
+        if(result.code === MENU_RESTART_EXIT_CODE){deadline=this.now()+this.restartMs;continue;}
         if(result.code !== RESTART_EXIT)return result.code ?? (result.signal ? 1 : 0);
         if(this.now() >= deadline)throw new Error('旧应用尚未退出。请从菜单选择“退出 ChatToHarness”一次，然后重新开发启动；不会强制结束其他进程。');
         await this.pause(Math.min(this.retryMs,Math.max(0,deadline-this.now())));
@@ -205,8 +207,11 @@ async function main(args = process.argv.slice(2)) {
   const signals=['SIGINT','SIGTERM',...(process.platform === 'win32'?[]:['SIGHUP'])];
   for(const signal of signals)process.on(signal,onSignal);
   try {
-    const binary = electronExecutable();
+    let binary = electronExecutable();
     const {resources} = await prepareComponents({signal:controller.signal});
+    const release = await preparationLock({signal:controller.signal});
+    try{controller.signal.throwIfAborted();binary=prepareDevelopmentApp({root:ROOT,binary});}
+    finally{release();}
     if(args.includes('--prepare-only') || controller.signal.aborted)return 0;
     launcher=new DevelopmentLauncher({binary,resources});
     return await launcher.launch();

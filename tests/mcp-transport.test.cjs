@@ -8,7 +8,7 @@ const path = require('node:path');
 const { PassThrough } = require('node:stream');
 const { once } = require('node:events');
 const { windowsProcessHost } = require('./native-helper.cjs');
-const { MAX_MESSAGE_BYTES, toolEnvironment, boundedMessage, LineTransport, ManagedStdioTransport, boundedFetch, resolveLaunch } = require('../app/mcp-transport.cjs');
+const { MAX_MESSAGE_BYTES, MAX_STARTUP_STDERR_BYTES, startupDiagnostic, toolEnvironment, boundedMessage, LineTransport, ManagedStdioTransport, boundedFetch, resolveLaunch } = require('../app/mcp-transport.cjs');
 
 test('Windows bare Node commands use the bundled executable without changing literal arguments', () => {
   const node = 'C:\\Program Files\\ChatToHarness\\node.exe';
@@ -35,7 +35,7 @@ test('Windows npm and npx launch their CLI with bundled Node and literal argv wi
     assert.deepEqual(config.args, args);
     assert.equal(resolved.args.some(value => /^cmd(?:\.exe)?$/i.test(value)), false);
   }
-  assert.throws(() => resolveLaunch({ command: 'npx', args, env: {} }, node, 'win32', () => false), { code: 'MCP_START_FAILED' });
+  assert.throws(() => resolveLaunch({ command: 'npx', args, env: {} }, node, 'win32', () => false), { code: 'MCP_FILE_NOT_FOUND' });
 });
 
 test('Windows generic executables resolve only exe or com files from fully absolute PATH entries', () => {
@@ -52,17 +52,45 @@ test('Windows generic executables resolve only exe or com files from fully absol
 
 test('Windows executable resolution rejects missing binaries, relative paths and unsupported script launchers', () => {
   const node = 'C:\\App\\node.exe';
-  const reject = (command, env = { PATH: 'C:\\Tools' }, exists = () => true) => {
-    assert.throws(() => resolveLaunch({ command, args: ['& should-never-be-shell'], env }, node, 'win32', exists), { code: 'MCP_START_FAILED' }, command);
+  const reject = (command, env = { PATH: 'C:\\Tools' }, exists = () => true, code = 'MCP_INVALID_CONFIG') => {
+    assert.throws(() => resolveLaunch({ command, args: ['& should-never-be-shell'], env }, node, 'win32', exists), { code }, command);
   };
-  reject('missing', { PATH: 'C:\\Tools' }, () => false);
-  reject('python', { PATH: 'relative;C:relative;\\rooted;/rooted' });
+  reject('missing', { PATH: 'C:\\Tools' }, () => false, 'MCP_FILE_NOT_FOUND');
+  reject('python', { PATH: 'relative;C:relative;\\rooted;/rooted' }, () => true, 'MCP_FILE_NOT_FOUND');
   for (const command of ['python.cmd', 'python.bat', 'python.ps1', 'C:\\Tools\\python.cmd', '.\\python.exe', '..\\python.com', '.\\npx.cmd']) reject(command);
 });
 
 test('non-Windows executable resolution preserves the original native launch configuration', () => {
   const config = { command: '/opt/bin/python', args: ['server.py'], env: { PATH: '/opt/bin' } };
   assert.equal(resolveLaunch(config, '/bundle/node', 'darwin', () => { throw Error('Unexpected Windows resolution'); }), config);
+});
+
+test('startup diagnostics retain only fixed bounded causes and leave unclassified exits transient', () => {
+  const secret='private-access-token-and-path';
+  const missing=startupDiagnostic(undefined,`Error: Cannot find module '${secret}'\ncode: 'MODULE_NOT_FOUND'`);
+  assert.equal(missing.code,'MCP_MODULE_NOT_FOUND');
+  assert.equal(JSON.stringify(missing).includes(secret),false);
+  assert.equal(startupDiagnostic({code:'ENOENT',message:secret}).code,'MCP_FILE_NOT_FOUND');
+  assert.equal(startupDiagnostic({code:'EACCES',message:secret}).code,'MCP_ACCESS_DENIED');
+  assert.equal(startupDiagnostic({code:'ENFILE',message:secret}).code,'MCP_START_FAILED');
+  assert.equal(startupDiagnostic(undefined,'peer exited while connecting'),undefined);
+  assert.equal(startupDiagnostic(undefined,`Error: Cannot find module '${secret}'`+'x'.repeat(MAX_STARTUP_STDERR_BYTES)),undefined,'classification cannot retain or inspect an unbounded stderr history');
+});
+
+test('managed stdio reports a sanitized missing-module startup cause without retaining raw stderr', {timeout:10000}, async t => {
+  const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'mcp startup ')));
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const missing=path.join(directory,'private-missing-entry.cjs');
+  const transport=new ManagedStdioTransport({command:process.execPath,args:[missing],env:toolEnvironment()}, {processHost:windowsProcessHost()});
+  t.after(()=>transport.close());
+  let closed;
+  const completion=new Promise(resolve=>{closed=resolve;});
+  const errors=[];transport.onerror=error=>errors.push(error);transport.onclose=closed;
+  await transport.start();await completion;
+  assert.equal(transport.startupError.code,'MCP_MODULE_NOT_FOUND');
+  assert.ok(errors.some(error=>error.code==='MCP_MODULE_NOT_FOUND'));
+  assert.equal(JSON.stringify(transport.startupError).includes(directory),false);
+  assert.equal(transport.startupStderr.length,0);
 });
 
 function chunkedResponse(chunks, contentType = 'application/json', onCancel = () => {}) {
@@ -155,8 +183,8 @@ lines.on('line', line => {
 test('line transport reconstructs split UTF-8 and multiple standard JSON-RPC messages', async t => {
   const input = new PassThrough();
   const output = new PassThrough();
-  const messages = [];
-  const transport = new LineTransport(input, output);
+  const messages = [], frames = [];
+  const transport = new LineTransport(input, output, {observeTiming:true,onMessage:(_message,frame)=>frames.push(frame)});
   t.after(() => transport.close());
   transport.onmessage = message => messages.push(message);
   await transport.start();
@@ -167,6 +195,13 @@ test('line transport reconstructs split UTF-8 and multiple standard JSON-RPC mes
   input.write(wire.subarray(0, multibyte + 1));
   input.write(wire.subarray(multibyte + 1));
   assert.deepEqual(messages, [first, second]);
+  assert.equal(frames.length, 2);
+  assert.deepEqual(frames.map(frame=>frame.bytes), [Buffer.byteLength(JSON.stringify(first))+2, Buffer.byteLength(JSON.stringify(second))+1]);
+  for(const frame of frames){
+    assert.ok(Number.isFinite(frame.frameMs)&&frame.frameMs>=0);
+    assert.ok(Number.isFinite(frame.parseMs)&&frame.parseMs>=0&&frame.parseMs<=frame.frameMs);
+    assert.deepEqual(Object.keys(frame).sort(),['bytes','frameMs','parseMs']);
+  }
   const outgoing = once(output, 'data');
   await transport.send({ jsonrpc: '2.0', id: 2, method: 'ping' });
   const [line] = await outgoing;

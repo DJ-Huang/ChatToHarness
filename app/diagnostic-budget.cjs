@@ -58,11 +58,14 @@ function sanitize(value,limit=2048,secrets=[]){
   return Buffer.from(text).subarray(0,limit).toString('utf8').replace(/\uFFFD$/,'');
 }
 function safeFields(value,depth=0){
+  // Optional fields must stay absent. Treating undefined as a diagnostic value
+  // used to turn normal empty error fields into the visible text [omitted].
+  if(value===undefined)return undefined;
   if(typeof value==='string')return sanitize(value,512);
   if(value===null||typeof value==='boolean'||typeof value==='number')return value;
   if(!value||typeof value!=='object'||depth>3)return '[omitted]';
   if(Array.isArray(value))return value.slice(0,16).map(item=>safeFields(item,depth+1));
-  const fields={};for(const [key,item]of Object.entries(value).slice(0,24))fields[sanitize(key,64)]=/token|secret|password|authorization|cookie|api.?key|^env$|headers|content|base64/i.test(key)?'[redacted]':safeFields(item,depth+1);
+  const fields={};for(const [key,item]of Object.entries(value).slice(0,24)){if(item===undefined)continue;fields[sanitize(key,64)]=/token|secret|password|authorization|cookie|api.?key|^env$|headers|content|base64/i.test(key)?'[redacted]':safeFields(item,depth+1);}
   return fields;
 }
 module.exports={safeFields,HARD,SOFT,AGE,inventory,cleanup,locked,writeBudgeted,sanitize,regular};

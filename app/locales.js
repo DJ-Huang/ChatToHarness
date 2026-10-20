@@ -2,6 +2,8 @@
 // Chinese source messages, English and Japanese translations. Shared by renderer and main.
 (function(root){
   const messages = {
+  "部分工具不可用": ["Some tools are unavailable", "一部のツールを利用できません"],
+  "通道状态与工具状态分别检查；部分工具暂时不可用。": ["The channel and tools have separate health checks. Some tools are currently unavailable.", "接続とツールの状態は別々に確認されます。一部のツールは現在利用できません。"],
   "本页帮助": ["Help for this page", "この画面のヘルプ"],
   "使用文档": ["User guide", "使い方ガイド"],
   "按步骤了解连接、文件、工具和问题处理。": ["Step-by-step help for connections, files, tools and troubleshooting.", "接続、ファイル、ツール、問題解決を手順に沿って確認できます。"],
@@ -62,6 +64,9 @@
   "已中断": ["Interrupted", "中断"],
   "未知": ["Unknown", "不明"],
   "正在取消": ["Cancelling", "キャンセル中"],
+  "待补全参数": ["Needs arguments", "パラメーターの補完待ち"],
+  "待读取项目规范": ["Needs project guidance", "プロジェクト規約の確認待ち"],
+  "响应已写入本机通道": ["Response written to local channel", "応答をローカル通道に書き込み済み"],
   "本机写入成功": ["Local write succeeded", "ローカル書き込み成功"],
   "本机写入失败": ["Local write failed", "ローカル書き込み失敗"],
 
@@ -221,6 +226,7 @@
   "读取与搜索自动附带适用规范；没有 AGENTS.md 也可正常工作。写入前交付尚未读取的规范。": ["Reads and searches include applicable guidance. Projects without AGENTS.md work normally. Undelivered guidance is provided before writes.", "読み取りと検索には適用規約を添えます。AGENTS.md がなくても利用できます。書き込み前に未読の規約を渡します。"],
   "应用更新": ["App updates", "アプリの更新"],
   "检查更新": ["Check for updates", "更新を確認"],
+  "重启 {product}": ["Restart {product}", "{product} を再起動"],
   "自动检查更新": ["Automatically check for updates", "更新を自動確認"],
   "启动后检查，此后每 24 小时检查一次。发现新版本时提醒。": ["Check after launch and every 24 hours. Notify when an update is available.", "起動後と以後 24 時間ごとに確認し、新版があればお知らせします。"],
   "正在读取版本…": ["Reading version…", "バージョンを取得中…"],

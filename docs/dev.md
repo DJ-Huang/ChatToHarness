@@ -2,6 +2,8 @@
 
 ## Human-paced native pointer motion — 2026-10-21
 
+- **Key implementation commit:** e0a0f6c (real pointer trajectory, physical multi-monitor routes, source and local acceptance tests).
+
 - **Issue / branch:** [#1](https://github.com/watermoon/ChatToHarness/issues/1), feat/computer-use; no worktree. macOS is P0. The previously uncommitted Windows native pointer implementation is incorporated into this cross-platform motion fix (Windows GUI acceptance still deferred).
 - **Issue:** previously both native helpers moved a real OS pointer in no more than 32 steps, sleeping about 12ms/frame, so full-screen travel could end in <400ms and pointer Glow was difficult to follow.
 - **Both platforms now:** time-based motion using a monotonic clock and approximately 60 Hz physical OS pointer updates; quintic acceleration/deceleration; deterministic small lateral arc when safely inside a single display; duration max(240ms, 170ms + distance / 850 pixels-per-second), capped 3.6s. Examples: 100px ~0.29s, 500px ~0.76s, 1000px ~1.35s, 3000px ~3.6s. No synthetic cursor or click ring.

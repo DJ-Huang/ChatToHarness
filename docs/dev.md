@@ -2,6 +2,8 @@
 
 ## macOS Computer Use real GUI acceptance — 2026-10-21
 
+- **Key implementation/test commit:** 79c5f4c (native Mac GUI input, observation anti-replay, Esc listener real-device tests and opt-in script).
+
 - **Priority / issue / branch:** macOS Computer Use P0; GitHub Issue #1; feat/computer-use. Windows acceptance explicitly deferred and its native/ComputerUse.cs change and Windows cursor test are not modified.
 - **TCC verified on the current Mac:** Screen Recording GRANTED, Accessibility GRANTED. No Input Monitoring permission required. macOS native input session reported state=ready, input_enabled=true, stop_hotkey=Esc, with successful screenshot observation and clean session close.
 - **Disposable AppKit fixture:** tests/mac-computer-use-gui-fixture.swift (only synthetic test controls and ephemeral state in system temp). Actual 480x368 native window, geometry [200,791,680,1159] in screenshot point space. Native CGEvent mouse click on fixture incremented click count to 1; Unicode text matched "MacCU-2026-OK"; BACKSPACE removed final character; scroll delta 3 generated one scroll event; consumed observation was refused with CU_STALE_OBSERVATION; close_session passed. No business window was mutated. GUI fixture and temp data were cleaned up.

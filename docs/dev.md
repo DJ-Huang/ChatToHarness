@@ -1,5 +1,17 @@
 # Development record — Windows computer use
 
+## Computer Use MCP Servers toggle installer acceptance — 2026-10-21
+
+- **Feature commit:** `0e73f1c`; **Electron UI follow-up commit:** `1a23c18`, local branch `feat/computer-use`. Windows/macOS each selects its own helper and stores the checkbox preference per device, not per Git project.
+- **Real Electron dev UI:** `node scripts/ui-smoke.cjs --dev` PASS using an isolated configuration; the checkbox was checked and unchecked and persistence was verified without opening any real Computer Use session.
+- **Clean macOS arm64 app build:** `npm run build` PASS from `1a23c185e6666d3e4349467314d79eadde11eee7`, `dirty=false`, app version `0.7.0`. Checked `app.asar` includes `app/builtin-computer-use.cjs`, Electron renderer and main integration files; Mac native helper exists in bundled resources and the app passes deep code signature validation. Uses ad-hoc signing, no Apple notarization.
+- **Rebuilt local DMG:** `dist/ChatToHarness-0.7.0-macos-arm64.dmg`, **396774795 bytes**; `hdiutil verify` PASS. This replaces the older local DMG at the same path, not the existing /Applications application. No published GitHub Release, tag or push.
+- **Installed-app smoke:** `npm run smoke:installer` PASS, temporary DMG mount/detach and isolated installed GUI launch. New checkbox checked/unchecked in the packaged application; preferences persisted; no extra external MCP Server; existing local MCP management and language settings passed. Final report `{"platform":"darwin-arm64","version":"0.7.0","credentialMode":"isolated fixtures","installer":true,"startup":true,"uninstallRetainsData":true}`.
+- **Source checks:** `npm test` 336 total, 326 PASS / 0 FAIL / 10 SKIP. `npm run test:computer-use-mac` PASS. Windows platform selection and cancellation were tested in simulations, but not on a live Windows desktop.
+- **Operational note:** The current installed `0.7.0` app still runs the older binary until manually replaced/restarted. The user must reopen the MCP Servers page after installing this updated local 0.7.0 package. A ChatGPT client may require tool list refresh to see the new built-in `computer_use`.
+- **Remaining:** Real Computer Use cursor Glow and STOP button visual inspection and macOS Command+A defect; Windows actual on-screen Computer Use acceptance. Disabling the checkbox will not bypass any local TCC/foreground/user takeover guard.
+
+
 ## Computer Use MCP Servers opt-in toggle — 2026-10-21
 
 - **Real Electron UI acceptance (latest):** `node scripts/ui-smoke.cjs --dev` PASS with an isolated test profile. It actually checked then unchecked the MCP Servers Computer Use checkbox, verified both persisted values in `preferences.json`, and confirmed no external MCP server was created. The event handler retains the clicked value during asynchronous state re-render, avoiding a momentary erroneous flip. No desktop input was injected during this test.

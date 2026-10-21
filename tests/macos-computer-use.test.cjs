@@ -20,7 +20,7 @@ async function fixture(opts = {}) {
     async request(cmd) {
       requests.push(cmd);
       if (cmd.action === 'observe') return {width: 64, height: 48,
-        geometry: [10, 20, 74, 68], png: pixels.toString('base64')};
+        geometry: [10, 20, 74, 68], displays: [{x:-1640,y:-1440,width:2560,height:1440},{x:0,y:0,width:2056,height:1329}], png: pixels.toString('base64')};
       return {foreground: true, ok: true};
     }
   };
@@ -131,4 +131,20 @@ test('staged Mac bundle exposes MCP tool with bundled Node and isolated dependen
   assert.equal(tools.tools[0].name,'computer_use');
   const state=await client.callTool({name:'computer_use',arguments:{action:'get_session'}});
   assert.equal(state.structuredContent.state,'none');
+});
+
+test('Mac drag reports Quartz coordinates, holds across observations and releases without one', async () => {
+  const {service,requests,session} = await fixture();
+  const observed = (await service.call({action:'observe',session_id:session})).structuredContent;
+  assert.equal(observed.desktop_coordinate_space,'quartz_points');
+  const down=await service.call({action:'mouse_down',session_id:session,observation_id:observed.observation_id,x:25,y:15});
+  assert.equal(down.structuredContent.mouse_button_held,true);
+  const next=(await service.call({action:'observe',session_id:session})).structuredContent;
+  const moved=await service.call({action:'mouse_drag',session_id:session,observation_id:next.observation_id,screen_x:-1200,screen_y:-800});
+  assert.equal(moved.structuredContent.mouse_button_held,true);
+  assert.deepEqual(requests.at(-1),{action:'mouse_drag',screen_x:-1200,screen_y:-800,geometry:[10,20,74,68]});
+  const up=await service.call({action:'mouse_up',session_id:session});
+  assert.equal(up.structuredContent.mouse_button_held,false);
+  assert.deepEqual(requests.at(-1),{action:'mouse_up'});
+  service.stop();
 });

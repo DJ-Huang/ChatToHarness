@@ -18,6 +18,8 @@ final class MacComputerUse: NSObject {
     private var deadline = Date.distantFuture
     private var lastImageSize = CGSize.zero
     private var lastGeometry: [Int] = []
+    private var leftHeld = false
+    private var heldSince: Date?
     private var stopPanel: NSPanel?
     private var hudTargetFrame = CGRect.zero
     private var activityField: NSTextField?
@@ -35,7 +37,11 @@ final class MacComputerUse: NSObject {
         self.ownerPID = ownerPID
         self.sessionID = sessionID
         super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(willTerminate),
+                                               name: NSApplication.willTerminateNotification, object: nil)
     }
+
+    @objc private func willTerminate() { releaseHeldMouse() }
 
     private func fail(_ code: String) -> [String: Any] { ["error": code] }
     private func emit(_ result: [String: Any]) {
@@ -117,6 +123,9 @@ final class MacComputerUse: NSObject {
                 Task { @MainActor in
                     guard let self else { return }
                     if Date() > self.deadline || kill(self.ownerPID, 0) != 0 { self.stopNow(); return }
+                    if let since = self.heldSince, Date().timeIntervalSince(since) > 30 {
+                        self.releaseHeldMouse()
+                    }
                     self.refreshOutline()
                     self.refreshStopPosition()
                 }
@@ -141,7 +150,7 @@ final class MacComputerUse: NSObject {
                     let result = await self.command(args)
                     await self.emit(result)
                 }
-                exit(0)
+                if let self { await self.stopNow() }
             }
         } catch let error as CUError {
             emit(fail(error.rawValue))
@@ -202,6 +211,10 @@ final class MacComputerUse: NSObject {
             "observe": ("正在截取窗口截图", "Capturing window"),
             "activate": ("正在激活目标窗口", "Activating target window"),
             "moving": ("正在移动鼠标", "Moving mouse pointer"),
+            "mouse_move": ("正在移动鼠标", "Moving mouse"),
+            "mouse_down": ("正在按住鼠标", "Holding mouse button"),
+            "mouse_drag": ("正在拖动窗口", "Dragging mouse"),
+            "mouse_up": ("正在松开鼠标", "Releasing mouse"),
             "click": ("正在点击鼠标", "Clicking mouse"),
             "scroll": ("正在滚动", "Scrolling"),
             "type_text": ("正在输入文字", "Typing text"),
@@ -379,6 +392,7 @@ final class MacComputerUse: NSObject {
 
     @objc private func stopPressed() { stopNow() }
     private func stopNow() {
+        releaseHeldMouse()
         watchdog?.invalidate()
         cursorTimer?.invalidate()
         cursorGlow.stop()
@@ -444,13 +458,13 @@ final class MacComputerUse: NSObject {
         lastImageSize = CGSize(width: image.width, height: image.height)
         lastGeometry = geometry(window)
         return ["width": image.width, "height": image.height,
-                "geometry": lastGeometry, "png": png.base64EncodedString()]
+                "geometry": lastGeometry, "displays": desktopDisplays(), "png": png.base64EncodedString()]
     }
 
-    private func checkUserIdle() throws {
+    private func checkUserIdle(allowHeld: Bool = false) throws {
         let flags = CGEventSource.flagsState(.combinedSessionState)
         if !flags.intersection([.maskCommand, .maskControl, .maskShift, .maskAlternate]).isEmpty ||
-           CGEventSource.buttonState(.combinedSessionState, button: .left) ||
+           (!allowHeld && CGEventSource.buttonState(.combinedSessionState, button: .left)) ||
            CGEventSource.buttonState(.combinedSessionState, button: .right) {
             throw CUError.userActive
         }
@@ -465,7 +479,8 @@ final class MacComputerUse: NSObject {
     }
 
 
-    private func checkLivePointerTarget() throws {
+    private func checkLivePointerTarget() throws { try checkLivePointerTargetDuringDrag(allowMovingWindow: false) }
+    private func checkLivePointerTargetDuringDrag(allowMovingWindow: Bool) throws {
         guard Date() <= deadline else { throw CUError.expired }
         guard CGPreflightScreenCaptureAccess() else { throw CUError.screen }
         guard AXIsProcessTrusted() else { throw CUError.accessibility }
@@ -485,14 +500,14 @@ final class MacComputerUse: NSObject {
         else { throw CUError.unavailable }
         let rect = [Int(x.doubleValue), Int(y.doubleValue),
                     Int(x.doubleValue + width.doubleValue), Int(y.doubleValue + height.doubleValue)]
-        guard rect == lastGeometry else { throw CUError.moved }
+        guard allowMovingWindow || rect == lastGeometry else { throw CUError.moved }
     }
 
     // Move the physical macOS cursor at a visibly human-paced speed.
     // A monotonic clock prevents frame rates or window checks from shortening
     // long moves; the 60 Hz target leaves enough time for the native glow.
     // Typical moves: 100pt ≈ 0.29s, 500pt ≈ 0.76s, 1000pt ≈ 1.35s.
-    private func movePointer(to destination: CGPoint) async throws {
+    private func movePointer(to destination: CGPoint, dragging: Bool = false) async throws {
         let source = CGEventSource(stateID: .combinedSessionState)
         guard let start = CGEvent(source: nil)?.location else { throw CUError.input }
         let displays = MacCursorTrajectory.activeDisplays()
@@ -513,8 +528,9 @@ final class MacComputerUse: NSObject {
 
         while true {
             try Task.checkCancellation()
-            try checkLivePointerTarget()
-            try checkUserIdle()
+            if dragging { try checkLivePointerTargetDuringDrag(allowMovingWindow: true) }
+            else { try checkLivePointerTarget() }
+            try checkUserIdle(allowHeld: dragging)
             if let physical = CGEvent(source: nil)?.location,
                !recentExpected.contains(where: {
                    hypot(physical.x - $0.x, physical.y - $0.y) <= 18
@@ -528,9 +544,15 @@ final class MacComputerUse: NSObject {
             let eased = t * t * t * (t * (t * 6 - 15) + 10)
             let next = MacCursorTrajectory.position(at: eased, along: waypoints,
                                                     display: sameDisplay)
-            guard let event = CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-                                      mouseCursorPosition: next, mouseButton: .left)
-            else { throw CUError.input }
+            let event: CGEvent?
+            if dragging {
+                event = CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged,
+                                mouseCursorPosition: next, mouseButton: .left)
+            } else {
+                event = CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
+                                mouseCursorPosition: next, mouseButton: .left)
+            }
+            guard let event else { throw CUError.input }
             event.post(tap: .cghidEventTap)
             recentExpected.append(next)
             if recentExpected.count > 12 { recentExpected.removeFirst() }
@@ -563,6 +585,22 @@ final class MacComputerUse: NSObject {
         guard let event = CGEvent(mouseEventSource: nil, mouseType: type,
                                   mouseCursorPosition: position, mouseButton: button) else { throw CUError.input }
         event.post(tap: .cghidEventTap)
+    }
+
+    private func releaseHeldMouse() {
+        guard leftHeld else { return }
+        // Always attempt release, including STOP, timeout and failed drag.
+        let here = CGEvent(source: nil)?.location ?? CGPoint.zero
+        try? mouse(.leftMouseUp, at: here, button: .left)
+        leftHeld = false
+        heldSince = nil
+    }
+
+    private func desktopDisplays() -> [[String: Int]] {
+        MacCursorTrajectory.activeDisplays().map { rect in
+            ["x": Int(rect.minX), "y": Int(rect.minY),
+             "width": Int(rect.width), "height": Int(rect.height)]
+        }
     }
 
     private func key(_ code: CGKeyCode, flags: CGEventFlags = []) throws {
@@ -626,6 +664,16 @@ final class MacComputerUse: NSObject {
             guard let action = args["action"] as? String else { throw CUError.invalid }
             updateHUD(action)
             defer { updateHUD("idle") }
+            // Release must work even if dragging changed the target geometry or focus.
+            if action == "mouse_up" {
+                guard leftHeld else { throw CUError.notHeld }
+                releaseHeldMouse()
+                lastImageSize = .zero
+                lastGeometry = []
+                return ["ok": true]
+            }
+            if leftHeld && action != "observe" && action != "mouse_drag" { throw CUError.buttonHeld }
+            if action == "mouse_drag" && !leftHeld { throw CUError.notHeld }
             let window = try await currentWindow(requireForeground: action != "observe" && action != "activate")
             if action == "observe" { return try await screenshot(window) }
             if let reason = inputBlockedReason { return fail(reason) }
@@ -637,9 +685,9 @@ final class MacComputerUse: NSObject {
             guard let expected = args["geometry"] as? [Int], expected.count == 4,
                   expected == geometry(window), expected == lastGeometry,
                   lastImageSize.width > 0 else { throw CUError.moved }
-            try checkUserIdle()
+            try checkUserIdle(allowHeld: action == "mouse_drag")
             switch action {
-            case "click", "scroll":
+            case "click", "scroll", "mouse_move", "mouse_down":
                 let position = try point(args, window: window)
                 updateHUD("moving")
                 try await movePointer(to: position)
@@ -647,16 +695,26 @@ final class MacComputerUse: NSObject {
                 let latest = try await currentWindow(requireForeground: true)
                 guard geometry(latest) == expected else { throw CUError.moved }
                 guard !isOccluded(at: position) else { throw CUError.occluded }
-                if action == "click" {
+                if action == "mouse_down" {
+                    try mouse(.leftMouseDown, at: position, button: .left)
+                    leftHeld = true
+                    heldSince = Date()
+                } else if action == "click" {
                     let right = (args["button"] as? String) == "right"
                     try mouse(right ? .rightMouseDown : .leftMouseDown, at: position, button: right ? .right : .left)
                     try mouse(right ? .rightMouseUp : .leftMouseUp, at: position, button: right ? .right : .left)
-                } else {
+                } else if action == "scroll" {
                     guard let delta = args["delta"] as? Int, delta != 0, abs(delta) <= 10,
                           let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
                                               wheel1: Int32(delta), wheel2: 0, wheel3: 0) else { throw CUError.invalid }
                     event.post(tap: .cghidEventTap)
                 }
+            case "mouse_drag":
+                guard let sx = args["screen_x"] as? Int, let sy = args["screen_y"] as? Int else { throw CUError.invalid }
+                let destination = CGPoint(x: sx, y: sy)
+                guard MacCursorTrajectory.activeDisplays().contains(where: { $0.contains(destination) }) else { throw CUError.outsideDisplay }
+                try await movePointer(to: destination, dragging: true)
+                heldSince = Date()
             case "type_text":
                 guard let text = args["text"] as? String else { throw CUError.invalid }
                 try typeText(text)
@@ -668,8 +726,13 @@ final class MacComputerUse: NSObject {
             lastImageSize = .zero
             lastGeometry = []
             return ["ok": true]
-        } catch let error as CUError { return fail(error.rawValue) }
-        catch { return fail("CU_NATIVE_ERROR") }
+        } catch let error as CUError {
+            releaseHeldMouse()
+            return fail(error.rawValue)
+        } catch {
+            releaseHeldMouse()
+            return fail("CU_NATIVE_ERROR")
+        }
     }
 
     enum CUError: String, Error {
@@ -689,6 +752,9 @@ final class MacComputerUse: NSObject {
         case input = "CU_INPUT_FAILED"
         case occluded = "CU_TARGET_OCCLUDED"
         case activation = "CU_ACTIVATION_FAILED"
+        case notHeld = "CU_MOUSE_NOT_HELD"
+        case buttonHeld = "CU_MOUSE_BUTTON_HELD"
+        case outsideDisplay = "CU_COORDINATE_OUTSIDE_DISPLAY"
     }
 }
 

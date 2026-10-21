@@ -73,6 +73,14 @@ class ComputerUse {
     static StopWindow Stop;
     static readonly DateTime Deadline = DateTime.UtcNow.AddMinutes(10);
     static volatile bool Closed;
+    static bool LeftHeld;
+    static DateTime HeldSince;
+    static void ReleaseHeldMouse() {
+        if (!LeftHeld) return;
+        // Release without foreground/geometry checks: STOP and errors must always work.
+        SendInput(1, new[] { new INPUT { data = new UNION { mouse = new MOUSEINPUT { dwFlags = 4u } } } }, Marshal.SizeOf(typeof(INPUT)));
+        LeftHeld = false;
+    }
     static void Error(string code) { throw new InvalidOperationException(code); }
     static void Write(object data) { Console.WriteLine(Json.Serialize(data)); Console.Out.Flush(); }
     class WindowItem {
@@ -319,6 +327,7 @@ class ComputerUse {
         protected override void WndProc(ref Message message) { if (message.Msg == 0x312) { Close(); return; } base.WndProc(ref message); }
         protected override void OnFormClosed(FormClosedEventArgs e) {
             ComputerUse.Closed = true;
+            ComputerUse.ReleaseHeldMouse();
             if (Outline != null) { Outline.Close(); Outline.Dispose(); Outline = null; }
             if (CursorHighlight != null) { CursorHighlight.Close(); CursorHighlight.Dispose(); CursorHighlight = null; }
             UnregisterHotKey(Handle, 1);
@@ -393,10 +402,10 @@ class ComputerUse {
         return new { foreground = true };
     }
     static int Number(Dictionary<string, object> args, string name) { return Convert.ToInt32(args[name]); }
-    static void Inject(INPUT[] inputs) {
+    static void Inject(INPUT[] inputs, bool allowHeld = false) {
         Check(true);
         // Do not merge automation with a user's held modifiers or mouse buttons.
-        foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 }) if ((GetAsyncKeyState(key) & 0x8000) != 0) Error("CU_USER_INPUT_ACTIVE");
+        foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 }) if ((key != 1 || !allowHeld) && (GetAsyncKeyState(key) & 0x8000) != 0) Error("CU_USER_INPUT_ACTIVE");
         if (SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT))) != inputs.Length) {
             // Release only the keys introduced by this batch if Windows accepted a prefix.
             var release = new List<INPUT>();
@@ -444,7 +453,12 @@ class ComputerUse {
                 if (stream.Length > 40 * 1024 * 1024) Error("CU_CAPTURE_TOO_LARGE");
                 RECT after = Check(false);
                 if (after.Left != r.Left || after.Top != r.Top || after.Right != r.Right || after.Bottom != r.Bottom) Error("CU_WINDOW_MOVED");
-                return new { width = bitmap.Width, height = bitmap.Height, geometry = new int[] {r.Left, r.Top, r.Right, r.Bottom}, png = Convert.ToBase64String(stream.ToArray()) };
+                var displays = new List<object>();
+                foreach (var screen in Screen.AllScreens)
+                    displays.Add(new { x = screen.Bounds.Left, y = screen.Bounds.Top,
+                                       width = screen.Bounds.Width, height = screen.Bounds.Height });
+                return new { width = bitmap.Width, height = bitmap.Height, geometry = new int[] {r.Left, r.Top, r.Right, r.Bottom},
+                             displays = displays, png = Convert.ToBase64String(stream.ToArray()) };
             }
         }
     }
@@ -564,7 +578,8 @@ class ComputerUse {
 
     // Human-paced motion of the REAL OS pointer. A monotonic clock (not a
     // fixed 32-frame cap) sets duration; 60 Hz gives the glow time to follow.
-    static void MoveCursorVisible(Point destination) {
+    static void MoveCursorVisible(Point destination) { MoveCursorVisibleDuringDrag(destination, false); }
+    static void MoveCursorVisibleDuringDrag(Point destination, bool dragging) {
         POINT origin;
         if (!GetCursorPos(out origin)) Error("CU_INPUT_FAILED");
         Rectangle? sameScreen;
@@ -577,7 +592,7 @@ class ComputerUse {
             Check(true);
             if (Closed) Error("CU_SESSION_CLOSED");
             foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 })
-                if ((GetAsyncKeyState(key) & 0x8000) != 0) Error("CU_USER_INPUT_ACTIVE");
+                if ((key != 1 || !dragging) && (GetAsyncKeyState(key) & 0x8000) != 0) Error("CU_USER_INPUT_ACTIVE");
             POINT current;
             if (!GetCursorPos(out current)) Error("CU_INPUT_FAILED");
             if (Math.Abs(current.X - lastX) > 6 || Math.Abs(current.Y - lastY) > 6)
@@ -595,22 +610,41 @@ class ComputerUse {
     }
     static object Execute(Dictionary<string, object> args) {
         string action = (string)args["action"];
+        if (action == "mouse_up") {
+            if (!LeftHeld) Error("CU_MOUSE_NOT_HELD");
+            ReleaseHeldMouse();
+            return new { ok = true };
+        }
+        if (LeftHeld && action != "mouse_drag" && action != "observe") Error("CU_MOUSE_BUTTON_HELD");
+        if (action == "mouse_drag" && !LeftHeld) Error("CU_MOUSE_NOT_HELD");
         if (action == "activate") return ActivateTarget();
         RECT rect = Check(action != "observe");
         if (action == "observe") return Capture(rect);
         var geometry = args["geometry"] as ArrayList;
         if (geometry == null || geometry.Count != 4 || Convert.ToInt32(geometry[0]) != rect.Left || Convert.ToInt32(geometry[1]) != rect.Top || Convert.ToInt32(geometry[2]) != rect.Right || Convert.ToInt32(geometry[3]) != rect.Bottom) Error("CU_WINDOW_MOVED");
-        if (action == "click" || action == "scroll") {
+        if (action == "mouse_drag") {
+            int x = Number(args, "screen_x"), y = Number(args, "screen_y");
+            var destination = new Point(x, y);
+            bool within = false;
+            foreach (var screen in Screen.AllScreens) if (screen.Bounds.Contains(destination)) within = true;
+            if (!within) Error("CU_COORDINATE_OUTSIDE_DISPLAY");
+            MoveCursorVisibleDuringDrag(destination, true);
+            HeldSince = DateTime.UtcNow;
+        } else if (action == "click" || action == "scroll" || action == "mouse_move" || action == "mouse_down") {
             int x = Number(args, "x"), y = Number(args, "y");
             if (x < 0 || y < 0 || x >= rect.Right - rect.Left || y >= rect.Bottom - rect.Top) Error("CU_COORDINATE_OUTSIDE_WINDOW");
             var point = new Point(rect.Left + x, rect.Top + y);
             if (GetAncestor(WindowFromPoint(point), 2) != Target) Error("CU_TARGET_OCCLUDED");
             MoveCursorVisible(point);
             if (GetAncestor(WindowFromPoint(point), 2) != Target) Error("CU_TARGET_OCCLUDED");
-            if (action == "click") {
+            if (action == "mouse_down") {
+                Inject(new INPUT[] { new INPUT { data = new UNION { mouse = new MOUSEINPUT { dwFlags = 2u } } } });
+                LeftHeld = true;
+                HeldSince = DateTime.UtcNow;
+            } else if (action == "click") {
                 bool right = args.ContainsKey("button") && (string)args["button"] == "right";
                 Inject(new INPUT[] { new INPUT { data = new UNION { mouse = new MOUSEINPUT { dwFlags = right ? 8u : 2u } } }, new INPUT { data = new UNION { mouse = new MOUSEINPUT { dwFlags = right ? 16u : 4u } } } });
-            } else {
+            } else if (action == "scroll") {
                 int delta = Number(args, "delta"); if (delta == 0 || Math.Abs(delta) > 10) Error("CU_INVALID_ARGUMENT");
                 Inject(new INPUT[] { new INPUT { data = new UNION { mouse = new MOUSEINPUT { dwFlags = 0x800, mouseData = unchecked((uint)(delta * 120)) } } } });
             }
@@ -638,9 +672,12 @@ class ComputerUse {
                     if (line.Length > 20000) Error("CU_INVALID_ARGUMENT");
                     var args = Json.Deserialize<Dictionary<string, object>>(line);
                     Write(Execute(args));
-                } catch (Exception e) { Write(new { error = e.Message.StartsWith("CU_") ? e.Message : "CU_NATIVE_ERROR" }); }
+                } catch (Exception e) {
+                    ReleaseHeldMouse();
+                    Write(new { error = e.Message.StartsWith("CU_") ? e.Message : "CU_NATIVE_ERROR" });
+                }
             }
-        } finally { Environment.Exit(0); }
+        } finally { ReleaseHeldMouse(); Environment.Exit(0); }
     }
     [STAThread] static void Main(string[] args) {
         Console.InputEncoding = new UTF8Encoding(false); Console.OutputEncoding = new UTF8Encoding(false);
@@ -674,6 +711,7 @@ class ComputerUse {
             var timer = new System.Windows.Forms.Timer { Interval = 40 };
             timer.Tick += delegate {
                 if (DateTime.UtcNow > Deadline || !IsWindow(Target)) { Stop.Close(); return; }
+                if (LeftHeld && (DateTime.UtcNow - HeldSince).TotalSeconds > 30) ReleaseHeldMouse();
                 if (Stop.Outline != null) Stop.Outline.FollowTarget();
                 if (Stop.CursorHighlight != null) Stop.CursorHighlight.FollowRealCursor();
             }; timer.Start();

@@ -129,3 +129,7 @@ The latter two commands run the namespaced `windows-computer__computer_use` thro
 The native acceptance command opens only its own disposable test window. Exit 0 means the listed native checks passed; exit 2 means foreground access was denied, so input acceptance could not run. This is not equivalent to a full desktop pass.
 
 The tests cover validation, sessions, native image results, stale coordinates/observations, concurrency, cancellation, no replay, consent refusal and the real stdio MCP endpoint. Native helper compilation is separate. Real-window acceptance must verify capture, Chinese input, mouse/keyboard/scroll, focus/geometry rejection, local consent, emergency stop and owner exit using a dedicated test window before relying on a specific application. Mock-backed tests are not desktop acceptance evidence.
+
+## Mouse movement and cross-display dragging
+
+`mouse_move` and `mouse_down` take `session_id`, a fresh `observation_id`, and window screenshot `x/y`. Only left-button hold is supported. `mouse_drag` requires an active hold and another fresh observation, then takes global virtual-desktop `screen_x/screen_y`. `mouse_up` releases the held button using `session_id` even after window movement. Every move/drag follows physical pointer routes between connected displays. Esc, STOP, errors, disconnect or idle timeout release the button; a stale observation must be replaced rather than replayed.

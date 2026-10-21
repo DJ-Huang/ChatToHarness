@@ -6,7 +6,7 @@ const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAGQAAABQCAIAAABga0e4AAAACXBIWXMAAAPoAAAD6AG
 function fixture(options = {}) {
   const commands = [];
   const native = {ready: Promise.resolve({ready: true}), closed: false, stop() { this.closed = true; },
-    async request(args) { commands.push(args); return args.action === 'observe' ? {width: 100, height: 80, geometry: [10, 20, 110, 100], png: PNG} : {ok: true, foreground: true}; }};
+    async request(args) { commands.push(args); return args.action === 'observe' ? {width: 100, height: 80, geometry: [10, 20, 110, 100], displays: [{x:-1920,y:0,width:1920,height:1080},{x:0,y:0,width:2560,height:1440}], png: PNG} : {ok: true, foreground: true}; }};
   const service = new WindowsComputerUse({platform: 'win32', authorizationMode: 'per_window', connect: () => native, ...options});
   return {service, native, commands};
 }
@@ -269,4 +269,60 @@ test('computer use stdio MCP discovers tool without opening native UI', {skip: p
   assert.equal(status.structuredContent.state, 'none');
   const invalid = await client.callTool({name: 'computer_use', arguments: {action: 'eval'}});
   assert.equal(invalid.isError, true);
+});
+
+test('Windows mouse actions preserve screen coordinates, transitions and fresh observations', async () => {
+  const {service, commands} = fixture(); const id = await open(service);
+  for (const action of ['mouse_move', 'mouse_down', 'mouse_drag', 'mouse_up'])
+    assert.ok(definition.inputSchema.properties.action.enum.includes(action));
+  const first = await service.call({action:'observe',session_id:id});
+  assert.deepEqual(first.structuredContent.desktop_displays[0], {x:-1920,y:0,width:1920,height:1080});
+  assert.equal(first.structuredContent.desktop_coordinate_space,'virtual_screen_pixels');
+  const move = await service.call({action:'mouse_move',session_id:id,observation_id:first.structuredContent.observation_id,x:12,y:8});
+  assert.equal(move.structuredContent.mouse_button_held,false);
+  const second = await observe(service,id);
+  const down = await service.call({action:'mouse_down',session_id:id,observation_id:second,x:12,y:8});
+  assert.equal(down.structuredContent.mouse_button_held,true);
+  assert.equal((await service.call({action:'get_session',session_id:id})).structuredContent.mouse_button_held,true);
+  assert.equal((await service.call({action:'click',session_id:id,observation_id:second,x:12,y:8})).structuredContent.code,'CU_MOUSE_BUTTON_HELD');
+  const third = await observe(service,id);
+  assert.equal((await service.call({action:'mouse_drag',session_id:id,observation_id:third,screen_x:-1921,screen_y:200})).structuredContent.code,'CU_COORDINATE_OUTSIDE_DISPLAY');
+  const fourth = await observe(service,id);
+  const drag = await service.call({action:'mouse_drag',session_id:id,observation_id:fourth,screen_x:-900,screen_y:150});
+  assert.equal(drag.structuredContent.mouse_button_held,true);
+  assert.equal(commands.at(-1).screen_x,-900);
+  assert.deepEqual(commands.at(-1).geometry,[10,20,110,100]);
+  assert.equal((await service.call({action:'mouse_drag',session_id:id,observation_id:fourth,screen_x:100,screen_y:100})).structuredContent.code,'CU_STALE_OBSERVATION');
+  const release = await service.call({action:'mouse_up',session_id:id});
+  assert.equal(release.structuredContent.mouse_button_held,false);
+  assert.equal(commands.at(-1).action,'mouse_up');
+  assert.equal(commands.at(-1).geometry,undefined);
+  assert.equal((await service.call({action:'mouse_up',session_id:id})).structuredContent.code,'CU_MOUSE_NOT_HELD');
+  service.stop();
+});
+
+test('Mouse drag cannot start without mouse_down and failure releases session', async () => {
+  const {service,native} = fixture();const id = await open(service);
+  const obs = await observe(service,id);
+  assert.equal((await service.call({action:'mouse_drag',session_id:id,observation_id:obs,screen_x:0,screen_y:0})).structuredContent.code,'CU_MOUSE_NOT_HELD');
+  const down = await service.call({action:'mouse_down',session_id:id,observation_id:obs,x:4,y:5});
+  assert.equal(down.structuredContent.mouse_button_held,true);
+  native.request = async () => {throw Object.assign(new Error('input failed'),{code:'CU_INPUT_FAILED'});};
+  const obsResult = await service.call({action:'observe',session_id:id});
+  assert.equal(obsResult.structuredContent.code,'CU_INPUT_FAILED');
+  assert.equal(service.session !== null,true); // Observe failure must not silently clear a held state.
+  const result = await service.call({action:'mouse_up',session_id:id});
+  assert.equal(result.isError,true);
+  assert.equal(native.closed,true);
+  assert.equal(service.session,null);
+});
+
+test('Invalid desktop mouse coordinates and extra fields fail closed', () => {
+  for (const value of [
+    {action:'mouse_move',session_id:'s',observation_id:'o',x:-1,y:0},
+    {action:'mouse_down',session_id:'s',observation_id:'o',x:0,y:0,button:'right'},
+    {action:'mouse_drag',session_id:'s',observation_id:'o',screen_x:1,screen_y:32768},
+    {action:'mouse_drag',session_id:'s',observation_id:'o',screen_x:1},
+    {action:'mouse_up',session_id:'s',x:1}
+  ]) assert.throws(()=>validate(value),/CU_INVALID_ARGUMENT/);
 });

@@ -1,5 +1,16 @@
 # Development record — Windows computer use
 
+## macOS 0.7.0 local installer completed — 2026-10-21
+
+- **Version / branch / built Commit:** `0.7.0` on `feat/computer-use`; verified packaged build identity `15e0802613b1c951c8ba2954116adc059128c52e` with `dirty=false`. `package.json` and both lockfile versions match. Release notes `release-notes/v0.7.0.md`.
+- **Tests:** `npm test`: 329 total, **320 PASS / 0 FAIL / 9 SKIP**, `node scripts/release.cjs check`: PASS. Never created a tag or GitHub Release.
+- **App build:** `npm run build` completed successfully; `dist/mac-arm64/ChatToHarness.app` carries version `0.7.0`, native Mac Computer Use helper and supporting MCP resources. `codesign --verify --deep --strict` passed; signature is **ad-hoc**, not an Apple Developer ID, and **not notarized**.
+- **DMG:** locally staged the signed application and /Applications shortcut, created `dist/ChatToHarness-0.7.0-macos-arm64.dmg` with `hdiutil create -format UDZO`; `hdiutil verify` passed. Size **387022786 bytes**. SHA-256 computed via `shasum -a 256` in the local build task; the checksum was not added to a published Release.
+- **Isolated installer acceptance:** `npm run smoke:installer` completed **exit 0**. Mounted DMG, installed into a temporary directory, detached image, launched app through GUI smoke (zh-CN/en/ja, MCP management, update checks, settings persistence etc.). Report: `{"platform":"darwin-arm64","version":"0.7.0","credentialMode":"isolated fixtures","installer":true,"startup":true,"uninstallRetainsData":true}`.
+- **Deployment:** Did **not** replace currently running ChatToHarness in /Applications; no Git push, tag, notarization, or public GitHub Release.
+- **Open acceptance:** macOS Computer Use modifier shortcuts (Command+A), physical STOP button, cursor Glow appearance, and display-specific real input acceptance remain pending; do not claim they were verified by installer smoke.
+
+
 ## macOS 0.7.0 local installer — 2026-10-21
 
 - **User request:** replace the previous local `0.7.0-beta` target with exact stable SemVer `0.7.0` for macOS arm64. Do not publish or create Git tag; work on `feat/computer-use`.

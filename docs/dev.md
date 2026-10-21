@@ -1,5 +1,16 @@
 # Development record — Windows computer use
 
+## macOS 0.7.0 local installer — 2026-10-21
+
+- **User request:** replace the previous local `0.7.0-beta` target with exact stable SemVer `0.7.0` for macOS arm64. Do not publish or create Git tag; work on `feat/computer-use`.
+- **Version:** `npm version 0.7.0 --no-git-tag-version --ignore-scripts`, `package.json` and both lockfile version fields agree; `node scripts/release.cjs check` passed.
+- **Build path:** Electron/electron-builder prepares the macOS `.app`; if DMG builder times out, use a macOS native `hdiutil create -format UDZO` staging the verified app plus Applications symlink. Always verify the DMG and installed app separately.
+- **Existing Computer Use acceptance limitations:** macOS modifier shortcuts, GUI STOP, cursor Glow visual inspection and multi-display end-to-end still incomplete; preserve these warnings despite stable version number.
+- **Tests:** `npm test` on macOS completed: 329 total, **320 PASS / 0 FAIL / 9 SKIP**; version check PASS.
+- **Next:** commit clean versioned source, rebuild signed app, create 0.7.0 DMG, run installer smoke and capture SHA-256/size/version/build commit. No GitHub publishing.
+
+
+
 ## macOS 0.7.0-beta installer candidate — 2026-10-21
 
 - **Issue:** #1 (Computer Use), **branch:** `feat/computer-use`. User requested a **local macOS arm64 DMG** with exact app version `0.7.0-beta`; this is not a public GitHub Release, and no version tag or push is authorized.

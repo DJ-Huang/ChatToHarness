@@ -1,5 +1,14 @@
 # Development record — Windows computer use
 
+## Mac Computer Use session indicator — 2026-10-21
+
+- **Work item:** [ChatToHarness #1](https://github.com/watermoon/ChatToHarness/issues/1), branch `feat/computer-use`. The requested native Computer Use indicator is now a **530 × 108 pt, translucent NSVisualEffectView panel** with high-contrast cyan 3 pt border, a red **STOP · Esc** button, and a bright activity line. It is placed at the **top-center of the display containing the authorized window**, respecting the menu bar via `visibleFrame`, rather than the previous bottom-corner 320 × 52 pt button. It follows target-window screen moves without weakening input's screenshot-geometry checks.
+- **Session identity:** `BaseComputerUse.open_session` creates the UUID first, passes that same identifier to the macOS native helper via a **new, optional fifth CLI argument**, and displays the actual full MCP Session ID on the HUD. Native CLI still accepts the original four-argument invocation for standalone backward compatibility. Windows native command arguments are unchanged.
+- **Live action indicator:** native Swift updates status on `observe` (window screenshot), `activate` (focus window), `type_text`, `key_press`, `click` and `scroll`. For click/scroll the UI first reports **moving pointer**, then reports click or scroll after pointer motion finishes; restores **waiting for next action** when the request finishes. Chinese and English labels track local OS language. The indicator never exposes typed text, key names or screenshot bytes.
+- **Safety:** Existing Esc event tap and physical STOP callback still terminate the entire helper. Overlay is not a simulated cursor and has a real user-facing STOP button; window identity, foreground, fresh screenshot observation and explicit OS permissions remain mandatory. `activate` is not renamed to `move window` because no window-reposition API exists.
+- **Verification:** native Swift compiled successfully with `swiftc`; dedicated `tests/mac-computer-use-indicator.test.cjs` and Mac native/controller tests passed. `npm run build:computer-use` PASS, macOS own-window real screenshot/glow test 2/2 PASS. `npm test` PASS: **356 total / 347 pass / 0 fail / 9 skip**. Native HUD visual placement and STOP click still require real desktop acceptance; cannot be claimed solely from compilation.
+
+
 ## Computer Use base + permission installer verified — 2026-10-21
 
 - **Branch / source commit:** `feat/computer-use`, `ac9779388bf9d890be47ff7e6a6f75a563df8ed2`. Includes `BaseComputerUse`, OS-specific native adapter selection and packaging exclusions, read-only permission preflight and explicit user-initiated grant prompt, and permission loss notification that stops sessions.

@@ -56,8 +56,13 @@ function validate(args) {
   return args;
 }
 class NativeConnection {
-  constructor(executable, {operation, mode = 'all_windows', window_id} = {}) {
-    this.child = spawn(executable, [String(process.pid), operation === 'list_windows' ? 'list_windows' : mode, window_id || '0'], {windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'ignore'], env: Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(SystemRoot|WINDIR|TEMP|TMP|USERPROFILE|HOME|TMPDIR|USER|LOGNAME|LANG)$/i.test(k)))});
+  constructor(executable, {operation, mode = 'all_windows', window_id, session_id} = {}) {
+    const nativeArguments=[String(process.pid), operation === 'list_windows' ? 'list_windows' : mode, window_id || '0'];
+    // The native macOS HUD shows the actual MCP session, never a fabricated ID.
+    // Windows native CLI retains its original strict three-argument contract.
+    if (process.platform === 'darwin' && session_id && operation !== 'list_windows')
+      nativeArguments.push(session_id);
+    this.child = spawn(executable, nativeArguments, {windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'ignore'], env: Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(SystemRoot|WINDIR|TEMP|TMP|USERPROFILE|HOME|TMPDIR|USER|LOGNAME|LANG)$/i.test(k)))});
     this.pending = null;
     this.ready = new Promise((resolve, reject) => { this.initial = {resolve, reject}; });
     this.lines = createInterface({input: this.child.stdout});
@@ -130,7 +135,8 @@ class BaseComputerUse {
       if (args.window_id && args.window_id !== this.session.windowId) throw fail('CU_SESSION_TARGET_MISMATCH');
       return this.result({...this.status(), reused: true});
     }
-    const s = {id: crypto.randomUUID(), native: this.connect({mode:this.authorizationMode,window_id:args.window_id}), windowId:args.window_id,
+    const sessionID=crypto.randomUUID();
+    const s = {id: sessionID, native: this.connect({mode:this.authorizationMode,window_id:args.window_id,session_id:sessionID}), windowId:args.window_id,
       state: this.authorizationMode === 'per_window' ? 'awaiting_consent' : 'initializing', expiresAt: Date.now() + 600000};
     this.session = s;
     s.consentTimer = setTimeout(() => this.stop(this.authorizationMode === 'per_window' ? 'CU_CONSENT_TIMEOUT' : 'CU_SESSION_START_TIMEOUT', s), this.timeoutMs);

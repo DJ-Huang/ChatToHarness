@@ -1,5 +1,13 @@
 # macOS Computer Use — execution plan and evidence
 
+## Top-center native session HUD — 2026-10-21
+
+- Replace the old bottom-corner `NSPanel` STOP button with a **top-center** (authorized target monitor) high-contrast translucent native HUD, retaining the always-available red STOP / global Esc. Frame selection uses each macOS display's `visibleFrame`, including menu-bar clearance, and tracks changes in the target window's physical display separately from any screenshot observation geometry.
+- The HUD shows the **actual full MCP Computer Use session UUID**, never a fabricated identifier. The native helper supports an optional fifth CLI argument for this UUID; four-argument legacy calls still work. Windows helper CLI remains unchanged.
+- Status is updated inside the native operation path (screenshot, activate window, move mouse, click, scroll, type, key press); the status returns to idle when each command finishes. Display no typed text, key content or screenshot imagery in the HUD.
+- **Acceptance remaining:** Real TCC-granted live HUD screenshot and user STOP click, full-screen, multi-display geometry and language visual acceptance. Source-level compile and automated contract tests do not imply those visual tests have passed.
+
+
 ## BaseComputerUse and permission prompt acceptance — 2026-10-21
 
 - `MacComputerUse extends BaseComputerUse` and no longer imports or extends Windows code. Packaged macOS app contains base, image codec, Mac adapter and the Swift helper, but no Windows native executable or Windows-only JS adapters.

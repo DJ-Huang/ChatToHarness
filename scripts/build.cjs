@@ -51,7 +51,7 @@ function verifyResources(resources, options = {}) {
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) throw new Error(`应用缺少运行组件：${relative}`);
     // macOS code signing changes Mach-O bytes. After packaging, codesign verifies
     // those binaries; exact archive-derived digests are checked before packaging.
-    const signedMachO = options.packaged && process.platform === 'darwin' && /^(node\/bin\/node|tunnel\/tunnel-client-runtime)$/.test(relative);
+    const signedMachO = options.packaged && process.platform === 'darwin' && /^(node\/bin\/node|tunnel\/tunnel-client-runtime|computer-use\/ChatToHarness\.MacComputerUse)$/.test(relative);
     const signedPE = options.packaged && options.signed && process.platform === 'win32' && /\.exe$/i.test(relative);
     if (!signedMachO && !signedPE && sha(file) !== expected) throw new Error(`运行组件校验失败：${relative}`);
   }

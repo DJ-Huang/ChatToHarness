@@ -95,6 +95,36 @@ test('resource verification rejects payload changes and mismatched native platfo
   } finally { fs.rmSync(folder, { recursive: true, force: true }); }
 });
 
+test('Mac signed native Computer Use helper is hash-checked before packaging', {skip: process.platform !== 'darwin'}, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-mac-signature-receipt-'));
+  try {
+    const pin = versions.forPlatform();
+    const files = {};
+    for (const name of ['node/' + pin.node.binary, 'tunnel/' + pin.tunnel.binary,
+      'node/' + pin.node.npm,
+      'desktop-commander/node_modules/@wonderwhy-er/desktop-commander/dist/index.js',
+      'computer-use/ChatToHarness.MacComputerUse']) {
+      const target = path.join(root, name);
+      fs.mkdirSync(path.dirname(target), {recursive: true});
+      fs.writeFileSync(target, 'original fixture');
+      files[name] = crypto.createHash('sha256').update('original fixture').digest('hex');
+    }
+    fs.writeFileSync(path.join(root,'bundle.json'), JSON.stringify({
+      platform: process.platform + '-' + process.arch,
+      node: versions.node.version, tunnel: versions.tunnel.version,
+      desktopCommander: versions.desktopCommander.version,
+      nodeArchiveSha256: pin.node.sha256, tunnelArchiveSha256: pin.tunnel.sha256,
+      files
+    }));
+    verifyResources(root);
+    fs.writeFileSync(path.join(root,'computer-use/ChatToHarness.MacComputerUse'), 'code-signed fixture');
+    assert.throws(() => verifyResources(root), /校验失败/);
+    verifyResources(root, {packaged:true});
+    fs.writeFileSync(path.join(root,'desktop-commander/node_modules/@wonderwhy-er/desktop-commander/dist/index.js'), 'tampered');
+    assert.throws(() => verifyResources(root, {packaged:true}), /校验失败/);
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
 test('native npm receives only one PATH variable', () => {
   const environment = envWithPath(path.join(os.tmpdir(), 'node runtime'));
   assert.equal(Object.keys(environment).filter(name => name.toLowerCase() === 'path').length, 1);

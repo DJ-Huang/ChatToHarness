@@ -1,5 +1,12 @@
 # Windows computer use (source preview)
 
+## Built-in MCP Servers opt-in on Windows — 2026-10-21
+
+- The same MCP Servers checkbox is scoped to this Windows installation, disabled by default. When checked, **only** `WindowsComputerUse` with the packaged `ChatToHarness.ComputerUse.exe` is eligible for app-owned MCP `computer_use` registration.
+- Never load the macOS helper on Windows or the Windows helper on macOS. Switching off immediately aborts active mouse, keyboard, screenshot and session processes and removes the tool from discovery. Connection stop also aborts sessions; a later opt-in connection starts with a clean session.
+- UI/IPC persistence, cross-platform selection and process-cancellation tests pass under synthetic Windows environments on macOS. Real Windows GUI/Glow acceptance must still be run on a Windows device.
+
+
 ## Human-visible pointer motion — 2026-10-21
 
 The native helper now uses the real Windows pointer for 60Hz, distance-scaled motion. Average pacing targets approximately 850 physical pixels/second plus 170ms start/stop allowance (0.24–3.6s total); quintic acceleration/deceleration and bounded same-screen curvature replace the old max-32-steps / 12ms motion. Cursor-shaped blue Glow continues to follow the real pointer; no extra cursor or click-location circle is introduced. Screen.AllScreens adjacency waypoints prevent routing through gaps between monitors.

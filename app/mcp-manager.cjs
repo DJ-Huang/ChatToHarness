@@ -424,6 +424,7 @@ class McpManager extends EventEmitter {
   async remove(id) {const record=this.records.get(id);if(record)await this.disconnect(record);this.settings.remove(id);this.projectGrants?.remove(id);this.records.delete(id);this.changed();}
   async stop() {
     ++this.epoch;this.running=false;
+    this.services?.stopComputerUse?.();
     await Promise.allSettled([...this.records.values()].map(record=>this.disconnect(record)));
     await this.broker?.stop();this.changed();
   }

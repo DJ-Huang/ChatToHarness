@@ -1,5 +1,18 @@
 # Development record — Windows computer use
 
+## Computer Use MCP Servers opt-in toggle — 2026-10-21
+
+- **Issue / branch:** [#1](https://github.com/watermoon/ChatToHarness/issues/1), `feat/computer-use`. User requires a checkbox on **MCP Servers**, where checked automatically registers the current OS Computer Use tool; unchecked immediately terminates control and removes the tool.
+- **UI / IPC:** `app/index.html` adds `mcp-computer-use`, `app/renderer.js` handles change with the checked value captured **before** UI refresh, `app/preload.cjs` exposes only `mcpSetComputerUse`, and `app/main.cjs` owns the permissioned IPC. No direct renderer filesystem/native helper control.
+- **Device-local persistence:** `app/preferences.cjs` uses secure atomic `preferences.json` write, `computerUseEnabled=false` default. The new field does **not** modify third-party MCP trust, policy, credential encryption or any other computer's settings. Startup reads the saved preference and exposes it on `state().mcp.computerUse`.
+- **Platform isolation:** `app/builtin-computer-use.cjs` exclusively imports `MacComputerUse` and uses `resources/computer-use/ChatToHarness.MacComputerUse` for `darwin`, or exclusively `WindowsComputerUse` and `ChatToHarness.ComputerUse.exe` for `win32`. Other platforms fail closed. The helper must exist before enabling. Native sessions are only created lazily on the first authorized tool call, not from opening the settings page.
+- **First-party tool registration:** `app/harness-services.cjs` publishes a single `computer_use` tool only when opted in and the **matching local native helper exists**. `McpManager.changed()` immediately notifies clients via `notifications/tools/list_changed`; no manual `mcpServers` import, admin trust bypass for third-party servers, duplicated platforms, or tunnel restart is needed. Client may still need to refresh its tool catalog.
+- **Disabling safety:** The Electron IPC checkbox uncheck synchronously calls `computerUse.setEnabled(false)` *before* waiting behind queued configuration actions; current native helper, outstanding inputs/screenshots and pending calls are aborted. Late replies fail closed with `CU_DISABLED` and no usable image data. `McpManager.stop()` stops control even when preference remains enabled, and connection can later restart with a fresh native controller.
+- **Permissions:** Opting in does not bypass OS Screen Recording, Accessibility, local Esc/STOP, window identity/focus/geometry, or user-takeover safeguards. Enabling permits broad desktop-window access through the existing `all_windows` mode; the UI states this explicitly.
+- **Automated verification:** `tests/computer-use-toggle.test.cjs` checks default-off, persisted on/off, macOS/Windows exclusive adapter selection, absent native helper, cancellation and stale response suppression, catalog notifications and denied disabled calls. `tests/mcp-ui.test.cjs` validates UI and restricted IPC, including the re-render race fix. macOS native `get_session` smoke check after enabling passed; full project `npm test` and `npm run test:computer-use-mac` passed.
+- **Remaining:** No changes have been installed in the running 0.7.0 app. Build and install an updated local app before the actual settings checkbox can be seen and tested visually. Windows has source/model verification only; Windows real GUI acceptance remains pending. macOS Command+A, Glow, STOP visual acceptance also remain open.
+
+
 ## macOS 0.7.0 local installer completed — 2026-10-21
 
 - **Version / branch / built Commit:** `0.7.0` on `feat/computer-use`; verified packaged build identity `15e0802613b1c951c8ba2954116adc059128c52e` with `dirty=false`. `package.json` and both lockfile versions match. Release notes `release-notes/v0.7.0.md`.

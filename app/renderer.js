@@ -323,6 +323,13 @@
     const allowAllTools = currentState?.mcp?.allowAllTools === true;
     const installing = ['downloading', 'verifying', 'installing'].includes(currentState?.updates?.phase);
     const busy = Boolean(mcpPending) || installing || !initialized;
+    const cu = currentState?.mcp?.computerUse || {};
+    byId('mcp-computer-use').checked = cu.enabled === true;
+    byId('mcp-computer-use').disabled = busy || (cu.available !== true && cu.enabled !== true);
+    byId('mcp-computer-use-state').textContent = t(cu.available !== true
+      ? '当前设备缺少 Computer Use 原生组件。'
+      : cu.enabled ? '已启用当前系统的 Computer Use；通道连接后自动提供工具。'
+      : '已关闭：ChatGPT 无法发现或执行 Computer Use。');
     byId('mcp-allow-all-tools').checked = allowAllTools;
     byId('mcp-allow-all-tools').disabled = busy;
     byId('mcp-policy-summary').textContent = t(allowAllTools
@@ -685,6 +692,11 @@
   }));
   byId('open-logs').addEventListener('click', () => perform('logs', () => api.openLogs()));
   byId('mcp-add').addEventListener('click', () => openMcpEditor());
+  byId('mcp-computer-use').addEventListener('change', event => {
+    // Capture the intended value before mcpPerform re-renders the current state.
+    const enabled=event.target.checked;
+    return mcpPerform('computer-use', () => api.mcpSetComputerUse(enabled));
+  });
   byId('mcp-allow-all-tools').addEventListener('change', event => {
     const enabled = event.target.checked;
     return mcpPerform('allow-all-tools', () => api.mcpSetAllowAllTools(enabled));

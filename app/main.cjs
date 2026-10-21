@@ -28,7 +28,7 @@ const home=storageDirectory({platform,userHome:os.homedir(),appData:process.env.
 app.setName(testMode?'ChatToHarness Acceptance '+require('node:crypto').createHash('sha256').update(home).digest('hex').slice(0,12):platform==='darwin'?'LocalHarness':product);
 app.setPath('userData',home);
 let history;
-let window,tray,trayMenu,settings,runtime,updater,mcpSettings,mcpManager,fatal='',quitting=false,installing=false,quitReady=false,queue=Promise.resolve(),actionEpoch=0;
+let window,tray,trayMenu,settings,runtime,updater,mcpSettings,mcpManager,computerUse,fatal='',quitting=false,installing=false,quitReady=false,queue=Promise.resolve(),actionEpoch=0;
 const indexURL=pathToFileURL(path.join(__dirname,'index.html')).href;
 const resources=(testMode&&process.env.LOCALHARNESS_RESOURCES)|| (app.isPackaged?process.resourcesPath:(process.env.LOCALHARNESS_RESOURCES||path.join(__dirname,'..','resources')));
 const links=Object.freeze({
@@ -63,7 +63,7 @@ function executionToLog(row){
   log('execution',{request_id:row.request_id,tool:row.tool,service:row.service,
     state:row.state,delivery:row.delivery,error_code:row.error_code||undefined});
 }
-function state(){return {settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
+function state(){return {settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:{...(mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false}),computerUse:computerUse?.status()||{enabled:false,available:false,registered:false,platform}},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
 function publish(){const value=state();if(window&&!window.isDestroyed())window.webContents.send('localharness:state',value);refreshTray();}
 function show(){if(quitting)return;if(!window||window.isDestroyed())createWindow();if(window.isMinimized())window.restore();window.show();window.focus();}
 function createWindow(){
@@ -188,6 +188,21 @@ function registerIPC(){
   bind('mcp-test-server',mcp(id=>action(()=>mcpManager.test(id))));
   bind('mcp-set-tool-policy',mcp(input=>action(()=>mcpManager.setToolPolicy(input))));
   bind('mcp-set-allow-all-tools',mcp(enabled=>action(()=>mcpManager.setAllowAllTools(enabled))));
+  bind('mcp-set-computer-use',mcp(enabled=>{
+    if(typeof enabled!=='boolean')throw new Error('MCP_INVALID_CONFIG');
+    // Disabling is safety-critical: stop native input synchronously, before
+    // waiting behind any ongoing UI action or connection operation.
+    if(!enabled){computerUse.setEnabled(false);mcpManager.changed();}
+    return action(()=>{
+      if(enabled&&!computerUse?.available)throw new Error('CU_HELPER_UNAVAILABLE');
+      if(enabled){
+        computerUse.setEnabled(true);
+        try{preferences.setComputerUseEnabled(true);}
+        catch(error){computerUse.setEnabled(false);mcpManager.changed();throw error;}
+      }else preferences.setComputerUseEnabled(false);
+      mcpManager.changed();
+    });
+  }));
   bind('mcp-preview-import',mcp(text=>mcpSettings.previewImport(text)));
   bind('mcp-commit-import',mcp(id=>action(()=>{mcpSettings.commitImport(id);mcpManager.changed();})));
   bind('mcp-export',mcp(()=>mcpSettings.export()));
@@ -234,7 +249,9 @@ else{
       const {McpGateway}=require('./mcp-gateway.cjs');
       mcpSettings=new McpSettings(home,safeStorage);
       const {HarnessServices}=require('./harness-services.cjs');
-      const services=new HarnessServices({home,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,engineEntry:runtime.paths.desktopCommander,configHome:runtime.localHome,versions,
+      const {ComputerUseSwitch}=require('./builtin-computer-use.cjs');
+      computerUse=new ComputerUseSwitch({platform,resources,enabled:preferences.computerUseEnabled});
+      const services=new HarnessServices({computerUse,home,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,engineEntry:runtime.paths.desktopCommander,configHome:runtime.localHome,versions,
         build:require('./build-identity.cjs').captureBuild({root:path.join(__dirname,'..'),resources,packaged:app.isPackaged}),
         runtime:()=>runtime.status(),catalog:()=>mcpManager?.visibleTools()||[],mcp:()=>mcpManager?.status()||{}});
       mcpManager=new McpManager({settings:mcpSettings,services,enableContent:true,enableProjectGrants:true,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,fetcher:(url,options)=>net.fetch(url,options),log,

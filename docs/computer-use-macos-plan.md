@@ -1,5 +1,13 @@
 # macOS Computer Use — execution plan and evidence
 
+## MCP Servers built-in Computer Use toggle — 2026-10-21
+
+- One MCP Servers checkbox `mcp-computer-use` controls **this device's macOS adapter only**; it never instantiates Windows native code.
+- Default is off. When enabled and bundled `ChatToHarness.MacComputerUse` is present, the app-owned MCP gateway automatically lists `computer_use` with the macOS description and native permission contract, including screenshots, cursor/keyboard input and Esc/STOP. Restart reads the persisted per-device preference.
+- Uncheck immediately hides the MCP tool and aborts the native helper and all in-flight sessions. Closing the gateway likewise releases the current session. OS TCC permissions remain mandatory.
+- Source and UI regression tests pass, including a real Mac native `get_session` call through the dynamically selected service. A freshly built/installed .app is necessary to validate the new checkbox's visual presentation; already installed 0.7.0 apps have the previous code.
+
+
 ## Human-speed motion and cross-monitor routing — 2026-10-21
 
 - Native pointer updates approximately every 16ms on a monotonic clock, with quintic accelerate/slowdown and duration 0.17s + routeLength/850 (clamped 0.24–3.6s). Windows implements equivalent timing, with separate native API calls.

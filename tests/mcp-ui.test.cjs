@@ -16,6 +16,7 @@ const methods = {
   mcpSetEnabled: 'mcp-set-enabled', mcpTrustServer: 'mcp-trust-server',
   mcpTestServer: 'mcp-test-server', mcpSetToolPolicy: 'mcp-set-tool-policy',
   mcpSetAllowAllTools: 'mcp-set-allow-all-tools',
+  mcpSetComputerUse: 'mcp-set-computer-use',
   mcpPreviewImport: 'mcp-preview-import', mcpCommitImport: 'mcp-commit-import',
   mcpExport: 'mcp-export', mcpResolveApproval: 'mcp-resolve-approval',
 };
@@ -77,7 +78,7 @@ function button(node, label) {
 }
 const initialState = () => ({
   actionEpoch: 0, settings: { tunnelId: '', keySaved: false, directories: [], autoConnect: true, autoProjectContext: true },
-  runtime: { state: 'stopped' }, system: { platform: 'darwin', locale: 'zh-CN' }, mcp: { servers: [], approvals: [] },
+  runtime: { state: 'stopped' }, system: { platform: 'darwin', locale: 'zh-CN' }, mcp: { servers: [], approvals: [], computerUse: { enabled: false, available: true, platform: 'darwin' } },
 });
 const settled = () => new Promise(resolve => setImmediate(resolve));
 async function rendererFixture(state = initialState(), overrides = {}) {
@@ -127,7 +128,7 @@ test('renderer and restricted preload agree on MCP methods and exact IPC routes'
   assert.deepEqual(referenced, Object.keys(methods).sort());
   assert.deepEqual(Object.keys(exposed).filter(name => name.startsWith('mcp')).sort(), referenced);
   for (const [method, route] of Object.entries(methods)) {
-    const args = method === 'mcpSetEnabled' ? ['server', true] : method === 'mcpSetAllowAllTools' ? [true] : method === 'mcpExport' ? [] : [{ test: method }];
+    const args = method === 'mcpSetEnabled' ? ['server', true] : ['mcpSetAllowAllTools','mcpSetComputerUse'].includes(method) ? [true] : method === 'mcpExport' ? [] : [{ test: method }];
     await exposed[method](...args);
     assert.deepEqual(calls.pop(), ['localharness:' + route, ...args]);
   }
@@ -405,4 +406,30 @@ test('log pages share a labelled group, with nested history icon and accessible 
   await f.node('nav-overview').emit('click');
   assert.equal(groupNode.dataset.active,'false');
   assert.equal(submenu.hidden,true);
+});
+
+test('MCP Computer Use checkbox toggles a persisted platform-local capability without editing MCP servers', async () => {
+  let state = initialState();
+  const updates = [];
+  const fixture = await rendererFixture(state, {
+    async mcpSetComputerUse(enabled) {
+      updates.push(enabled);
+      state = { ...state, mcp: { ...state.mcp, computerUse: { enabled, available: true, platform: 'darwin' } } };
+      return state;
+    },
+  });
+  const toggle=fixture.node('mcp-computer-use');
+  assert.equal(toggle.disabled,false);
+  assert.equal(toggle.checked,false);
+  toggle.checked=true; await toggle.emit('change');
+  assert.deepEqual(updates,[true]);
+  assert.equal(toggle.checked,true);
+  toggle.checked=false; await toggle.emit('change');
+  assert.deepEqual(updates,[true,false]);
+  assert.equal(toggle.checked,false);
+  assert.equal(state.mcp.servers.length,0,'must not add an external MCP server configuration');
+  const unavailable=initialState();
+  unavailable.mcp.computerUse.available=false;
+  const other=await rendererFixture(unavailable);
+  assert.equal(other.node('mcp-computer-use').disabled,true,'missing OS native helper must fail closed');
 });

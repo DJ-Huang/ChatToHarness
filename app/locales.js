@@ -2,6 +2,12 @@
 // Chinese source messages, English and Japanese translations. Shared by renderer and main.
 (function(root){
   const messages = {
+  "启用 Computer Use": ["Enable Computer Use", "Computer Use を有効にする"],
+  "仅注册当前操作系统的桌面控制工具（macOS / Windows），默认关闭。关闭后立即终止正在进行的控制会话并移除工具。启用后可控制当前用户的桌面窗口；仍受系统权限、前台检查及 Esc/STOP 保护。": ["Register only the desktop controller for this OS (macOS / Windows). Off by default. Disabling immediately ends control sessions and removes the tool. Enabling permits controlling desktop windows, subject to OS permissions, foreground checks and Esc/STOP.", "この OS（macOS / Windows）専用のデスクトップ操作ツールのみ登録します。初期値はオフです。無効にすると操作セッションが終了し、ツールが削除されます。有効時は OS の権限、前面ウィンドウの検査と Esc/STOP に従いデスクトップを操作できます。"],
+  "当前设备缺少 Computer Use 原生组件。": ["Computer Use native helper is not available on this device.", "この端末には Computer Use のネイティブコンポーネントがありません。"],
+  "已启用当前系统的 Computer Use；通道连接后自动提供工具。": ["Computer Use is enabled for this OS; the tool will be available when connected.", "この OS の Computer Use が有効です。接続するとツールが公開されます。"],
+  "已关闭：ChatGPT 无法发现或执行 Computer Use。": ["Disabled: ChatGPT cannot discover or invoke Computer Use.", "無効：ChatGPT は Computer Use を検出・実行できません。"],
+
   "本页帮助": ["Help for this page", "この画面のヘルプ"],
   "使用文档": ["User guide", "使い方ガイド"],
   "按步骤了解连接、文件、工具和问题处理。": ["Step-by-step help for connections, files, tools and troubleshooting.", "接続、ファイル、ツール、問題解決を手順に沿って確認できます。"],

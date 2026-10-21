@@ -41,8 +41,8 @@ function errorResult(error) {
   return {...response(value), isError: true};
 }
 class HarnessServices {
-  constructor({home, build = {}, versions = {}, runtime = () => ({}), catalog = () => [], mcp = () => ({}), nodePath = process.execPath, processHost, engineEntry, configHome} = {}) {
-    Object.assign(this, {home, build, versions, runtime, catalog, mcp, nodePath, processHost});
+  constructor({home, build = {}, versions = {}, runtime = () => ({}), catalog = () => [], mcp = () => ({}), computerUse = null, nodePath = process.execPath, processHost, engineEntry, configHome} = {}) {
+    Object.assign(this, {home, build, versions, runtime, catalog, mcp, computerUse, nodePath, processHost});
     this.edits = new SafeEdits(home);
     this.tasks = new TaskStore({home,nodePath,processHost,engineEntry,configHome});
     this.configure({directories: []});
@@ -54,13 +54,16 @@ class HarnessServices {
     this.contexts = new ProjectContexts({defaultDirectory: this.directories[0] || this.home, allowedDirectories: this.directories.length ? this.directories : [this.home]});
     this.inspector = new ProjectInspector(this.contexts);
   }
-  tools() { return [...TOOLS, ...TASK_TOOLS, ...EDIT_TOOLS]; }
+  tools() { return [...TOOLS, ...TASK_TOOLS, ...EDIT_TOOLS, ...(this.computerUse?.definition() ? [this.computerUse.definition()] : [])]; }
+  stopComputerUse() { this.computerUse?.stop(); }
+  setComputerUseEnabled(enabled) { this.computerUse?.setEnabled(enabled); }
   has(name) { return this.tools().some(tool => tool.name === name); }
   async call(name, args, options = {}) {
     try {
       if (!args || typeof args !== 'object' || Array.isArray(args)) throw fail('INVALID_ARGUMENT', 'Tool arguments must be an object.');
       options.signal?.throwIfAborted();
       if (name === 'get_harness_status') return response(this.status(args));
+      if (name === 'computer_use' && this.computerUse?.definition()) return await this.computerUse.call(args, options);
       if (!this.directories.length) throw fail('PATH_NOT_ALLOWED', 'Choose a project folder in the desktop app before using project tools.');
       if (EDIT_TOOLS.some(tool => tool.name === name)) return response(await this.edit(name,args,options));
       if (TASK_TOOLS.some(tool => tool.name === name)) return response(await this.task(name,args,options));
@@ -148,6 +151,6 @@ class HarnessServices {
     } else if (!value.has_more && offset === 0) content.push({type: 'resource', resource: {uri: pathToFileURL(file).href, mimeType: mime, ...(value.text !== undefined ? {text: value.text} : {blob: value.data})}});
     return response(value, content);
   }
-  dispose() { this.contexts.dispose(); this.inspector.dispose(); }
+  dispose() { this.computerUse?.dispose(); this.contexts.dispose(); this.inspector.dispose(); }
 }
 module.exports = {HarnessServices, DC_TOOLS, TOOLS, tool, project, pagination, readHints, response, errorResult};

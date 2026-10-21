@@ -10,12 +10,14 @@ class Preferences {
     this.file = path.join(directory, 'preferences.json');
     this.locale = normalize(systemLanguage);
     this.autoCheckUpdates = true;
+    this.computerUseEnabled = false;
     try {
       const stat = fs.lstatSync(this.file);
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024) return;
       const saved = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       if (languages.includes(saved.locale)) this.locale = saved.locale;
       if (typeof saved.autoCheckUpdates === 'boolean') this.autoCheckUpdates = saved.autoCheckUpdates;
+      if (typeof saved.computerUseEnabled === 'boolean') this.computerUseEnabled = saved.computerUseEnabled;
     } catch { /* A missing or unreadable UI preference never blocks credentials. */ }
   }
   setLocale(locale) {
@@ -28,8 +30,13 @@ class Preferences {
     this.save({ autoCheckUpdates: enabled });
     return this.autoCheckUpdates;
   }
+  setComputerUseEnabled(enabled) {
+    if (typeof enabled !== 'boolean') throw new Error('Computer Use requires a boolean setting.');
+    this.save({computerUseEnabled: enabled});
+    return this.computerUseEnabled;
+  }
   save(changes) {
-    const next = { locale: this.locale, autoCheckUpdates: this.autoCheckUpdates, ...changes };
+    const next = { locale: this.locale, autoCheckUpdates: this.autoCheckUpdates, computerUseEnabled: this.computerUseEnabled, ...changes };
     const temporary = path.join(path.dirname(this.file), `.preferences-${crypto.randomBytes(12).toString('hex')}.tmp`);
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });

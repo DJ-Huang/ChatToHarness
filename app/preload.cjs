@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('localHarness',Object.freeze({
   mcpSetEnabled:(id,enabled)=>call('mcp-set-enabled',id,enabled),mcpTrustServer:id=>call('mcp-trust-server',id),
   mcpTestServer:id=>call('mcp-test-server',id),mcpSetToolPolicy:input=>call('mcp-set-tool-policy',input),
   mcpSetAllowAllTools:enabled=>call('mcp-set-allow-all-tools',enabled),
+  mcpSetComputerUse:enabled=>call('mcp-set-computer-use',enabled),
   mcpPreviewImport:text=>call('mcp-preview-import',text),mcpCommitImport:id=>call('mcp-commit-import',id),
   mcpExport:()=>call('mcp-export'),mcpResolveApproval:input=>call('mcp-resolve-approval',input),
   onShowUpdates:listener=>{if(typeof listener!=='function')return()=>{};const handler=()=>listener();ipcRenderer.on('localharness:show-updates',handler);return()=>ipcRenderer.removeListener('localharness:show-updates',handler);},

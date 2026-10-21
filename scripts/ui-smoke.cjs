@@ -216,6 +216,25 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   assert.equal(JSON.stringify(mcpSaved).includes(mcpFixtureName), false, 'public state never returns the saved environment value');
   noPlaintextSecret();
 
+  // Native Computer Use is an app-owned, per-device opt-in rather than an
+  // imported third-party MCP server. GUI changes must survive a re-render.
+  const nativeBefore=await getState();
+  assert.equal(nativeBefore.mcp.computerUse.enabled,false);
+  const computerToggle=page.locator('#mcp-computer-use');
+  if(nativeBefore.mcp.computerUse.available){
+    await computerToggle.check();
+    await page.waitForFunction(() => document.getElementById('mcp-computer-use-state')
+      .textContent.includes('已启用当前系统'));
+    assert.equal((await getState()).mcp.computerUse.enabled,true);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(stateHome,'preferences.json'),'utf8')).computerUseEnabled,true);
+    assert.equal((await getState()).mcp.servers.length,1,'Computer Use must not create an external MCP server');
+    await computerToggle.uncheck();
+    await page.waitForFunction(() => document.getElementById('mcp-computer-use-state')
+      .textContent.includes('已关闭'));
+    assert.equal((await getState()).mcp.computerUse.enabled,false);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(stateHome,'preferences.json'),'utf8')).computerUseEnabled,false);
+  }
+
   await page.getByRole('button', { name: '测试连接', exact: true }).click();
   assert.equal(await page.locator('#mcp-trust').isVisible(), true);
   assert.ok((await page.locator('#mcp-trust-target').textContent()).includes(process.execPath));

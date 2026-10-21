@@ -2,6 +2,8 @@
 
 ## Computer Use MCP Servers opt-in toggle — 2026-10-21
 
+- **Real Electron UI acceptance (latest):** `node scripts/ui-smoke.cjs --dev` PASS with an isolated test profile. It actually checked then unchecked the MCP Servers Computer Use checkbox, verified both persisted values in `preferences.json`, and confirmed no external MCP server was created. The event handler retains the clicked value during asynchronous state re-render, avoiding a momentary erroneous flip. No desktop input was injected during this test.
+
 - **Issue / branch:** [#1](https://github.com/watermoon/ChatToHarness/issues/1), `feat/computer-use`. User requires a checkbox on **MCP Servers**, where checked automatically registers the current OS Computer Use tool; unchecked immediately terminates control and removes the tool.
 - **UI / IPC:** `app/index.html` adds `mcp-computer-use`, `app/renderer.js` handles change with the checked value captured **before** UI refresh, `app/preload.cjs` exposes only `mcpSetComputerUse`, and `app/main.cjs` owns the permissioned IPC. No direct renderer filesystem/native helper control.
 - **Device-local persistence:** `app/preferences.cjs` uses secure atomic `preferences.json` write, `computerUseEnabled=false` default. The new field does **not** modify third-party MCP trust, policy, credential encryption or any other computer's settings. Startup reads the saved preference and exposes it on `state().mcp.computerUse`.

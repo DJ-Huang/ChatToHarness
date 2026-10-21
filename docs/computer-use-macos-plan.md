@@ -2,6 +2,8 @@
 
 ## MCP Servers built-in Computer Use toggle — 2026-10-21
 
+- **Native Electron UI integration:** `node scripts/ui-smoke.cjs --dev` PASS on this Mac, checking and unchecking the new checkbox in a temporary profile, proving persistent enable/disable and no third-party server import. Pending UI state is rendered optimistically until the local IPC returns.
+
 - One MCP Servers checkbox `mcp-computer-use` controls **this device's macOS adapter only**; it never instantiates Windows native code.
 - Default is off. When enabled and bundled `ChatToHarness.MacComputerUse` is present, the app-owned MCP gateway automatically lists `computer_use` with the macOS description and native permission contract, including screenshots, cursor/keyboard input and Esc/STOP. Restart reads the persisted per-device preference.
 - Uncheck immediately hides the MCP tool and aborts the native helper and all in-flight sessions. Closing the gateway likewise releases the current session. OS TCC permissions remain mandatory.

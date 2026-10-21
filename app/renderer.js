@@ -28,6 +28,7 @@
   let updatePreferencePending = false;
   let updateError = '';
   let mcpPending = '';
+  let computerUsePendingValue = null;
   let mcpEditorId = null;
   let mcpTrustRequest = null;
   let mcpImportDraft = null;
@@ -324,7 +325,7 @@
     const installing = ['downloading', 'verifying', 'installing'].includes(currentState?.updates?.phase);
     const busy = Boolean(mcpPending) || installing || !initialized;
     const cu = currentState?.mcp?.computerUse || {};
-    byId('mcp-computer-use').checked = cu.enabled === true;
+    byId('mcp-computer-use').checked = computerUsePendingValue === null ? cu.enabled === true : computerUsePendingValue;
     byId('mcp-computer-use').disabled = busy || (cu.available !== true && cu.enabled !== true);
     byId('mcp-computer-use-state').textContent = t(cu.available !== true
       ? '当前设备缺少 Computer Use 原生组件。'
@@ -695,7 +696,9 @@
   byId('mcp-computer-use').addEventListener('change', event => {
     // Capture the intended value before mcpPerform re-renders the current state.
     const enabled=event.target.checked;
-    return mcpPerform('computer-use', () => api.mcpSetComputerUse(enabled));
+    computerUsePendingValue=enabled;
+    return mcpPerform('computer-use', () => api.mcpSetComputerUse(enabled))
+      .finally(() => { computerUsePendingValue=null; render(); });
   });
   byId('mcp-allow-all-tools').addEventListener('change', event => {
     const enabled = event.target.checked;

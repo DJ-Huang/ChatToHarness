@@ -1,5 +1,16 @@
 # Development record — Windows computer use
 
+## Human-paced native pointer motion — 2026-10-21
+
+- **Issue / branch:** [#1](https://github.com/watermoon/ChatToHarness/issues/1), feat/computer-use; no worktree. macOS is P0. The previously uncommitted Windows native pointer implementation is incorporated into this cross-platform motion fix (Windows GUI acceptance still deferred).
+- **Issue:** previously both native helpers moved a real OS pointer in no more than 32 steps, sleeping about 12ms/frame, so full-screen travel could end in <400ms and pointer Glow was difficult to follow.
+- **Both platforms now:** time-based motion using a monotonic clock and approximately 60 Hz physical OS pointer updates; quintic acceleration/deceleration; deterministic small lateral arc when safely inside a single display; duration max(240ms, 170ms + distance / 850 pixels-per-second), capped 3.6s. Examples: 100px ~0.29s, 500px ~0.76s, 1000px ~1.35s, 3000px ~3.6s. No synthetic cursor or click ring.
+- **Multi-display correctness:** macOS MacCursorTrajectory routes through shared screen boundaries rather than passing through empty display-coordinate regions. Windows Screen.AllScreens bridge routing implements the same contract. Keep target/focus/geometry/user button and modifier checks; macOS OS-event latency is accounted for by comparing cursor position against recent actually emitted points instead of exact previous frame. Out-of-route movement fails closed with CU_POINTER_OFF_PATH.
+- **Evidence:** macOS Swift native helper builds. Three-screen geometry test passes 4 layouts x 301 real-coordinate samples (1204 on-screen points). macOS default suite 13 pass / 0 fail / 2 skip (current app window not visible and negative permission scenario not applicable). Windows C# compiles with Mono's mcs and Windows source timing tests 2/2 pass. An opt-in Mac GUI acceptance run returned exit 0 with an enforced >240ms real motion duration and >=8 distinct sampled OS cursor locations; other interactive runs aborted CU_USER_INPUT_ACTIVE/CU_WINDOW_NOT_FOREGROUND because active-user and window safety guards triggered. These results do NOT establish repeatable visual acceptance.
+- **Remaining:** real Mac Glow aesthetic/visual review, repeat Mac GUI trajectory under stable foreground conditions and multiple displays, Windows actual native pointer/glow visual acceptance, modifier shortcut and STOP button, signed-app packaging. Do not claim those gates passed.
+- **Commands:** npm run test:computer-use-mac; npm run test:computer-use-mac:gui (explicit real GUI, user-local only); node --test tests/windows-cursor-motion.test.cjs; C# validation with mcs or Windows native build on Windows. User requested natural pointer trajectory; no mouse-position circle.
+
+
 ## macOS Computer Use real GUI acceptance — 2026-10-21
 
 - **Key implementation/test commit:** 79c5f4c (native Mac GUI input, observation anti-replay, Esc listener real-device tests and opt-in script).

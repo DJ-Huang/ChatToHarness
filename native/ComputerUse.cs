@@ -448,6 +448,151 @@ class ComputerUse {
             }
         }
     }
+    // A route between physical monitor rectangles avoids OS pointer clamping
+    // in the empty coordinate gaps of non-rectangular multi-monitor layouts.
+    static bool CursorScreenContains(Rectangle r, Point p) {
+        return p.X >= r.Left - 1 && p.X <= r.Right + 1 &&
+               p.Y >= r.Top - 1 && p.Y <= r.Bottom + 1;
+    }
+    static bool CursorScreenBridge(Rectangle a, Rectangle b, Point destination,
+                                   out PointF before, out PointF after) {
+        before = after = new PointF();
+        int x0 = Math.Max(a.Left, b.Left), x1 = Math.Min(a.Right, b.Right);
+        int y0 = Math.Max(a.Top, b.Top), y1 = Math.Min(a.Bottom, b.Bottom);
+        if (x1 - x0 >= 6) {
+            float x = Math.Max(x0 + 3, Math.Min(x1 - 3, destination.X));
+            if (a.Bottom == b.Top) {
+                before = new PointF(x, a.Bottom - 2); after = new PointF(x, b.Top + 2); return true;
+            }
+            if (a.Top == b.Bottom) {
+                before = new PointF(x, a.Top + 2); after = new PointF(x, b.Bottom - 2); return true;
+            }
+        }
+        if (y1 - y0 >= 6) {
+            float y = Math.Max(y0 + 3, Math.Min(y1 - 3, destination.Y));
+            if (a.Right == b.Left) {
+                before = new PointF(a.Right - 2, y); after = new PointF(b.Left + 2, y); return true;
+            }
+            if (a.Left == b.Right) {
+                before = new PointF(a.Left + 2, y); after = new PointF(b.Right - 2, y); return true;
+            }
+        }
+        if (x1 - x0 >= 6 && y1 - y0 >= 6) {
+            float x = Math.Max(x0 + 3, Math.Min(x1 - 3, destination.X));
+            float y = Math.Max(y0 + 3, Math.Min(y1 - 3, destination.Y));
+            before = after = new PointF(x, y);
+            return true;
+        }
+        return false;
+    }
+    static List<PointF> CursorScreenRoute(Point start, Point destination, out Rectangle? sameScreen) {
+        Rectangle[] screens = new List<Rectangle>(Array.ConvertAll(Screen.AllScreens, screen => screen.Bounds)).ToArray();
+        int source = -1, target = -1;
+        for (int i = 0; i < screens.Length; ++i) {
+            if (source < 0 && CursorScreenContains(screens[i], start)) source = i;
+            if (target < 0 && CursorScreenContains(screens[i], destination)) target = i;
+        }
+        if (source < 0 || target < 0) Error("CU_INPUT_FAILED");
+        sameScreen = source == target ? (Rectangle?)screens[source] : null;
+        var points = new List<PointF> { new PointF(start.X, start.Y) };
+        if (source != target) {
+            int[] previous = new int[screens.Length];
+            for (int i = 0; i < previous.Length; ++i) previous[i] = -1;
+            var queue = new Queue<int>();
+            previous[source] = source;
+            queue.Enqueue(source);
+            while (queue.Count > 0 && previous[target] < 0) {
+                int i = queue.Dequeue();
+                for (int j = 0; j < screens.Length; ++j) {
+                    PointF before, after;
+                    if (previous[j] < 0 && CursorScreenBridge(screens[i], screens[j], destination,
+                                                              out before, out after)) {
+                        previous[j] = i;
+                        queue.Enqueue(j);
+                    }
+                }
+            }
+            if (previous[target] < 0) Error("CU_INPUT_FAILED");
+            var order = new List<int> { target };
+            while (order[order.Count - 1] != source)
+                order.Add(previous[order[order.Count - 1]]);
+            order.Reverse();
+            for (int i = 0; i + 1 < order.Count; ++i) {
+                PointF before, after;
+                if (!CursorScreenBridge(screens[order[i]], screens[order[i+1]], destination,
+                                        out before, out after)) Error("CU_INPUT_FAILED");
+                points.Add(before); points.Add(after);
+            }
+        }
+        points.Add(new PointF(destination.X, destination.Y));
+        return points;
+    }
+    static double CursorRouteLength(List<PointF> path) {
+        double total = 0;
+        for (int i = 1; i < path.Count; ++i) {
+            double dx = path[i].X - path[i-1].X, dy = path[i].Y - path[i-1].Y;
+            total += Math.Sqrt(dx * dx + dy * dy);
+        }
+        return total;
+    }
+    static PointF CursorRoutePoint(List<PointF> path, double fraction, Rectangle? sameScreen) {
+        if (fraction <= 0) return path[0];
+        if (fraction >= 1) return path[path.Count - 1];
+        double remaining = CursorRouteLength(path) * fraction;
+        for (int i = 1; i < path.Count; ++i) {
+            double dx = path[i].X - path[i-1].X, dy = path[i].Y - path[i-1].Y;
+            double segment = Math.Sqrt(dx * dx + dy * dy);
+            if (segment > 0 && remaining <= segment) {
+                double t = remaining / segment;
+                double x = path[i-1].X + dx * t, y = path[i-1].Y + dy * t;
+                if (path.Count == 2 && sameScreen.HasValue) {
+                    var safe = sameScreen.Value;
+                    safe.Inflate(-25, -25);
+                    if (safe.Contains(Point.Round(path[0])) && safe.Contains(Point.Round(path[1]))) {
+                        double bend = Math.Min(18.0, segment * 0.035);
+                        double offset = 4.0 * t * (1.0 - t) * bend * (dx >= 0 ? 1.0 : -1.0);
+                        x += (-dy / segment) * offset;
+                        y += (dx / segment) * offset;
+                    }
+                }
+                return new PointF((float)x, (float)y);
+            }
+            remaining -= segment;
+        }
+        return path[path.Count - 1];
+    }
+
+    // Human-paced motion of the REAL OS pointer. A monotonic clock (not a
+    // fixed 32-frame cap) sets duration; 60 Hz gives the glow time to follow.
+    static void MoveCursorVisible(Point destination) {
+        POINT origin;
+        if (!GetCursorPos(out origin)) Error("CU_INPUT_FAILED");
+        Rectangle? sameScreen;
+        var path = CursorScreenRoute(new Point(origin.X, origin.Y), destination, out sameScreen);
+        double distance = CursorRouteLength(path);
+        double durationMs = Math.Min(3600.0, Math.Max(240.0, 170.0 + distance * 1000.0 / 850.0));
+        int lastX = origin.X, lastY = origin.Y;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (true) {
+            Check(true);
+            if (Closed) Error("CU_SESSION_CLOSED");
+            foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 })
+                if ((GetAsyncKeyState(key) & 0x8000) != 0) Error("CU_USER_INPUT_ACTIVE");
+            POINT current;
+            if (!GetCursorPos(out current)) Error("CU_INPUT_FAILED");
+            if (Math.Abs(current.X - lastX) > 6 || Math.Abs(current.Y - lastY) > 6)
+                Error("CU_USER_INPUT_ACTIVE");
+
+            double t = Math.Min(1.0, Math.Max(0.0, clock.Elapsed.TotalMilliseconds / durationMs));
+            double eased = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+            PointF next = CursorRoutePoint(path, eased, sameScreen);
+            int px = (int)Math.Round(next.X), py = (int)Math.Round(next.Y);
+            if (!SetCursorPos(px, py)) Error("CU_INPUT_FAILED");
+            lastX = px; lastY = py;
+            if (t >= 1.0) break;
+            Thread.Sleep(16);
+        }
+    }
     static object Execute(Dictionary<string, object> args) {
         string action = (string)args["action"];
         if (action == "activate") return ActivateTarget();
@@ -460,7 +605,7 @@ class ComputerUse {
             if (x < 0 || y < 0 || x >= rect.Right - rect.Left || y >= rect.Bottom - rect.Top) Error("CU_COORDINATE_OUTSIDE_WINDOW");
             var point = new Point(rect.Left + x, rect.Top + y);
             if (GetAncestor(WindowFromPoint(point), 2) != Target) Error("CU_TARGET_OCCLUDED");
-            if (!SetCursorPos(point.X, point.Y)) Error("CU_INPUT_FAILED");
+            MoveCursorVisible(point);
             if (GetAncestor(WindowFromPoint(point), 2) != Target) Error("CU_TARGET_OCCLUDED");
             if (action == "click") {
                 bool right = args.ContainsKey("button") && (string)args["button"] == "right";

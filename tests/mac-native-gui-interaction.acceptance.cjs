@@ -71,6 +71,12 @@ test('Mac GUI: real native click, Unicode typing and scroll are confined to disp
     }
     async function execute(action,args){
       const result=await svc.call({action,session_id:sessionId,...args});
+      if(result.isError){
+        const current=read();
+        const trace=current.cursor_trace||[];
+        t.diagnostic('input blocked; foreground '+current.frontmost_pid+' target '+child.pid+
+          ', window key '+current.window_is_key+', flags '+current.modifier_flags+', left '+current.left_button+', right '+current.right_button+', pointer '+JSON.stringify(trace.slice(-5)));
+      }
       assert.equal(result.isError,undefined,action+': '+JSON.stringify(result.structuredContent));
       assert.equal(result.structuredContent.execution_state,'complete');
     }
@@ -97,8 +103,21 @@ test('Mac GUI: real native click, Unicode typing and scroll are confined to disp
     assert.equal(read().text,'MacCU-2026-O');
     t.diagnostic('observation anti-replay: '+replay.structuredContent.code);
     obs=await observe();
+    const beforeMotion=(read().cursor_trace||[]).length;
+    const movementStarted=process.hrtime.bigint();
     await execute('scroll',{observation_id:obs.id,...point(obs,shortened.scroll),delta:3});
-    const scrolled=await eventually(read,s=>s.scroll_events>=1);
+    const motionDurationMs=Number(process.hrtime.bigint()-movementStarted)/1e6;
+    const scrolled=await eventually(read,s=>s.scroll_events>=1 &&
+      (s.cursor_trace||[]).length>beforeMotion+5);
+    const trace=scrolled.cursor_trace.slice(beforeMotion);
+    const uniquePositions=trace.filter((pt,i)=>i===0 ||
+      Math.hypot(pt.x-trace[i-1].x,pt.y-trace[i-1].y)>=0.7).length;
+    assert.ok(motionDurationMs>=240,'Cursor still teleports too quickly: '+motionDurationMs.toFixed(0)+'ms');
+    assert.ok(uniquePositions>=8,'Expected at least 8 sampled real OS cursor positions, got '+uniquePositions);
+    const observedDurationMs=1000*(trace.at(-1).time-trace[0].time);
+    assert.ok(observedDurationMs>=120,'Cursor sampled movement should have visible time span');
+    t.diagnostic('human-paced REAL cursor: '+motionDurationMs.toFixed(0)+'ms, '+uniquePositions+
+      ' distinct OS pointer positions, '+observedDurationMs.toFixed(0)+'ms sampled span');
     t.diagnostic('scroll events: '+scrolled.scroll_events+', delta: '+scrolled.scroll_delta);
     const closed=await svc.call({action:'close_session',session_id:sessionId});
     assert.equal(closed.structuredContent.closed,true);

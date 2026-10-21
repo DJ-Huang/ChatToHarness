@@ -376,31 +376,56 @@ final class MacComputerUse: NSObject {
         guard rect == lastGeometry else { throw CUError.moved }
     }
 
+    // Move the physical macOS cursor at a visibly human-paced speed.
+    // A monotonic clock prevents frame rates or window checks from shortening
+    // long moves; the 60 Hz target leaves enough time for the native glow.
+    // Typical moves: 100pt ≈ 0.29s, 500pt ≈ 0.76s, 1000pt ≈ 1.35s.
     private func movePointer(to destination: CGPoint) async throws {
         let source = CGEventSource(stateID: .combinedSessionState)
-        let start = CGEvent(source: nil)?.location ?? destination
-        let distance = hypot(destination.x - start.x, destination.y - start.y)
-        let steps = max(8, min(32, Int(ceil(distance / 25))))
-        var last = start
-        for index in 1...steps {
-            // Avoid a ScreenCaptureKit round trip for each 12ms pointer frame.
-            // Still check live TCC, target identity, window geometry and Esc tap.
+        guard let start = CGEvent(source: nil)?.location else { throw CUError.input }
+        let displays = MacCursorTrajectory.activeDisplays()
+        guard let waypoints = MacCursorTrajectory.route(from: start, to: destination,
+                                                        displays: displays) else { throw CUError.input }
+        let distance = MacCursorTrajectory.length(of: waypoints)
+        // Scale travel time to actual on-screen route length. Cross-monitor
+        // paths can take several seconds instead of "teleporting" through gaps.
+        let duration = min(3.6, max(0.24, 0.17 + Double(distance) / 850.0))
+        let sameDisplay = waypoints.count == 2 ? displays.first(where: {
+            $0.contains(start) && $0.contains(destination)
+        }) : nil
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        // Quartz may deliver a posted cursor event a few frames later.
+        // Keep a short history of our OWN emitted positions, rather than
+        // mistaking OS event delivery latency for human mouse intervention.
+        var recentExpected = [start]
+
+        while true {
+            try Task.checkCancellation()
             try checkLivePointerTarget()
             try checkUserIdle()
             if let physical = CGEvent(source: nil)?.location,
-               hypot(physical.x - last.x, physical.y - last.y) > 7 { throw CUError.userActive }
-            let t = CGFloat(index) / CGFloat(steps)
-            let easing = t * t * (3 - 2 * t)
-            let next = CGPoint(x: start.x + (destination.x - start.x) * easing,
-                               y: start.y + (destination.y - start.y) * easing)
+               !recentExpected.contains(where: {
+                   hypot(physical.x - $0.x, physical.y - $0.y) <= 18
+               }) {
+                throw CUError.pointerOffPath
+            }
+
+            let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+            let t = min(1.0, max(0.0, elapsed / duration))
+            // Quintic ease-in/out: the cursor accelerates, travels, then slows.
+            let eased = t * t * t * (t * (t * 6 - 15) + 10)
+            let next = MacCursorTrajectory.position(at: eased, along: waypoints,
+                                                    display: sameDisplay)
             guard let event = CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-                                      mouseCursorPosition: next, mouseButton: .left) else { throw CUError.input }
+                                      mouseCursorPosition: next, mouseButton: .left)
+            else { throw CUError.input }
             event.post(tap: .cghidEventTap)
-            last = next
-            try? await Task.sleep(nanoseconds: 12_000_000)
+            recentExpected.append(next)
+            if recentExpected.count > 12 { recentExpected.removeFirst() }
+            if t >= 1 { break }
+            try await Task.sleep(nanoseconds: 16_000_000)
         }
     }
-
 
     // Ensure that an unrelated app or modal above the target cannot receive a
     // click. Own STOP/overlay windows are ignored, as they belong to our PID.
@@ -544,6 +569,7 @@ final class MacComputerUse: NSObject {
         case expired = "CU_SESSION_EXPIRED"
         case capture = "CU_CAPTURE_UNSUPPORTED"
         case userActive = "CU_USER_INPUT_ACTIVE"
+        case pointerOffPath = "CU_POINTER_OFF_PATH"
         case input = "CU_INPUT_FAILED"
         case occluded = "CU_TARGET_OCCLUDED"
         case activation = "CU_ACTIVATION_FAILED"

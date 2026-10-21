@@ -10,6 +10,8 @@ import Foundation
     private var field: NSTextField!
     private var scrollArea: ScrollTarget!
     private var ticks: Timer?
+    private var motionSampler: Timer?
+    private var cursorTrace = [[String: Double]]()
     private var clicks = 0
     private var scrollEvents = 0
     private var scrollDelta = 0.0
@@ -45,10 +47,22 @@ import Foundation
         window.contentView?.addSubview(scrollArea)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        motionSampler = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.captureCursor() }
+        }
         ticks = Timer.scheduledTimer(withTimeInterval: 0.10, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.save() }
         }
         save()
+    }
+    private func captureCursor() {
+        guard let point = CGEvent(source: nil)?.location else { return }
+        if let last = cursorTrace.last,
+           abs(last["x", default: 0] - Double(point.x)) < 0.6,
+           abs(last["y", default: 0] - Double(point.y)) < 0.6 { return }
+        cursorTrace.append(["x": Double(point.x), "y": Double(point.y),
+                            "time": ProcessInfo.processInfo.systemUptime])
+        if cursorTrace.count > 500 { cursorTrace.removeFirst(cursorTrace.count - 500) }
     }
     @objc private func clicked() { clicks += 1; save() }
     private func center(_ view: NSView) -> [String: Double] {
@@ -61,12 +75,18 @@ import Foundation
         guard let data = try? JSONSerialization.data(withJSONObject: [
             "pid": Int(getpid()), "clicks": clicks, "text": field.stringValue,
             "scroll_events": scrollEvents, "scroll_delta": scrollDelta,
-            "button": center(button), "field": center(field), "scroll": center(scrollArea)
+            "button": center(button), "field": center(field), "scroll": center(scrollArea),
+            "cursor_trace": cursorTrace,
+            "frontmost_pid": Int(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0),
+            "window_is_key": window.isKeyWindow,
+            "modifier_flags": CGEventSource.flagsState(.combinedSessionState).rawValue,
+            "left_button": CGEventSource.buttonState(.combinedSessionState, button: .left),
+            "right_button": CGEventSource.buttonState(.combinedSessionState, button: .right)
         ] as [String: Any]) else { return }
         try? data.write(to: stateURL, options: .atomic)
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    func applicationWillTerminate(_ notification: Notification) { ticks?.invalidate() }
+    func applicationWillTerminate(_ notification: Notification) { ticks?.invalidate(); motionSampler?.invalidate() }
 }
 
 @MainActor final class ScrollTarget: NSView {

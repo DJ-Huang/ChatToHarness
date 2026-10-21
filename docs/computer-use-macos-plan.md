@@ -1,5 +1,14 @@
 # macOS Computer Use — execution plan and evidence
 
+## Human-speed motion and cross-monitor routing — 2026-10-21
+
+- Native pointer updates approximately every 16ms on a monotonic clock, with quintic accelerate/slowdown and duration 0.17s + routeLength/850 (clamped 0.24–3.6s). Windows implements equivalent timing, with separate native API calls.
+- Single-screen movement follows a small deterministic lateral arc only if it remains safely inset; crossing monitors uses explicit edge gateways computed from CGDisplayBounds / Screen.AllScreens, avoiding empty desktop-coordinate holes and unexpected cursor clipping.
+- MacCursorTrajectory model tests check 4 scenarios × 301 frames, all on display rectangles in the three-monitor layout found on this Mac (main above two other screens). User-interference/foreground/STOP remain enforced on every frame; do not turn them off to pass tests.
+- Real GUI fixture now samples actual CGEvent cursor positions at ~60Hz and asserts movement has >=8 distinct positions and >=240ms duration on its tested travel. One opt-in Mac run returned successful exit; other attempts were correctly interrupted by user-input/focus safety checks. Optical Glow appearance is still unverified and actual Windows GUI acceptance is deferred.
+- Verify using `npm run test:computer-use-mac` and, only in a disposable local GUI session, `npm run test:computer-use-mac:gui`; for Windows source model use `node --test tests/windows-cursor-motion.test.cjs`.
+
+
 ## 2026-10-21 real macOS input acceptance
 
 | Gate | Actual result |

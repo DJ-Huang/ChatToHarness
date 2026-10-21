@@ -1,5 +1,12 @@
 # Windows computer use (source preview)
 
+## Human-visible pointer motion — 2026-10-21
+
+The native helper now uses the real Windows pointer for 60Hz, distance-scaled motion. Average pacing targets approximately 850 physical pixels/second plus 170ms start/stop allowance (0.24–3.6s total); quintic acceleration/deceleration and bounded same-screen curvature replace the old max-32-steps / 12ms motion. Cursor-shaped blue Glow continues to follow the real pointer; no extra cursor or click-location circle is introduced. Screen.AllScreens adjacency waypoints prevent routing through gaps between monitors.
+
+Windows pointer state, Esc/STOP, and foreground/target checks remain mandatory throughout the animation. Source regressions pass 2/2 and native C# compiles with Mono on macOS; real Windows pointer/GPU visual acceptance has **not** been run and remains explicitly pending at the user's request.
+
+
 This optional local MCP service controls one Windows window at a time. Authorization is configurable: `all_windows` is the default (requested on 2026-10-20), while `per_window` requires local selection/consent for each new window session. It is not enabled automatically and does not change Desktop Commander or shell permissions. Windows 11 x64 and the .NET Framework 4 compiler are required to build the helper. No model/API key is needed by the service.
 
 ## Build and connect

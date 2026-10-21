@@ -288,7 +288,9 @@ else{
       mcpSettings=new McpSettings(home,safeStorage);
       const {HarnessServices}=require('./harness-services.cjs');
       const {ComputerUseSwitch}=require('./builtin-computer-use.cjs');
+      const {localComputerIdentity}=require('./computer-use-devices.cjs');
       computerUse=new ComputerUseSwitch({platform,resources,enabled:false,
+        deviceIdentity:localComputerIdentity(home,platform),
         onPermissionRequired:permission=>{
           permissionPromptVisible=true;
           computerUse.permission=permission;

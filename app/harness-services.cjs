@@ -79,7 +79,7 @@ class HarnessServices {
     const available = new Set(catalog.map(item => item.name)), runtime = this.runtime(), mcp = this.mcp();
     return {summary: `ChatToHarness ${this.versions.app || this.build.version || 'unknown'}; ${runtime.state || 'unknown'}; ${catalog.length} available tools.`,
       app: {version: this.versions.app || this.build.version || null, build: this.build}, components: {node: this.versions.node || process.versions.node, tunnel: this.versions.tunnel || null, desktop_commander: this.versions.desktopCommander || null},
-      device: {platform: process.platform, arch: process.arch, os_release: os.release(), name: os.hostname()},
+      device: {platform: process.platform, arch: process.arch, os_release: os.release(), name: os.hostname(), ...(this.computerUse?.status().device?.id ? {computer_use_id:this.computerUse.status().device.id} : {})},
       connection: {state: runtime.state || 'unknown', local_ready: Boolean(runtime.localReady), gateway: 'app-owned', tools_version: mcp.toolsVersion ?? null},
       capabilities: {project_overview: true, git_reads: true, artifact_return: true, persistent_tasks: true, safe_text_edits: true, automatic_project_context: this.autoProjectContext, shell_is_sandboxed: false},
       desktop_commander: {expected_tools: DC_TOOLS.length, available_tools: DC_TOOLS.filter(name => available.has(name)), missing_tools: DC_TOOLS.filter(name => !available.has(name)), verification: 'Availability only; consult the platform acceptance report for tested behavior.'},

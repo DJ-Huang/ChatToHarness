@@ -2,13 +2,18 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const {ComputerUsePermissions,permissionCode}=require('./computer-use-permissions.cjs');
+const os=require('node:os');
+const crypto=require('node:crypto');
+const {deviceSelection}=require('./computer-use-devices.cjs');
 
 // App-owned, opt-in Computer Use. Not an imported/untrusted external MCP.
 // Only the local platform's helper is eligible. Merely listing the tool never
 // starts the native process or bypasses Screen Recording/Accessibility grants.
 class ComputerUseSwitch {
-  constructor({platform=process.platform,resources,enabled=false,createMac,createWindows,permissions,onPermissionRequired}={}) {
+  constructor({platform=process.platform,resources,enabled=false,createMac,createWindows,permissions,onPermissionRequired,deviceIdentity,connectedDevices}={}) {
     this.platform=platform;
+    this.deviceIdentity=deviceIdentity||{id:'cu-'+crypto.randomUUID(),name:os.hostname(),platform};
+    this.connectedDevices=connectedDevices;
     this.resources=resources;
     this.enabled=enabled===true;
     this.createMac=createMac;
@@ -17,6 +22,7 @@ class ComputerUseSwitch {
     this.onPermissionRequired=onPermissionRequired;
     this.permission=null;
     this.controller=null;
+    this.boundSessionId=null;
     this.active=new Set();
     this.epoch=0;
   }
@@ -29,14 +35,19 @@ class ComputerUseSwitch {
   status() {
     return {enabled:this.enabled,available:this.available,
       permission:this.permission,
-      platform:this.platform,registered:this.enabled&&this.available,
+      platform:this.platform,device:this.deviceIdentity,registered:this.enabled&&this.available,
       native:this.platform==='darwin'?'macOS':this.platform==='win32'?'Windows':null};
   }
   definition() {
     if(!this.enabled||!this.available)return null;
     // Platform-specific imports, never instantiate the opposite OS adapter.
     const source=this.platform==='darwin'?'./macos-computer-use.cjs':'./windows-computer-use.cjs';
-    return require(source).definition;
+    const definition=structuredClone(require(source).definition);
+    definition.inputSchema.properties.target_device_id={
+      type:'string',maxLength:100,description:'Exact target device ID advertised by this connector. This does not prove user consent. Use only when the user explicitly specified this device or a device selection was completed.'
+    };
+    definition.description+=` Local device: ${this.deviceIdentity.name} (${this.deviceIdentity.platform}), ID ${this.deviceIdentity.id}. When BOTH winHarness and macHarness, or multiple Computer Use devices, are connected and the user did not explicitly choose a target, ask the user to select a device in ChatGPT BEFORE invoking any Computer Use control action. Do not guess or silently prefer a platform. This device can reject mismatching target_device_id; only the ChatGPT-level router has the cross-device connection roster.`;
+    return definition;
   }
   newController() {
     if(this.platform==='darwin') {
@@ -78,9 +89,28 @@ class ComputerUseSwitch {
     this.active.clear();
     this.controller?.stop('CU_DISABLED');
     this.controller=null;
+    this.boundSessionId=null;
   }
   async call(args,{signal}={}) {
     if(!this.enabled||!this.available)return this.denied();
+    // One confirmed device choice covers the session's entire move/down/drag/up
+    // sequence. In particular mouse_up/close must not depend on a new online
+    // roster lookup while a synthetic button may still be held.
+    const sessionBound=Boolean(this.boundSessionId && args?.session_id===this.boundSessionId &&
+      !['open_session','list_windows'].includes(args?.action));
+    let roster;
+    if(!sessionBound && this.connectedDevices) {
+      const before=this.epoch;
+      try { roster=await this.connectedDevices(); }
+      catch { return this.selectionError({code:'CU_DEVICE_ROSTER_UNAVAILABLE'}); }
+      // An asynchronous roster lookup must not resurrect control after disable.
+      if(before!==this.epoch || !this.enabled) return this.denied();
+    }
+    const selected=sessionBound
+      ? deviceSelection(this.deviceIdentity,args?.target_device_id,null)
+      : deviceSelection(this.deviceIdentity,args?.target_device_id,roster);
+    if(selected)return this.selectionError(selected);
+    const {target_device_id: _target, ...nativeArgs}=args;
     const epoch=this.epoch;
     const abort=new AbortController();
     const onAbort=()=>abort.abort();
@@ -90,8 +120,13 @@ class ComputerUseSwitch {
     this.active.add(abort);
     try {
       if(!this.controller)this.controller=this.newController();
-      const result=await this.controller.call(args,{signal:abort.signal});
+      const result=await this.controller.call(nativeArgs,{signal:abort.signal});
       if(epoch===this.epoch && this.enabled) {
+        if(nativeArgs.action==='open_session' && !result?.isError &&
+          typeof result?.structuredContent?.session_id==='string')
+          this.boundSessionId=result.structuredContent.session_id;
+        if(nativeArgs.action==='close_session' || result?.structuredContent?.state==='closed')
+          this.boundSessionId=null;
         const code=permissionCode(result);
         if(code) { this.noticePermission(code); return result; }
       }
@@ -105,6 +140,13 @@ class ComputerUseSwitch {
       this.active.delete(abort);
       signal?.removeEventListener('abort',onAbort);
     }
+  }
+  selectionError(detail) {
+    const data={...detail,execution_state:'not_started',operation_executed:false,
+      next_action:detail.code==='CU_DEVICE_SELECTION_REQUIRED'
+        ? 'Ask the user to select one of the online devices in ChatGPT, then use its exact connector and target_device_id.'
+        : 'Use the Computer Use tool on the explicitly selected device.'};
+    return {isError:true,content:[{type:'text',text:JSON.stringify(data)}],structuredContent:data};
   }
   denied(started=false) {
     const data={code:'CU_DISABLED',execution_state:started?'unknown':'not_started',

@@ -1,5 +1,20 @@
 # Development record — Windows computer use
 
+## Multi-device Computer Use target guard — 2026-10-21
+
+- Scope: only macHarness/macOS validation, no winHarness tool use. ADR `docs/adr/0002-multi-device-computer-use-routing.md`. Local host device ID persists; a supplied `target_device_id` mismatch rejects before native input. An injected, verified roster with 2+ live machines requires device selection and returns `CU_DEVICE_SELECTION_REQUIRED`; an untrusted or stale roster rejects.
+- **Platform boundary:** Independent ChatGPT connectors have no shared online roster in this app. User-facing device choice dialog still requires ChatGPT router or an aggregate MCP broker, so do not mark global multi-device behavior accepted. The model-side prompt rule is documented, not treated as a technical enforcement. Device choice is bound to the active native session, so `mouse_up` still works without requerying a failed broker; a new session requires another choice.
+- **Focused verification:** macOS build `npm run build:computer-use` PASS; `node --test tests/computer-use-devices.test.cjs tests/computer-use-toggle.test.cjs tests/macos-computer-use.test.cjs tests/mac-display-route.test.cjs tests/mac-permission-diagnostics.test.cjs tests/mac-computer-use-indicator.test.cjs` 27/27 PASS (0 skip). No Windows environment tools used.
+- **Real desktop evidence: Native Mac Screen Recording and Accessibility were granted. An isolated native GUI click test failed `CU_USER_INPUT_ACTIVE` during pointer motion (no replay). Do not claim real drag PASS; Windows native tests expressly excluded by user.
+
+
+## Cross-platform four-stage mouse control — 2026-10-21
+
+- **Work item:** existing Computer Use issue #1; branch `feat/computer-use`. Added `mouse_move`, `mouse_down`, `mouse_drag`, `mouse_up` to the shared MCP schema and native Windows/macOS adapters. Ordinary move/down use fresh window screenshot pixels; drag uses fresh observation and global display coordinates (`screen_x`/`screen_y`, Windows virtual pixels, macOS Quartz points). `mouse_up` intentionally works without screenshot or geometry validation after a dragged window moves.
+- **Safety:** explicit held-left-button state; disallow ordinary input during hold; no cross-display off-screen targets; preserve STOP/Esc, user-intervention detection, native target PID and foreground guards. Native release on stop, error, disconnect and 30-second inactivity. A failed drag terminates the session without replay. Existing uncommitted HUD edits preserved.
+- **Status:** Mac native helper rebuilt; MCP simulation tests for both OS passed. Windows machine compiler/actual GUI validation not yet verified. Installed native binaries were not replaced.
+
+
 ## Mac Computer Use session indicator — 2026-10-21
 
 - **Work item:** [ChatToHarness #1](https://github.com/watermoon/ChatToHarness/issues/1), branch `feat/computer-use`. The requested native Computer Use indicator is now a **530 × 108 pt, translucent NSVisualEffectView panel** with high-contrast cyan 3 pt border, a red **STOP · Esc** button, and a bright activity line. It is placed at the **top-center of the display containing the authorized window**, respecting the menu bar via `visibleFrame`, rather than the previous bottom-corner 320 × 52 pt button. It follows target-window screen moves without weakening input's screenshot-geometry checks.

@@ -49,7 +49,7 @@ test('platform filters exclude only the other OS JS adapters and native programs
   }
   assert.ok(win.resources.includes('!ChatToHarness.MacComputerUse'));
   assert.ok(!win.resources.includes('!ChatToHarness.ComputerUse.exe'));
-  for(const name of ['app/base-computer-use.cjs','app/computer-use-images.cjs'])
+  for(const name of ['app/base-computer-use.cjs','app/computer-use-images.cjs','app/computer-use-devices.cjs'])
     assert.ok(!mac.files.includes('!'+name)&&!win.files.includes('!'+name));
   for(const name of ['app/computer-use-stdio.cjs']) {
     assert.ok(mac.files.includes('!'+name));

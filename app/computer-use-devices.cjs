@@ -31,31 +31,57 @@ function localComputerIdentity(home, platform = process.platform, hostname = os.
   return {id,platform,name:hostname};
 }
 
-function verifiedDevices(roster) {
-  if (!roster || roster.verified !== true || !Array.isArray(roster.devices) ||
-      !Number.isFinite(roster.observed_at) || Math.abs(Date.now()-roster.observed_at)>30000) return null;
-  if (roster.devices.length>32 || roster.devices.some(device=>
-    !device || typeof device.id!=='string' || !/^cu-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(device.id) ||
-    typeof device.name!=='string' || device.name.length>128 ||
-    !['darwin','win32'].includes(device.platform))) return null;
-  return [...new Map(roster.devices.map(device=>[device.id,{id:device.id,name:device.name,platform:device.platform}])).values()];
-}
-
-function deviceSelection(self, targetDeviceId, roster) {
-  if (targetDeviceId!==undefined && (typeof targetDeviceId!=='string' || targetDeviceId.length>100))
+// The connector identifies its own device, so no cross-machine presence roster
+// is necessary. This is a routing constraint, not proof of human consent.
+function deviceSelection(self, targetDeviceId) {
+  if (targetDeviceId === undefined || targetDeviceId === null || targetDeviceId === '')
+    return {code:'CU_DEVICE_SELECTION_REQUIRED', device:self};
+  if (typeof targetDeviceId !== 'string' || targetDeviceId.length > 100)
     return {code:'CU_INVALID_ARGUMENT'};
-  if (targetDeviceId && targetDeviceId!==self.id)
+  if (targetDeviceId !== self.id)
     return {code:'CU_TARGET_DEVICE_MISMATCH', device:self};
-  const devices=verifiedDevices(roster);
-  // A direct MCP harness cannot independently see the other ChatGPT connector.
-  // The shared router must pass a *trusted*, fresh online roster here. Never
-  // accept a caller-supplied list as proof of connected devices.
-  if(roster && !devices) return {code:'CU_DEVICE_ROSTER_UNAVAILABLE'};
-  if(devices && !devices.some(device=>device.id===self.id))
-    return {code:'CU_DEVICE_ROSTER_UNAVAILABLE'};
-  if(devices && devices.length>1 && !targetDeviceId)
-    return {code:'CU_DEVICE_SELECTION_REQUIRED', devices};
   return null;
 }
 
-module.exports={localComputerIdentity,verifiedDevices,deviceSelection};
+function computerUseHome(platform=process.platform, env=process.env, userHome=os.homedir()) {
+  if (env.LOCALHARNESS_HOME && path.isAbsolute(env.LOCALHARNESS_HOME)) return env.LOCALHARNESS_HOME;
+  if (platform==='darwin') return path.join(userHome,'Library','Application Support','LocalHarness');
+  if (platform==='win32') return path.win32.join(env.APPDATA || path.win32.join(userHome,'AppData','Roaming'),'ChatToHarness');
+  throw new Error('CU_PLATFORM_UNSUPPORTED');
+}
+
+function registeredComputerUse(base,device) {
+  const definition=structuredClone(base);
+  definition.title=`Computer Use · ${device.name} (${device.platform==='darwin'?'macOS':'Windows'})`;
+  definition.inputSchema.properties.target_device_id={
+    type:'string',const:device.id,
+    description:`Required device ID for ${device.name} (${device.platform}). Must be exactly ${device.id}. A named or explicitly selected device is required for every call.`
+  };
+  definition.inputSchema.required=[...new Set([...(definition.inputSchema.required||[]),'target_device_id'])];
+  definition._meta={...(definition._meta||{}),'com.chattoharness/device':{
+    id:device.id,name:device.name,platform:device.platform
+  }};
+  definition.description+=` This tool controls ONLY ${device.name} (${device.platform}), device ID ${device.id}. REQUIRED: pass target_device_id=${device.id} in every call. Before calling Computer Use, if the user did not identify which computer to use, ask them to choose one; never infer a choice from the active host, default device or tool order. If they explicitly selected this device, call this specific connector. Missing/mismatched device IDs are rejected locally before native control starts. This ID is a routing constraint, not proof of consent; macOS/Windows permissions, STOP and per-window controls still apply.`;
+  return definition;
+}
+
+function selectionResult(detail) {
+  const data={...detail,execution_state:'not_started',operation_executed:false,
+    next_action:detail.code==='CU_DEVICE_SELECTION_REQUIRED'
+      ? 'Ask the user to identify the target computer, then pass its advertised target_device_id using that device connector.'
+      : detail.code==='CU_TARGET_DEVICE_MISMATCH'
+        ? 'Use the Computer Use tool registered by the device the user explicitly selected.'
+        : 'Use the exact target_device_id advertised in the tool registration.'};
+  return {isError:true,content:[{type:'text',text:JSON.stringify(data)}],structuredContent:data};
+}
+
+function deviceBoundArgs(device,args) {
+  const error=deviceSelection(device,args?.target_device_id);
+  if(error)return {error:selectionResult(error)};
+  if(!args || typeof args!=='object' || Array.isArray(args))
+    return {error:selectionResult({code:'CU_INVALID_ARGUMENT'})};
+  const {target_device_id: _target, ...nativeArgs}=args;
+  return {nativeArgs};
+}
+
+module.exports={localComputerIdentity,computerUseHome,deviceSelection,registeredComputerUse,selectionResult,deviceBoundArgs};

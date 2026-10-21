@@ -34,28 +34,28 @@ test('Computer Use is invisible by default and dynamically selects ONLY the host
     const f=fixture(t,platform),cu=f.computerUse;
     assert.equal(cu.definition(),null);
     assert.equal(cu.status().registered,false);
-    assert.equal((await cu.call({action:'list_windows'})).structuredContent.code,'CU_DISABLED');
+    assert.equal((await cu.call({action:'list_windows',target_device_id:cu.deviceIdentity.id})).structuredContent.code,'CU_DISABLED');
     cu.setEnabled(true);
     assert.equal(cu.status().registered,true);
     assert.equal(cu.definition().name,'computer_use');
     assert.match(cu.definition().title,platform==='darwin'?/macOS/:/Windows/);
-    const result=await cu.call({action:'list_windows'});
+    const result=await cu.call({action:'list_windows',target_device_id:cu.deviceIdentity.id});
     assert.equal(result.structuredContent.passed,true);
     assert.equal(f.counts.macStarts,platform==='darwin'?1:0);
     assert.equal(f.counts.windowsStarts,platform==='win32'?1:0);
     cu.setEnabled(false);
     assert.equal(f.counts.stops,1);
     assert.equal(cu.definition(),null);
-    assert.equal((await cu.call({action:'list_windows'})).structuredContent.code,'CU_DISABLED');
+    assert.equal((await cu.call({action:'list_windows',target_device_id:cu.deviceIdentity.id})).structuredContent.code,'CU_DISABLED');
     cu.setEnabled(true);
-    await cu.call({action:'list_windows'});
+    await cu.call({action:'list_windows',target_device_id:cu.deviceIdentity.id});
     assert.equal(f.counts.macStarts+f.counts.windowsStarts,2,'toggle on creates a fresh controller');
   }
 });
 test('Disable aborts a pending native operation and suppresses stale results', async t=>{
   const f=fixture(t,'darwin'),cu=f.computerUse;
   cu.setEnabled(true);
-  const operation=cu.call({action:'block'});
+  const operation=cu.call({action:'block',target_device_id:cu.deviceIdentity.id});
   cu.setEnabled(false);
   const result=await operation;
   assert.equal(result.isError,true);
@@ -108,14 +108,14 @@ test('App-owned MCP catalog announces enable/disable and never routes the wrong-
     assert.equal(mgr.visibleTools().length,1);
     assert.equal(mgr.visibleTools()[0].name,'computer_use');
     const activeVersion=mgr.toolsVersion;
-    const answer=await mgr.call('computer_use',{action:'list_windows'});
+    const answer=await mgr.call('computer_use',{action:'list_windows',target_device_id:cu.deviceIdentity.id});
     assert.equal(answer.structuredContent.passed,true);
     assert.deepEqual([f.counts.macStarts,f.counts.windowsStarts],platform==='darwin'?[1,0]:[0,1]);
     cu.setEnabled(false);
     mgr.changed();
     assert.equal(mgr.visibleTools().length,0);
     assert.ok(mgr.toolsVersion>activeVersion);
-    const denied=await mgr.call('computer_use',{action:'list_windows'});
+    const denied=await mgr.call('computer_use',{action:'list_windows',target_device_id:cu.deviceIdentity.id});
     assert.equal(denied.isError,true);
     assert.equal(denied.structuredContent.code,'MCP_TOOL_DENIED');
   }

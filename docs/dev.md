@@ -1,5 +1,14 @@
 # Development record — Windows computer use
 
+## Device-bound Computer Use tool registration — 2026-10-21
+
+- **Request:** Replace conditional multi-device roster/dialog dependency with an unconditional requirement for an explicit target device. Every Harness reports its own stable `cu-UUID`, hostname and OS at MCP Computer Use registration.
+- **Implementation:** `app/computer-use-devices.cjs` now owns identity, registration schema, target validation and standalone device home. App-owned tool and macOS/Windows standalone stdio tool both expose a device-specific title, `_meta["com.chattoharness/device"]`, and a JSON Schema **required** `target_device_id` with `const` set to the local ID. Wrong/missing IDs are rejected before native helper startup; native calls receive their original validated arguments.
+- **Architecture:** No online roster or presumed device count. The chat client must ask which computer if the user did not choose one. A mere ID is not cryptographic proof that the user actually selected it, and an in-ChatGPT device picker is not implemented; see `docs/adr/0002-multi-device-computer-use-routing.md`.
+- **Scope:** Only `macHarness` used. The Windows source contract is updated but **no Windows real-device validation** is claimed. The prior macOS `CU_USER_INPUT_ACTIVE` real-GUI acceptance issue remains open.
+- **Validation:** `npm run build:computer-use` EXIT 0 (macOS native Swift binary). Mac-focused test set `node --test tests/computer-use-devices.test.cjs tests/computer-use-toggle.test.cjs tests/computer-use-permissions.test.cjs tests/computer-use-platform-packaging.test.cjs tests/macos-computer-use.test.cjs tests/mac-display-route.test.cjs tests/mac-permission-diagnostics.test.cjs tests/mac-computer-use-indicator.test.cjs` **41 PASS / 0 FAIL / 0 SKIP**; `node --test tests/mcp-gateway.test.cjs tests/mcp-manager.test.cjs tests/mcp-ui.test.cjs` **48 PASS / 0 FAIL / 0 SKIP**. The standalone macOS MCP SDK tool listing and missing-ID rejection were exercised; Mac real drag not reattempted.
+
+
 ## Multi-device Computer Use target guard — 2026-10-21
 
 - Scope: only macHarness/macOS validation, no winHarness tool use. ADR `docs/adr/0002-multi-device-computer-use-routing.md`. Local host device ID persists; a supplied `target_device_id` mismatch rejects before native input. An injected, verified roster with 2+ live machines requires device selection and returns `CU_DEVICE_SELECTION_REQUIRED`; an untrusted or stale roster rejects.

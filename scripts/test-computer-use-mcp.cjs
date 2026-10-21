@@ -43,8 +43,13 @@ async function main() {
   const transport = new StdioClientTransport({command:process.execPath,args:[path.join(root,'app/mcp-gateway-stdio.cjs')],env:manager.broker.environment(),stderr:'pipe'});
   client = new Client({name: 'real-computer-use-recovery-acceptance',version: '1'});
   await client.connect(transport);
-  async function call(args) { return client.callTool({name: 'windows-computer__computer_use', arguments: args}); }
-  const tools = await client.listTools(); assert.ok(tools.tools[0].inputSchema.properties.action.enum.includes('get_session'));
+  const tools = await client.listTools();
+  const computer=tools.tools.find(t=>t.name==='windows-computer__computer_use');
+  assert.ok(computer?.inputSchema?.properties?.action?.enum.includes('get_session'));
+  const targetDeviceId=computer._meta?.['com.chattoharness/device']?.id;
+  assert.ok(targetDeviceId,'Device-bound Computer Use registration is required');
+  async function call(args) { return client.callTool({name: 'windows-computer__computer_use',
+    arguments: {...args,target_device_id:targetDeviceId}}); }
   report.realMcp = true;
   report.localHarnessGateway=true; report.tool='windows-computer__computer_use';
   const targetInfo=await command({action:'report'});

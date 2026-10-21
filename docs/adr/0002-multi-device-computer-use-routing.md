@@ -1,28 +1,34 @@
-# ADR 0002 — Explicit device selection for multi-device Computer Use
+# ADR 0002 — Device-bound Computer Use tool registration
 
-Status: **partially implemented** (2026-10-21). Issue: [#1](https://github.com/watermoon/ChatToHarness/issues/1), branch `feat/computer-use`.
+Status: **implemented for app-owned and standalone stdio MCP registration; host-side user-intent enforcement remains advisory** (2026-10-21).
+Tracked by [ChatToHarness #1](https://github.com/watermoon/ChatToHarness/issues/1); development branch `feat/computer-use`.
 
-## Product rule
+## Decision
 
-1. Detect connected Computer Use capable devices from the **ChatGPT-level connector/tool registry** (not solely the local harness).
-2. With exactly one online device, route to it as usual.
-3. With more than one online device, if the user's request names a specific device (stable device ID, unambiguous host name, or unambiguous platform), route **only** to that device. If ambiguous or absent, **show a selection dialog in ChatGPT before any Computer Use call**. Display friendly name and platform; never preselect a device.
-4. The explicit selection binds the current native control session, allowing its subsequent mouse operations and emergency release without another prompt. It is not blanket or permanent permission for new sessions or subsequent tasks. A local OS window authorization, Screen Recording/Accessibility, fresh observation and STOP/Esc remain independent safeguards.
-5. If the chosen device disconnects, do not silently fail over to another. If presence cannot be authenticated or is stale, fail closed rather than guessing.
+Each independent Windows/macOS Harness registers its own `computer_use` tool. At registration, the tool includes an explicit local device identity:
 
-## Implemented in this repository
+- A stable per-install random `cu-UUID`, persisted as `computer-use-device-id` in the app's settings directory. This is a routing identifier, **not** an authentication secret.
+- Human-friendly current hostname and platform in `title` and `description` (readable even if the client discards MCP metadata).
+- Structured `_meta["com.chattoharness/device"] = {id, name, platform}` (readable by MCP consumers supporting tool metadata).
+- Required JSON Schema `target_device_id` with `const` equal to the local device ID, on **every invocation**, including `list_windows`, `get_session`, `mouse_up` and `close_session`.
 
-- Durable per-install random `computer-use-device-id` with current host name and platform. The same ID appears in `get_harness_status.device.computer_use_id` and the published Computer Use tool description.
-- Optional `target_device_id` on the app-owned Computer Use tool. A mismatch rejects **before creating a native helper** (`CU_TARGET_DEVICE_MISMATCH`).
-- Injectable **trusted** online device roster (max 30 seconds old); if it lists more than one unique device, missing target returns `CU_DEVICE_SELECTION_REQUIRED` with choices and no native action. Stale or untrusted rosters block with `CU_DEVICE_ROSTER_UNAVAILABLE`. The roster cannot be supplied by a model's Computer Use request.
-- The tool description instructs the ChatGPT caller to resolve ambiguous platform/device intent **before** calling the tool. It is guidance, not proof that the user clicked a dialog.
+The model/client must use the connector corresponding to the user-chosen machine and include its advertised `target_device_id`. If the user has not indicated which device to use, the model/client should **ask which machine** instead of choosing one from the connected tools. A specified but incorrect device ID fails with `CU_TARGET_DEVICE_MISMATCH`; a missing ID fails with `CU_DEVICE_SELECTION_REQUIRED`. Neither error starts native control. Correctly targeted calls strip the extra parameter before invoking the existing native controller, retaining its window consent, Screen Recording/Accessibility, fresh observation, stop key and cleanup checks.
 
-## Integration limitation / remaining work
+The rule is unconditional: no device count, shared online-presence roster, or cross-platform default-route guess is needed. Each Harness validates only its **own** identity. This simplifies multiple independent Windows/macOS connectors and does not assume both machines share a tunnel or a filesystem.
 
-**This app instance cannot discover other independent `winHarness`/`macHarness` connectors**. Each local connection is registered separately in ChatGPT. No existing central online-presence API or hook for displaying a modal in the ChatGPT host was found in this repository. Accordingly, the current app does **not** supply a global online roster, and this change **does not implement a native ChatGPT device-selection dialog**. The conditionally enforced roster gate is tested with an injected verified registry fixture; it is not wired to a real cross-device provider.
+## Registration paths
 
-To finish the requested behavior, add an authoritative aggregate router in the ChatGPT connector/host layer (or one shared MCP aggregator) that lists the online devices, owns the selection dialog, passes a verified roster to the selected harness, and forwards a device-bound user-selection token. The server should validate this token, not just a model-supplied ID. Do not build a selection popup in each local desktop: a Mac instance cannot authorize routing into a Windows instance.
+The desktop application's opt-in MCP `computer_use` and the optional macOS/Windows standalone stdio MCP entries both use `app/computer-use-devices.cjs` to build the device-bound schema and validate arguments. Standalone services derive the same app settings path as the Electron runtime, so the device IDs agree on a given installation. The resource staging manifest includes the shared helper.
 
-## Mac-only validation boundary
+`get_harness_status.device.computer_use_id` and the desktop status continue to expose the same device ID without starting a control session. The same `name` and `platform` appear in the registered tool metadata.
 
-All development and verification in this iteration used `macHarness`; no `winHarness` operations or Windows-native acceptance were performed. The Mac native helper compiles and Computer Use controller/device-gate tests pass. A real Mac GUI test reached input but was blocked by `CU_USER_INPUT_ACTIVE`; that is not a PASS. No packaged app was installed over the running desktop.
+## Important limitation
+
+**A required device ID is not proof of an actual user's selection.** A model could still populate it by itself from visible metadata. The tool descriptions mandate asking when target intent is absent, but only the ChatGPT client/router can enforce that rule based on the user's message or provide an actual UI selection. This repository cannot implement or verify a ChatGPT-hosted selection dialog. No local application claims to know how many *other* Harness instances are online. For stronger enforcement, a host-issued user-selection token would need to be supplied and verified by a trusted host integration.
+
+## Acceptance boundary
+
+- Mac-only local development and validation through `macHarness`. Shared device registration tests, real macOS MCP tool enumeration, and native macOS compiler checks apply.
+- No `winHarness` calls, Windows-native compilation/GUI tests, or Windows computer-use acceptance in this change.
+- The previously reported real macOS GUI `CU_USER_INPUT_ACTIVE` remains an unresolved visual-input acceptance blocker; unit/schema/compiler passes do not constitute a successful real cross-display drag.
+- No running installed application is silently replaced; this change takes effect when a build including it is started and the connector tool catalog refreshes.

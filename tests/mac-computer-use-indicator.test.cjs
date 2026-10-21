@@ -43,6 +43,10 @@ test('HUD is top centered in the target monitor, translucent, with visible borde
  assert.match(code,/alpha: 0\.69/);
  assert.match(code,/borderWidth = 3/);
  assert.match(code,/borderColor = NSColor/);
+ assert.match(code,/panel\.frame\.width - 133/);
+ assert.match(code,/max\(110, panel\.frame\.width - 164\)/);
+ assert.match(code,/autoresizingMask = \[\.width\]/);
+ assert.match(code,/max\(280, visible\.width - 20\)/);
  assert.match(code,/NSButton\(title: "STOP  ·  Esc"/);
  assert.match(code,/@objc private func stopPressed\(\) \{ stopNow\(\) \}/);
  assert.match(code,/installLocalEsc\(\)/);

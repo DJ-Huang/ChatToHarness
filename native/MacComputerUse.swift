@@ -270,7 +270,9 @@ final class MacComputerUse: NSObject {
         let title = NSTextField(labelWithString: "● ChatToHarness · Computer Use")
         title.font = NSFont.boldSystemFont(ofSize: 14)
         title.textColor = NSColor(calibratedRed: 0.46, green: 0.92, blue: 1, alpha: 1)
-        title.frame = NSRect(x: 18, y: 72, width: 360, height: 21)
+        title.frame = NSRect(x: 18, y: 72, width: max(110, panel.frame.width - 164), height: 21)
+        title.autoresizingMask = [.width]
+        title.lineBreakMode = .byTruncatingTail
         backdrop.addSubview(title)
 
         let visibleSession = sessionID ?? "external"
@@ -278,7 +280,8 @@ final class MacComputerUse: NSObject {
         session.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
         session.textColor = .white
         session.lineBreakMode = .byTruncatingTail
-        session.frame = NSRect(x: 18, y: 51, width: 365, height: 18)
+        session.frame = NSRect(x: 18, y: 51, width: max(110, panel.frame.width - 164), height: 18)
+        session.autoresizingMask = [.width]
         session.toolTip = sessionID ?? "External native helper session"
         backdrop.addSubview(session)
         sessionField = session
@@ -286,13 +289,15 @@ final class MacComputerUse: NSObject {
         let activity = NSTextField(labelWithString: hudText("idle"))
         activity.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         activity.textColor = NSColor(calibratedRed: 0.98, green: 0.98, blue: 1, alpha: 1)
-        activity.frame = NSRect(x: 18, y: 16, width: 358, height: 23)
+        activity.frame = NSRect(x: 18, y: 16, width: max(110, panel.frame.width - 164), height: 23)
+        activity.autoresizingMask = [.width]
+        activity.lineBreakMode = .byTruncatingTail
         backdrop.addSubview(activity)
         activityField = activity
 
         let button = NSButton(title: "STOP  ·  Esc", target: self,
                               action: #selector(stopPressed))
-        button.frame = NSRect(x: 397, y: 29, width: 116, height: 43)
+        button.frame = NSRect(x: panel.frame.width - 133, y: 29, width: 116, height: 43)
         button.autoresizingMask = [.minXMargin]
         button.isBordered = false
         button.wantsLayer = true

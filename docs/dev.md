@@ -1,5 +1,13 @@
 # Development record — Windows computer use
 
+## 0.7.1 macOS arm64 DMG acceptance evidence (2026-10-21)
+
+- **Build source:** `5bcca47` on `feat/computer-use`; `npm run dist` EXIT 0, output `dist/ChatToHarness-0.7.1-macos-arm64.dmg`. Previous `0.7.0` DMG preserved; running installed application was not changed.
+- **Bundle:** `CFBundleShortVersionString=0.7.1`, `CFBundleVersion=0.7.1`. `codesign --verify --deep --strict` EXIT 0; signature `adhoc` (no developer team, **not notarized**). File SHA-256 `505606a0a5920a861d0e668ba62e40d2fd1be48e6d3d2571e4716bcb4a1c18bb`.
+- **Actual installer smoke:** `npm run smoke:installer` PASS; verified DMG checksum and mount, copied app to temporary isolated location, launched GUI/credential-isolation tests, and verified removal of app leaves fixture user data intact. Report `.cache/acceptance/installer/installer-result.json`: `installer=true`, `startup=true`, `uninstallRetainsData=true`.
+- **Actual packaged MCP test:** Opened bundled `computer-use/app/macos-computer-use-stdio.cjs` with bundled Node using a temporary `LOCALHARNESS_HOME`; registered tool metadata includes `unity.local`, macOS, device UUID. `get_session` **without** `target_device_id` returned `state=none`; a wrong explicit ID returned `CU_TARGET_DEVICE_MISMATCH`. No native mouse session was opened.
+- **Release limitations:** Full test suite `npm test` is **354 PASS / 1 FAIL / 9 SKIP**, with existing macOS real screenshot probe timeout. Real pointer drag and Windows real-device acceptance remain unverified. Client-side intent policy for multi-device ambiguous prompts cannot be enforced from an independent Harness server, only communicated through MCP tool discovery metadata/description. No GitHub release or remote push performed.
+
 ## Release 0.7.1 — automatic Computer Use device binding (2026-10-21)
 
 - **Behavior:** device ID / name / OS advertised via MCP tool registration; ChatGPT chooses the connector based on available tools and user's requested target. `target_device_id` becomes optional and is not exposed to end users; selected connector binds the local ID automatically. An explicitly wrong ID is rejected before native input. Multiple connected computers with ambiguous intent require the chat client to ask for a friendly name; no false assertion of a host-level modal.

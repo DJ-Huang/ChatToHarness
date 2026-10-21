@@ -1,5 +1,13 @@
 # Development record — Windows computer use
 
+## Release 0.7.1 — automatic Computer Use device binding (2026-10-21)
+
+- **Behavior:** device ID / name / OS advertised via MCP tool registration; ChatGPT chooses the connector based on available tools and user's requested target. `target_device_id` becomes optional and is not exposed to end users; selected connector binds the local ID automatically. An explicitly wrong ID is rejected before native input. Multiple connected computers with ambiguous intent require the chat client to ask for a friendly name; no false assertion of a host-level modal.
+- **Entry points:** app-owned Computer Use and standalone Mac/Windows stdio registrations share `app/computer-use-devices.cjs`. The already authorized, platform-local window permissions remain unchanged.
+- **Version:** `package.json` and `package-lock.json` = 0.7.1; release notes `release-notes/v0.7.1.md`. macOS-only build and tests; Windows real-device acceptance is explicitly pending.
+- **Validation, macOS development checkout:** device/session routing and stdio discovery focused suite **25 PASS, 0 FAIL**. Full `npm test`: **354 PASS / 1 FAIL / 9 SKIP** of 364; failure: `tests/mac-native-observe-glow.test.cjs` helper `probe_window` timed out at 30 seconds (existing native ScreenCaptureKit issue; not represented as PASS). Real cross-display drag remains pending. Installer verification to be appended after build.
+
+
 ## Device-bound Computer Use tool registration — 2026-10-21
 
 - **Request:** Replace conditional multi-device roster/dialog dependency with an unconditional requirement for an explicit target device. Every Harness reports its own stable `cu-UUID`, hostname and OS at MCP Computer Use registration.

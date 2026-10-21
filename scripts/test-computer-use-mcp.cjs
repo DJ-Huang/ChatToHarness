@@ -49,7 +49,7 @@ async function main() {
   const targetDeviceId=computer._meta?.['com.chattoharness/device']?.id;
   assert.ok(targetDeviceId,'Device-bound Computer Use registration is required');
   async function call(args) { return client.callTool({name: 'windows-computer__computer_use',
-    arguments: {...args,target_device_id:targetDeviceId}}); }
+    arguments: args}); }
   report.realMcp = true;
   report.localHarnessGateway=true; report.tool='windows-computer__computer_use';
   const targetInfo=await command({action:'report'});

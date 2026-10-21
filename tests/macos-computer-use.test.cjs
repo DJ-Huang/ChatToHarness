@@ -111,12 +111,12 @@ test('macOS MCP stdio discovers tool and reports helper permission denial safely
   assert.ok(device?.id && device?.name);
   assert.equal(device.platform,'darwin');
   assert.equal(entry.inputSchema.properties.target_device_id.const,device.id);
-  assert.ok(entry.inputSchema.required.includes('target_device_id'));
-  const rejected=await client.callTool({name:'computer_use',arguments:{action:'get_session'}});
-  assert.equal(rejected.structuredContent.code,'CU_DEVICE_SELECTION_REQUIRED');
-  const status=await client.callTool({name:'computer_use',arguments:{action:'get_session',target_device_id:device.id}});
+  assert.equal(entry.inputSchema.required.includes('target_device_id'),false);
+  const rejected=await client.callTool({name:'computer_use',arguments:{action:'get_session',target_device_id:'cu-00000000-0000-4000-8000-000000000000'}});
+  assert.equal(rejected.structuredContent.code,'CU_TARGET_DEVICE_MISMATCH');
+  const status=await client.callTool({name:'computer_use',arguments:{action:'get_session'}});
   assert.equal(status.structuredContent.state,'none');
-  const list=await client.callTool({name:'computer_use',arguments:{action:'list_windows',target_device_id:device.id}});
+  const list=await client.callTool({name:'computer_use',arguments:{action:'list_windows'}});
   assert.ok(Array.isArray(list.structuredContent.windows) ||
     ['CU_SCREEN_RECORDING_REQUIRED','CU_HELPER_UNAVAILABLE','CU_SESSION_CLOSED'].includes(list.structuredContent.code));
 });
@@ -140,7 +140,7 @@ test('staged Mac bundle exposes MCP tool with bundled Node and isolated dependen
   const id=tools.tools[0]._meta?.['com.chattoharness/device']?.id;
   assert.ok(id);
   assert.equal(tools.tools[0].inputSchema.properties.target_device_id.const,id);
-  const state=await client.callTool({name:'computer_use',arguments:{action:'get_session',target_device_id:id}});
+  const state=await client.callTool({name:'computer_use',arguments:{action:'get_session'}});
   assert.equal(state.structuredContent.state,'none');
 });
 

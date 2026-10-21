@@ -65,7 +65,7 @@ test('permission loss during a tool call stops the native controller, hides tool
    onPermissionRequired:p=>{requested++;popup=p}});
  assert.equal((await cu.checkPermissions()).granted,true);
  cu.setEnabled(true);
- const answer=await cu.call({action:'click',session_id:'x',target_device_id:cu.deviceIdentity.id});
+ const answer=await cu.call({action:'click',session_id:'x'});
  assert.equal(answer.structuredContent.code,'CU_ACCESSIBILITY_REQUIRED');
  assert.equal(stopped,1);
  assert.equal(cu.status().registered,false);
@@ -80,7 +80,7 @@ test('revoked consent is not treated as macOS TCC and Windows never asks for Mac
    createWindows:()=>({stop(){},async call(){return{structuredContent:{code:'CU_CONSENT_DENIED'}};}}),
    onPermissionRequired:p=>{required=p}});
  cu.setEnabled(true);
- const r=await cu.call({action:'open_session',target_device_id:cu.deviceIdentity.id});
+ const r=await cu.call({action:'open_session'});
  assert.equal(r.structuredContent.code,'CU_CONSENT_DENIED');
  assert.equal(cu.definition(),null);
  assert.equal(required.platform,'win32');

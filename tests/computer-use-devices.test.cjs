@@ -24,15 +24,15 @@ test('Computer Use device identity remains stable across app restarts and host r
   assert.throws(()=>localComputerIdentity(path.join(root,'mac')),/CU_DEVICE_ID_INVALID/);
 });
 
-test('Every call requires an explicit matching device ID, with no presence roster',()=>{
-  assert.deepEqual(deviceSelection(mac,undefined),{code:'CU_DEVICE_SELECTION_REQUIRED',device:mac});
-  assert.deepEqual(deviceSelection(mac,''),{code:'CU_DEVICE_SELECTION_REQUIRED',device:mac});
+test('Chosen connector self-binds device; an explicit wrong ID still fails closed',()=>{
+  assert.equal(deviceSelection(mac,undefined),null);
+  assert.equal(deviceSelection(mac,'').code,'CU_INVALID_ARGUMENT');
   assert.equal(deviceSelection(mac,mac.id),null);
   assert.deepEqual(deviceSelection(mac,win.id),{code:'CU_TARGET_DEVICE_MISMATCH',device:mac});
   assert.equal(deviceSelection(mac,42).code,'CU_INVALID_ARGUMENT');
 });
 
-test('Two harnesses publish distinct device metadata and refuse missing or incorrect ID before native input',async t=>{
+test('Two harnesses advertise distinct devices, route without UUID input and reject incorrect explicit IDs',async t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'cth-device-gate-'));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   fs.mkdirSync(path.join(root,'computer-use'));
@@ -54,29 +54,28 @@ test('Two harnesses publish distinct device metadata and refuse missing or incor
     assert.match(tool.title,new RegExp(device.name));
     assert.match(tool.description,new RegExp(device.id));
     assert.deepEqual(tool._meta['com.chattoharness/device'],device);
-    assert.ok(tool.inputSchema.required.includes('target_device_id'));
+    assert.equal(tool.inputSchema.required.includes('target_device_id'),false);
     assert.equal(tool.inputSchema.properties.target_device_id.const,device.id);
   }
   assert.notEqual(macTool.title,winTool.title);
   for(const [i,cu] of switches.entries()){
-    const missing=await cu.call({action:'list_windows'});
-    assert.equal(missing.structuredContent.code,'CU_DEVICE_SELECTION_REQUIRED');
-    assert.equal(missing.structuredContent.operation_executed,false);
+    assert.equal(cu.definition()._meta['com.chattoharness/device'].id,devices[i].id);
     assert.equal((await cu.call({action:'open_session',target_device_id:devices[1-i].id})).structuredContent.code,'CU_TARGET_DEVICE_MISMATCH');
   }
   assert.deepEqual(starts,{darwin:0,win32:0});
-  const open=await switches[0].call({action:'open_session',target_device_id:mac.id});
+  const open=await switches[0].call({action:'open_session'});
   assert.equal(open.structuredContent.ok,true);
   assert.deepEqual(starts,{darwin:1,win32:0});
-  const releaseMissing=await switches[0].call({action:'mouse_up',session_id:'session-123'});
-  assert.equal(releaseMissing.structuredContent.code,'CU_DEVICE_SELECTION_REQUIRED');
-  const release=await switches[0].call({action:'mouse_up',session_id:'session-123',target_device_id:mac.id});
+  const release=await switches[0].call({action:'mouse_up',session_id:'session-123'});
   assert.equal(release.structuredContent.ok,true);
-  const closed=await switches[0].call({action:'close_session',session_id:'session-123',target_device_id:mac.id});
+  const closed=await switches[0].call({action:'close_session',session_id:'session-123'});
   assert.equal(closed.structuredContent.ok,true);
   assert.deepEqual(inputs.map(e=>e.input),[
     {action:'open_session'}, {action:'mouse_up',session_id:'session-123'},{action:'close_session',session_id:'session-123'}
   ]);
+  const winCall=await switches[1].call({action:'list_windows'});
+  assert.equal(winCall.structuredContent.ok,true);
+  assert.deepEqual(starts,{darwin:1,win32:1});
 });
 
 test('A published device-bound computer_use schema survives MCP manager tool enumeration',t=>{
@@ -93,5 +92,6 @@ test('A published device-bound computer_use schema survives MCP manager tool enu
   const tools=manager.listTools().tools;
   assert.equal(tools.length,1);
   assert.equal(tools[0].inputSchema.properties.target_device_id.const,mac.id);
+  assert.equal(tools[0].inputSchema.required.includes('target_device_id'),false);
   assert.deepEqual(tools[0]._meta['com.chattoharness/device'],mac);
 });

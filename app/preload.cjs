@@ -16,8 +16,12 @@ contextBridge.exposeInMainWorld('localHarness',Object.freeze({
   mcpTestServer:id=>call('mcp-test-server',id),mcpSetToolPolicy:input=>call('mcp-set-tool-policy',input),
   mcpSetAllowAllTools:enabled=>call('mcp-set-allow-all-tools',enabled),
   mcpSetComputerUse:enabled=>call('mcp-set-computer-use',enabled),
+  mcpComputerUsePermissions:request=>call('mcp-computer-use-permissions',request),
+  mcpComputerUseDismissPermissions:()=>call('mcp-computer-use-dismiss-permissions'),
+  mcpComputerUseOpenPermissionSettings:name=>call('mcp-computer-use-open-permission-settings',name),
   mcpPreviewImport:text=>call('mcp-preview-import',text),mcpCommitImport:id=>call('mcp-commit-import',id),
   mcpExport:()=>call('mcp-export'),mcpResolveApproval:input=>call('mcp-resolve-approval',input),
+  onShowComputerUsePermissions:listener=>{if(typeof listener!=='function')return()=>{};const handler=()=>listener();ipcRenderer.on('localharness:show-computer-use-permissions',handler);return()=>ipcRenderer.removeListener('localharness:show-computer-use-permissions',handler);},
   onShowUpdates:listener=>{if(typeof listener!=='function')return()=>{};const handler=()=>listener();ipcRenderer.on('localharness:show-updates',handler);return()=>ipcRenderer.removeListener('localharness:show-updates',handler);},
   onState:listener=>{if(typeof listener!=='function')return()=>{};const handler=(_event,value)=>listener(value);ipcRenderer.on('localharness:state',handler);return()=>ipcRenderer.removeListener('localharness:state',handler);},
 }));

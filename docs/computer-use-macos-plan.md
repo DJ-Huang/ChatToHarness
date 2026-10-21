@@ -1,5 +1,13 @@
 # macOS Computer Use — execution plan and evidence
 
+## BaseComputerUse and permission prompt acceptance — 2026-10-21
+
+- `MacComputerUse extends BaseComputerUse` and no longer imports or extends Windows code. Packaged macOS app contains base, image codec, Mac adapter and the Swift helper, but no Windows native executable or Windows-only JS adapters.
+- MCP Servers Computer Use toggle requires native read-only `permission_status` first; if either Screen Recording or Accessibility is missing, it shows a local user-facing dialog identifying each grant. Explicit user clicks can open macOS Privacy & Security or call native `request_permissions`. Never request permissions just because the UI is displayed or a client uses `tools/list`.
+- Runtime native `CU_SCREEN_RECORDING_REQUIRED` or `CU_ACCESSIBILITY_REQUIRED`, including delayed session-start failures, stops the control session and brings the permission guidance forward. Granting OS access does not automatically replay an uncertain input. After granting, user must recheck and start with a fresh observation.
+- TCC belongs to the signing identity of the native app/helper. Ad-hoc local builds and installed production builds may have different grants; prompt links alone are not evidence of granted permission.
+
+
 ## MCP Servers built-in Computer Use toggle — 2026-10-21
 
 - **Native Electron UI integration:** `node scripts/ui-smoke.cjs --dev` PASS on this Mac, checking and unchecking the new checkbox in a temporary profile, proving persistent enable/disable and no third-party server import. Pending UI state is rendered optimistically until the local IPC returns.

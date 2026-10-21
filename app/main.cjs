@@ -28,7 +28,7 @@ const home=storageDirectory({platform,userHome:os.homedir(),appData:process.env.
 app.setName(testMode?'ChatToHarness Acceptance '+require('node:crypto').createHash('sha256').update(home).digest('hex').slice(0,12):platform==='darwin'?'LocalHarness':product);
 app.setPath('userData',home);
 let history;
-let window,tray,trayMenu,settings,runtime,updater,mcpSettings,mcpManager,computerUse,fatal='',quitting=false,installing=false,quitReady=false,queue=Promise.resolve(),actionEpoch=0;
+let window,tray,trayMenu,settings,runtime,updater,mcpSettings,mcpManager,computerUse,permissionPromptVisible=false,computerUseIntentEpoch=0,fatal='',quitting=false,installing=false,quitReady=false,queue=Promise.resolve(),actionEpoch=0;
 const indexURL=pathToFileURL(path.join(__dirname,'index.html')).href;
 const resources=(testMode&&process.env.LOCALHARNESS_RESOURCES)|| (app.isPackaged?process.resourcesPath:(process.env.LOCALHARNESS_RESOURCES||path.join(__dirname,'..','resources')));
 const links=Object.freeze({
@@ -63,7 +63,7 @@ function executionToLog(row){
   log('execution',{request_id:row.request_id,tool:row.tool,service:row.service,
     state:row.state,delivery:row.delivery,error_code:row.error_code||undefined});
 }
-function state(){return {settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:{...(mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false}),computerUse:computerUse?.status()||{enabled:false,available:false,registered:false,platform}},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
+function state(){return {settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:{...(mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false}),computerUse:{...(computerUse?.status()||{enabled:false,available:false,registered:false,platform}),permissionPromptVisible}},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
 function publish(){const value=state();if(window&&!window.isDestroyed())window.webContents.send('localharness:state',value);refreshTray();}
 function show(){if(quitting)return;if(!window||window.isDestroyed())createWindow();if(window.isMinimized())window.restore();window.show();window.focus();}
 function createWindow(){
@@ -188,20 +188,58 @@ function registerIPC(){
   bind('mcp-test-server',mcp(id=>action(()=>mcpManager.test(id))));
   bind('mcp-set-tool-policy',mcp(input=>action(()=>mcpManager.setToolPolicy(input))));
   bind('mcp-set-allow-all-tools',mcp(enabled=>action(()=>mcpManager.setAllowAllTools(enabled))));
+  // Permission checks are read-only until the user explicitly requests an OS
+  // prompt. A revoked grant must hide the tool and never replay input.
+  const permissionRequired=permission=>{
+    permissionPromptVisible=true;
+    computerUse.permission=permission;
+    try{preferences.setComputerUseEnabled(false);}catch{ /* native input already stopped */ }
+    mcpManager.changed();
+    publish();
+    if(!quitting&&!installing) {
+      show();
+      window?.webContents.send('localharness:show-computer-use-permissions');
+    }
+  };
+  const checkedEnable=async({request=false,epoch=computerUseIntentEpoch}={})=>{
+    if(!computerUse?.available)throw new Error('CU_HELPER_UNAVAILABLE');
+    const permission=await computerUse.checkPermissions({request});
+    if(epoch!==computerUseIntentEpoch)return;
+    if(!permission.granted) {
+      computerUse.setEnabled(false);
+      permissionRequired(permission);
+      return;
+    }
+    computerUse.setEnabled(true);
+    try {preferences.setComputerUseEnabled(true);}
+    catch(error){computerUse.setEnabled(false);mcpManager.changed();throw error;}
+    permissionPromptVisible=false;
+    mcpManager.changed();
+  };
   bind('mcp-set-computer-use',mcp(enabled=>{
     if(typeof enabled!=='boolean')throw new Error('MCP_INVALID_CONFIG');
-    // Disabling is safety-critical: stop native input synchronously, before
-    // waiting behind any ongoing UI action or connection operation.
-    if(!enabled){computerUse.setEnabled(false);mcpManager.changed();}
-    return action(()=>{
-      if(enabled&&!computerUse?.available)throw new Error('CU_HELPER_UNAVAILABLE');
-      if(enabled){
-        computerUse.setEnabled(true);
-        try{preferences.setComputerUseEnabled(true);}
-        catch(error){computerUse.setEnabled(false);mcpManager.changed();throw error;}
-      }else preferences.setComputerUseEnabled(false);
-      mcpManager.changed();
+    const epoch=++computerUseIntentEpoch;
+    if(!enabled){ computerUse.setEnabled(false);permissionPromptVisible=false;mcpManager.changed(); }
+    return action(async()=>{
+      if(enabled)await checkedEnable({epoch});
+      else preferences.setComputerUseEnabled(false);
     });
+  }));
+  bind('mcp-computer-use-permissions',mcp(request=>{
+    if(typeof request!=='boolean')throw new Error('MCP_INVALID_CONFIG');
+    const epoch=++computerUseIntentEpoch;
+    return action(async()=>checkedEnable({request,epoch}));
+  }));
+  bind('mcp-computer-use-dismiss-permissions',mcp(()=>{
+    permissionPromptVisible=false;publish();return state();
+  }));
+  bind('mcp-computer-use-open-permission-settings',mcp(async name=>{
+    if(platform!=='darwin'||!['screen_recording','accessibility'].includes(name))throw new Error('CU_INVALID_ARGUMENT');
+    const url=name==='screen_recording'
+      ? 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+      : 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
+    await shell.openExternal(url);
+    return state();
   }));
   bind('mcp-preview-import',mcp(text=>mcpSettings.previewImport(text)));
   bind('mcp-commit-import',mcp(id=>action(()=>{mcpSettings.commitImport(id);mcpManager.changed();})));
@@ -250,7 +288,15 @@ else{
       mcpSettings=new McpSettings(home,safeStorage);
       const {HarnessServices}=require('./harness-services.cjs');
       const {ComputerUseSwitch}=require('./builtin-computer-use.cjs');
-      computerUse=new ComputerUseSwitch({platform,resources,enabled:preferences.computerUseEnabled});
+      computerUse=new ComputerUseSwitch({platform,resources,enabled:false,
+        onPermissionRequired:permission=>{
+          permissionPromptVisible=true;
+          computerUse.permission=permission;
+          try {preferences.setComputerUseEnabled(false);} catch { /* keep control stopped */ }
+          mcpManager?.changed();
+          publish();
+          if(!quitting&&!installing){show();window?.webContents.send('localharness:show-computer-use-permissions');}
+        }});
       const services=new HarnessServices({computerUse,home,nodePath:runtime.paths.node,processHost:runtime.paths.processHost,engineEntry:runtime.paths.desktopCommander,configHome:runtime.localHome,versions,
         build:require('./build-identity.cjs').captureBuild({root:path.join(__dirname,'..'),resources,packaged:app.isPackaged}),
         runtime:()=>runtime.status(),catalog:()=>mcpManager?.visibleTools()||[],mcp:()=>mcpManager?.status()||{}});
@@ -268,6 +314,24 @@ else{
     Menu.setApplicationMenu(applicationMenu());
     app.setAboutPanelOptions?.({applicationName:product,applicationVersion:app.getVersion(),copyright:'MIT · DJ-Huang'});
     registerIPC();createWindow();createTray();log('started');
+    if(!fatal&&preferences.computerUseEnabled){
+      const epoch=computerUseIntentEpoch;
+      void computerUse.checkPermissions().then(permission=>{
+        if(epoch!==computerUseIntentEpoch||!preferences.computerUseEnabled)return;
+        if(!permission.granted){
+          permissionPromptVisible=true;
+          preferences.setComputerUseEnabled(false);
+          publish();
+          show();
+          window?.webContents.send('localharness:show-computer-use-permissions');
+        }else{computerUse.setEnabled(true);mcpManager.changed();}
+      }).catch(()=>{
+        computerUse.permission={platform,granted:false,missing:[],code:'CU_PERMISSION_CHECK_FAILED'};
+        permissionPromptVisible=true;
+        preferences.setComputerUseEnabled(false);
+        publish();
+      });
+    }
     if(!fatal&&settings.public().autoConnect&&settings.public().keySaved){
       window.webContents.once('did-finish-load',()=>{void connect().catch(()=>publish());});
     }

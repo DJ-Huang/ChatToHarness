@@ -1,11 +1,11 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const {WindowsComputerUse, NativeConnection, definition: windowsDefinition} = require('./windows-computer-use.cjs');
+const {BaseComputerUse,baseDefinition,SCREENSHOT_DESCRIPTION} = require('./base-computer-use.cjs');
 
 // A distinct service ID preserves the Windows MCP tool's explicit grants.
 // Schema, screenshot delivery, session IDs and freshness rules are shared.
-const definition = JSON.parse(JSON.stringify(windowsDefinition));
+const definition = JSON.parse(JSON.stringify(baseDefinition));
 definition.title = 'macOS computer use';
 definition.description = [
   'macOS Computer Use. Local macOS Screen Recording and Accessibility permissions are required in addition to MCP tool permission.',
@@ -16,17 +16,18 @@ definition.description = [
   'CTRL+A/C/V/Z/Y are mapped to macOS Command shortcuts. A supported target may affect files and network; folder permissions are not an input sandbox.',
   'Screenshot delivery follows the same bounded, lossless, single-use observation protocol as Windows. No full-screen capture fallback or persistent screenshot files.',
   'If permissions are missing, enable them in macOS Privacy & Security and reopen the service; never retry uncertain input automatically.'
-].join(' ');
-class MacComputerUse extends WindowsComputerUse {
+].join(' ') + SCREENSHOT_DESCRIPTION;
+class MacComputerUse extends BaseComputerUse {
   constructor(options = {}) {
     const helperPath = fs.existsSync(path.join(__dirname, '../ChatToHarness.MacComputerUse'))
       ? path.join(__dirname, '../ChatToHarness.MacComputerUse')
       : path.resolve(__dirname, '../resources/computer-use/ChatToHarness.MacComputerUse');
+    const {supportedPlatform: _ignored, ...requested} = options;
     super({
       platform: process.platform,
       supportedPlatform: 'darwin',
       authorizationMode: process.env.CTH_COMPUTER_USE_AUTHORIZATION_MODE || 'all_windows',
-      helperPath, ...options
+      helperPath, ...requested, supportedPlatform: 'darwin'
     });
   }
 }

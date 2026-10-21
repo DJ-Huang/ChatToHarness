@@ -1,17 +1,21 @@
 'use strict';
 const fs=require('node:fs');
 const path=require('node:path');
+const {ComputerUsePermissions,permissionCode}=require('./computer-use-permissions.cjs');
 
 // App-owned, opt-in Computer Use. Not an imported/untrusted external MCP.
 // Only the local platform's helper is eligible. Merely listing the tool never
 // starts the native process or bypasses Screen Recording/Accessibility grants.
 class ComputerUseSwitch {
-  constructor({platform=process.platform,resources,enabled=false,createMac,createWindows}={}) {
+  constructor({platform=process.platform,resources,enabled=false,createMac,createWindows,permissions,onPermissionRequired}={}) {
     this.platform=platform;
     this.resources=resources;
     this.enabled=enabled===true;
     this.createMac=createMac;
     this.createWindows=createWindows;
+    this.permissions=permissions || new ComputerUsePermissions({platform,helper:this.helper});
+    this.onPermissionRequired=onPermissionRequired;
+    this.permission=null;
     this.controller=null;
     this.active=new Set();
     this.epoch=0;
@@ -24,6 +28,7 @@ class ComputerUseSwitch {
   get available() {return Boolean(this.helper&&fs.existsSync(this.helper));}
   status() {
     return {enabled:this.enabled,available:this.available,
+      permission:this.permission,
       platform:this.platform,registered:this.enabled&&this.available,
       native:this.platform==='darwin'?'macOS':this.platform==='win32'?'Windows':null};
   }
@@ -37,14 +42,28 @@ class ComputerUseSwitch {
     if(this.platform==='darwin') {
       if(this.createMac)return this.createMac();
       const {MacComputerUse}=require('./macos-computer-use.cjs');
-      return new MacComputerUse({platform:'darwin',helperPath:this.helper,authorizationMode:'all_windows'});
+      return new MacComputerUse({platform:'darwin',helperPath:this.helper,authorizationMode:'all_windows',onPermissionDenied:code=>this.noticePermission(code)});
     }
     if(this.platform==='win32') {
       if(this.createWindows)return this.createWindows();
       const {WindowsComputerUse}=require('./windows-computer-use.cjs');
-      return new WindowsComputerUse({platform:'win32',helperPath:this.helper,authorizationMode:'all_windows'});
+      return new WindowsComputerUse({platform:'win32',helperPath:this.helper,authorizationMode:'all_windows',onPermissionDenied:code=>this.noticePermission(code)});
     }
     throw new Error('CU_PLATFORM_UNSUPPORTED');
+  }
+  async checkPermissions({request=false}={}) {
+    const permission=await this.permissions.check({request});
+    this.permission=permission;
+    return permission;
+  }
+  noticePermission(code) {
+    if(!this.enabled || !permissionCode({code}))return;
+    this.setEnabled(false);
+    this.permission={...(this.permission||{platform:this.platform}),granted:false,
+      missing:code==='CU_SCREEN_RECORDING_REQUIRED'?['screen_recording']:
+        code==='CU_ACCESSIBILITY_REQUIRED'?['accessibility']:[],
+      code};
+    this.onPermissionRequired?.(this.permission);
   }
   setEnabled(enabled) {
     if(typeof enabled!=='boolean')throw new Error('CU_INVALID_ENABLED');
@@ -72,9 +91,15 @@ class ComputerUseSwitch {
     try {
       if(!this.controller)this.controller=this.newController();
       const result=await this.controller.call(args,{signal:abort.signal});
+      if(epoch===this.epoch && this.enabled) {
+        const code=permissionCode(result);
+        if(code) { this.noticePermission(code); return result; }
+      }
       // A disabling user action wins over a late screenshot or input result.
       return epoch===this.epoch&&this.enabled&&!abort.signal.aborted?result:this.denied(true);
-    } catch {
+    } catch (error) {
+      if(epoch===this.epoch && this.enabled && permissionCode({code:error?.code}))
+        this.noticePermission(error.code);
       return this.denied(true);
     } finally {
       this.active.delete(abort);

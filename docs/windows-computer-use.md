@@ -1,5 +1,12 @@
 # Windows computer use (source preview)
 
+## Shared BaseComputerUse and Windows consent — 2026-10-21
+
+- `WindowsComputerUse extends BaseComputerUse`. Windows installer includes base, image codec, Windows adapter and `ChatToHarness.ComputerUse.exe`, excluding Mac Swift helper and Mac-only JS adapters.
+- Windows does **not** call macOS TCC APIs. Desktop window authorization remains in the Windows native helper. A runtime `CU_CONSENT_DENIED` stops the current session, removes the visible Computer Use tool and shows a platform-specific retry/consent explanation; it does not offer macOS Privacy & Security controls or silently elevate privileges.
+- Cross-platform JS and MCP policy regression tests pass on macOS. Windows installer binary and real GUI remain to be verified on an actual Windows host.
+
+
 ## Built-in MCP Servers opt-in on Windows — 2026-10-21
 
 - The same MCP Servers checkbox is scoped to this Windows installation, disabled by default. When checked, **only** `WindowsComputerUse` with the packaged `ChatToHarness.ComputerUse.exe` is eligible for app-owned MCP `computer_use` registration.

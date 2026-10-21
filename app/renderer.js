@@ -331,6 +331,21 @@
       ? '当前设备缺少 Computer Use 原生组件。'
       : cu.enabled ? '已启用当前系统的 Computer Use；通道连接后自动提供工具。'
       : '已关闭：ChatGPT 无法发现或执行 Computer Use。');
+    const permission=cu.permission||{};
+    const prompt=byId('mcp-computer-use-permission-dialog');
+    prompt.hidden=cu.permissionPromptVisible!==true;
+    const missing=Array.isArray(permission.missing)?permission.missing:[];
+    const title=missing.map(x=>x==='screen_recording'?t('屏幕录制'):x==='accessibility'?t('辅助功能'):x).join('、');
+    byId('mcp-computer-use-permission-detail').textContent=cu.platform==='darwin'
+      ? title ? t('缺少系统权限：{permissions}',{permissions:title}) : t('权限检查失败，请重新检查或在系统设置中确认。')
+      : t('Windows 窗口授权未完成。请再次选择目标窗口并确认授权。');
+    const mac=cu.platform==='darwin';
+    byId('mcp-computer-use-request').hidden=!mac;
+    byId('mcp-computer-use-settings-screen').hidden=!mac;
+    byId('mcp-computer-use-settings-accessibility').hidden=!mac;
+    for(const id of ['mcp-computer-use-request','mcp-computer-use-settings-screen',
+      'mcp-computer-use-settings-accessibility','mcp-computer-use-recheck',
+      'mcp-computer-use-permission-dismiss'])byId(id).disabled=busy;
     byId('mcp-allow-all-tools').checked = allowAllTools;
     byId('mcp-allow-all-tools').disabled = busy;
     byId('mcp-policy-summary').textContent = t(allowAllTools
@@ -700,6 +715,23 @@
     return mcpPerform('computer-use', () => api.mcpSetComputerUse(enabled))
       .finally(() => { computerUsePendingValue=null; render(); });
   });
+  byId('mcp-computer-use-request').addEventListener('click', () =>
+    mcpPerform('computer-use-permissions',()=>api.mcpComputerUsePermissions(true)));
+  byId('mcp-computer-use-recheck').addEventListener('click', () =>
+    mcpPerform('computer-use-permissions',()=>api.mcpComputerUsePermissions(false)));
+  byId('mcp-computer-use-settings-screen').addEventListener('click', () =>
+    mcpPerform('computer-use-settings',()=>api.mcpComputerUseOpenPermissionSettings('screen_recording')));
+  byId('mcp-computer-use-settings-accessibility').addEventListener('click', () =>
+    mcpPerform('computer-use-settings',()=>api.mcpComputerUseOpenPermissionSettings('accessibility')));
+  byId('mcp-computer-use-permission-dismiss').addEventListener('click', () =>
+    mcpPerform('computer-use-dismiss',()=>api.mcpComputerUseDismissPermissions()));
+  const showComputerPermissions=()=>{
+    showTab('mcp');
+    const dialog=byId('mcp-computer-use-permission-dialog');
+    dialog.scrollIntoView?.({block:'nearest'});
+    byId('mcp-computer-use-recheck').focus();
+  };
+  api?.onShowComputerUsePermissions?.(showComputerPermissions);
   byId('mcp-allow-all-tools').addEventListener('change', event => {
     const enabled = event.target.checked;
     return mcpPerform('allow-all-tools', () => api.mcpSetAllowAllTools(enabled));
@@ -994,7 +1026,10 @@
     render();
     return;
   }
-  const unsubscribe = api.onState(applyState);
+  const unsubscribe = api.onState(state=>{
+    applyState(state);
+    if(state?.mcp?.computerUse?.permissionPromptVisible && activeTab!=='mcp') showComputerPermissions();
+  });
   window.addEventListener('beforeunload', () => { if (typeof unsubscribe === 'function') unsubscribe(); }, { once: true });
-  api.getState().then((state) => applyState(state)).catch((error) => { actionError = safeMessage(error); render(); });
+  api.getState().then((state) => {applyState(state);if(state?.mcp?.computerUse?.permissionPromptVisible)showComputerPermissions();}).catch((error) => { actionError = safeMessage(error); render(); });
 })();

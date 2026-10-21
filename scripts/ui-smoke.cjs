@@ -223,16 +223,30 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   const computerToggle=page.locator('#mcp-computer-use');
   if(nativeBefore.mcp.computerUse.available){
     await computerToggle.check();
-    await page.waitForFunction(() => document.getElementById('mcp-computer-use-state')
-      .textContent.includes('已启用当前系统'));
-    assert.equal((await getState()).mcp.computerUse.enabled,true);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(stateHome,'preferences.json'),'utf8')).computerUseEnabled,true);
-    assert.equal((await getState()).mcp.servers.length,1,'Computer Use must not create an external MCP server');
-    await computerToggle.uncheck();
-    await page.waitForFunction(() => document.getElementById('mcp-computer-use-state')
-      .textContent.includes('已关闭'));
-    assert.equal((await getState()).mcp.computerUse.enabled,false);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(stateHome,'preferences.json'),'utf8')).computerUseEnabled,false);
+    await page.waitForFunction(() => {
+      const modal=document.getElementById('mcp-computer-use-permission-dialog');
+      const enabled=document.getElementById('mcp-computer-use-state').textContent.includes('已启用当前系统');
+      return enabled || !modal.hidden;
+    });
+    const checked=await getState();
+    assert.equal(checked.mcp.servers.length,1,'Computer Use must not create an external MCP server');
+    if(checked.mcp.computerUse.permissionPromptVisible){
+      // TCC is identity-specific. An isolated app must fail closed and guide
+      // users, not silently authorize the host or mutate their system grants.
+      assert.equal(checked.mcp.computerUse.enabled,false);
+      assert.equal((await page.locator('#mcp-computer-use-permission-dialog').isVisible()),true);
+      assert.equal(JSON.parse(fs.readFileSync(path.join(stateHome,'preferences.json'),'utf8')).computerUseEnabled,false);
+      await page.locator('#mcp-computer-use-permission-dismiss').click();
+      await page.waitForFunction(()=>document.getElementById('mcp-computer-use-permission-dialog').hidden);
+    } else {
+      assert.equal(checked.mcp.computerUse.enabled,true);
+      assert.equal(JSON.parse(fs.readFileSync(path.join(stateHome,'preferences.json'),'utf8')).computerUseEnabled,true);
+      await computerToggle.uncheck();
+      await page.waitForFunction(() => document.getElementById('mcp-computer-use-state')
+        .textContent.includes('已关闭'));
+      assert.equal((await getState()).mcp.computerUse.enabled,false);
+      assert.equal(JSON.parse(fs.readFileSync(path.join(stateHome,'preferences.json'),'utf8')).computerUseEnabled,false);
+    }
   }
 
   await page.getByRole('button', { name: '测试连接', exact: true }).click();

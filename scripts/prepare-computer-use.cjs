@@ -5,11 +5,12 @@ const crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
 const {buildComputerUse} = require('./build-computer-use.cjs');
 const WINDOWS_FILES = ['computer-use/ChatToHarness.ComputerUse.exe',
+  'computer-use/app/base-computer-use.cjs',
   'computer-use/app/windows-computer-use.cjs', 'computer-use/app/computer-use-images.cjs',
   'computer-use/app/windows-computer-use-stdio.cjs', 'computer-use/configure.cjs',
   'computer-use/package.json', 'computer-use/package-lock.json'];
 const MACOS_FILES = ['computer-use/ChatToHarness.MacComputerUse',
-  'computer-use/app/windows-computer-use.cjs', 'computer-use/app/computer-use-images.cjs',
+  'computer-use/app/base-computer-use.cjs', 'computer-use/app/computer-use-images.cjs',
   'computer-use/app/macos-computer-use.cjs', 'computer-use/app/macos-computer-use-stdio.cjs',
   'computer-use/configure.cjs', 'computer-use/package.json', 'computer-use/package-lock.json'];
 const FILES = process.platform === 'darwin' ? MACOS_FILES : WINDOWS_FILES;
@@ -19,8 +20,13 @@ function prepareComputerUse(root, node) {
   const directory = path.join(root, 'resources/computer-use');
   fs.mkdirSync(path.join(directory, 'app'), {recursive: true});
   const appFiles = process.platform === 'darwin'
-    ? ['windows-computer-use.cjs', 'computer-use-images.cjs', 'macos-computer-use.cjs', 'macos-computer-use-stdio.cjs']
-    : ['windows-computer-use.cjs', 'windows-computer-use-stdio.cjs', 'computer-use-images.cjs'];
+    ? ['base-computer-use.cjs', 'computer-use-images.cjs', 'macos-computer-use.cjs', 'macos-computer-use-stdio.cjs']
+    : ['base-computer-use.cjs', 'computer-use-images.cjs', 'windows-computer-use.cjs', 'windows-computer-use-stdio.cjs'];
+  const excluded = process.platform === 'darwin'
+    ? ['windows-computer-use.cjs', 'windows-computer-use-stdio.cjs']
+    : ['macos-computer-use.cjs', 'macos-computer-use-stdio.cjs'];
+  for (const name of excluded) fs.rmSync(path.join(directory,'app',name), {force:true});
+  fs.rmSync(path.join(directory,process.platform==='darwin'?'ChatToHarness.ComputerUse.exe':'ChatToHarness.MacComputerUse'), {force:true});
   for (const name of appFiles) fs.copyFileSync(path.join(root, 'app', name), path.join(directory, 'app', name));
   fs.copyFileSync(path.join(root, 'scripts/computer-use-config.cjs'), path.join(directory, 'configure.cjs'));
   for (const name of ['package.json', 'package-lock.json']) fs.copyFileSync(path.join(root, name), path.join(directory, name));

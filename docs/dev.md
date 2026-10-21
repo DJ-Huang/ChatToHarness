@@ -1,5 +1,16 @@
 # Development record — Windows computer use
 
+## Computer Use cross-platform base and permission UX — 2026-10-21
+
+- **Issue:** watermoon/ChatToHarness #1, **branch:** `feat/computer-use`. Both OS native controllers now inherit `BaseComputerUse` for session lifecycle, window/screenshot protocol, stale-observation protection, chunked images, cancellation and error handling. Mac no longer extends or imports `WindowsComputerUse`; native adapter selection is fixed to the host platform.
+- **Build separation:** `scripts/packaging-platform.cjs` excludes opposite platform JS adapters and stdio entrypoints from `app.asar`, while `scripts/prepare-computer-use.cjs` stages only the current OS adapter + base + native executable and removes stale opposite OS files from resources. `electron-builder.config.cjs` applies the same filters to extraResources. `scripts/dev.cjs` fingerprint now includes both OS controller implementations and native Swift files; tests/dev.test.cjs fixture updated.
+- **Permissions:** `app/computer-use-permissions.cjs` runs the native Mac helper in read-only `permission_status` before enabling the switch, checks Screen Recording + Accessibility and fails closed. Windows does not invoke TCC; per-window consent remains native. `request_permissions` is invoked **only after a direct click** on the app's permission dialog.
+- **User flow:** MCP Servers checkbox stays off if Mac permissions are absent. A native app-owned Electron dialog appears with missing grants, explicit request, macOS Privacy & Security settings links, retry, and dismiss. Grant/recheck enables the tool and persists only if permission checks pass. Reboot with a saved enabled setting rechecks before registration. In-flight enable/disable operations are guarded against stale async completion.
+- **Runtime revocation:** `BaseComputerUse` reports asynchronous session-start permission denials before the tool client has polled; synchronous tool-call permission errors and input-blocking session states are also reported. The switch stops native input, cancels sessions, removes `computer_use` from MCP tools/list, and signals the Electron UI; input is not auto-replayed. Windows consent denial has a Windows-specific prompt without Mac settings.
+- **Verification:** `npm test` **351 total / 341 PASS / 0 FAIL / 10 SKIP**; `node scripts/release.cjs check` PASS. Real Electron development smoke passed with helper TCC grants absent (Screen Recording=false / Accessibility=false), showing local permission guidance without requesting native OS authorization. Windows behavior validated via simulated OS tests; live Windows GUI acceptance still pending.
+- **Next:** Commit, build macOS arm64 app, verify `app.asar` and native resource platform isolation, and run isolated installer smoke. Do not push, tag, auto-install, or grant OS permissions on behalf of the user. macOS Command+A, STOP and Glow visual acceptance remain open.
+
+
 ## Computer Use MCP Servers toggle installer acceptance — 2026-10-21
 
 - **Feature commit:** `0e73f1c`; **Electron UI follow-up commit:** `1a23c18`, local branch `feat/computer-use`. Windows/macOS each selects its own helper and stores the checkbox preference per device, not per Git project.

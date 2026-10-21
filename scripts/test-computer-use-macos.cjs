@@ -16,6 +16,6 @@ console.log('[Mac Computer Use] Compile native ScreenCaptureKit / Accessibility 
 run(process.execPath, ['scripts/build-computer-use.cjs']);
 console.log('[Mac Computer Use] MCP contract, screenshot chunking and TCC denial tests');
 run(process.execPath, ['--test', '--test-concurrency=1', 'tests/macos-computer-use.test.cjs', 'tests/mac-permission-diagnostics.test.cjs', 'tests/mac-native-observe-glow.test.cjs', 'tests/mac-readonly-mcp-real.test.cjs']);
-console.log('[Mac Computer Use] Automated acceptance: PASS');
-console.log('Real GUI clicks, local STOP/Esc, Retina mapping and signed-app Screen Recording grants');
-console.log('remain MANUAL acceptance gates. This script does not claim they passed.');
+console.log('[Mac Computer Use] Non-interactive tests completed (review pass and skip counts above).');
+console.log('Real GUI acceptance requires explicit opt-in: npm run test:computer-use-mac:gui');
+console.log('STOP button, modifier shortcut semantics, Retina/multi-display and installed-app TCC remain separate acceptance gates.');

@@ -1,5 +1,17 @@
 # Development record — Windows computer use
 
+## macOS Computer Use real GUI acceptance — 2026-10-21
+
+- **Priority / issue / branch:** macOS Computer Use P0; GitHub Issue #1; feat/computer-use. Windows acceptance explicitly deferred and its native/ComputerUse.cs change and Windows cursor test are not modified.
+- **TCC verified on the current Mac:** Screen Recording GRANTED, Accessibility GRANTED. No Input Monitoring permission required. macOS native input session reported state=ready, input_enabled=true, stop_hotkey=Esc, with successful screenshot observation and clean session close.
+- **Disposable AppKit fixture:** tests/mac-computer-use-gui-fixture.swift (only synthetic test controls and ephemeral state in system temp). Actual 480x368 native window, geometry [200,791,680,1159] in screenshot point space. Native CGEvent mouse click on fixture incremented click count to 1; Unicode text matched "MacCU-2026-OK"; BACKSPACE removed final character; scroll delta 3 generated one scroll event; consumed observation was refused with CU_STALE_OBSERVATION; close_session passed. No business window was mutated. GUI fixture and temp data were cleaned up.
+- **Esc emergency stop:** tests/mac-computer-use-esc-fixture.swift emits a real system Esc event only if the fixture PID is foreground. The passive event tap shut down the control helper, while the fixture app remained open. This verifies synthetic Esc delivery and listener response, not a manual human keyboard press. The on-screen STOP button has not been individually clicked/accepted.
+- **Test commands:** npm run test:computer-use-mac:gui (explicit, interactive, actual mouse/keyboard) PASS 2/2, 0 skipped, after running each GUI scenario in its own child process. Default npm run test:computer-use-mac PASS 12, FAIL 0, SKIP 2 (the existing ChatToHarness window was not visible during the run; the no-Accessibility test now correctly skips because Accessibility is granted).
+- **Newly discovered defect:** cross-platform CTRL+A mapped to Command+A does not actually select all in a native NSTextField. Follow-on synthetic events sometimes trip CU_USER_INPUT_ACTIVE. Do NOT mark modified-shortcut support as accepted. The native key-event path has been adjusted to explicitly release modifier key state; the Command+A semantic failure still needs a dedicated fix and re-test.
+- **Remaining real-device acceptance:** Command+A and other modifier shortcuts, on-screen STOP button, visual verification of pointer silhouette Glow, cross-display/Retina geometry and window movement, permission revocation, installed signed macOS build / DMG packaging.
+- **Next:** address shortcut semantics without disabling any input-active safety checks; run targeted GUI fixture acceptance again; do not change or accept Windows for this Mac milestone.
+
+
 ## macOS Computer Use P0 permission correction — 2026-10-20
 
 - User challenged why both Accessibility and Input Monitoring were required for Mac Computer Use. Apple Developer Technical Support confirms Accessibility grants both event posting and listening; separate Input Monitoring authorization is unnecessary when Accessibility is granted.

@@ -1,5 +1,30 @@
 # macOS Computer Use — execution plan and evidence
 
+## 2026-10-21 real macOS input acceptance
+
+| Gate | Actual result |
+| --- | --- |
+| Screen Recording + Accessibility TCC | **PASS:** both granted for executing native helper |
+| Native session with input enabled, real screen capture and close | **PASS** |
+| Disposable AppKit fixture real click + Unicode typing + BACKSPACE + scrolling | **PASS**, 1/1 |
+| Single-use observation and anti-replay on actual native input | **PASS** (CU_STALE_OBSERVATION) |
+| Global Esc system event closes helper, leaves target app untouched | **PASS**, 1/1, synthetic foreground-guarded Esc |
+| Full interactive acceptance runner | **PASS 2/2**, 0 skipped, explicit command |
+| Default noninteractive test run | **12 PASS**, 0 FAIL, **2 SKIP** because no ChatToHarness app window visible and the no-Accessibility test is inapplicable |
+| Cross-platform CTRL+A -> macOS Command+A in native text control | **FAIL:** does not select all; input-state interference observed in prior attempts |
+| On-screen STOP button | **NOT TESTED** |
+| Native Glow visual effect and multi-monitor/Retina placement | **NOT TESTED** |
+| Installed, signed Mac app identity / DMG and permission revocation | **NOT TESTED** |
+
+Real GUI tests are NOT in default `npm test` because they activate a disposable window and inject actual pointer/keyboard events. Run explicitly on a Mac with Screen Recording and Accessibility grants:
+
+```sh
+npm run test:computer-use-mac:gui
+```
+
+This command compiles both disposable Swift fixtures, checks the fixture is foreground before sending Esc, runs GUI interactions in isolated processes and removes temporary fixture executables. The combined keyboard shortcut remains an open functional defect and blocks full production acceptance. Windows native acceptance stays deferred.
+
+
 Date: 2026-10-20 · Priority: **P0 macOS** · Branch: `feat/computer-use` · [Issue #1](https://github.com/watermoon/ChatToHarness/issues/1).
 
 Windows native/installer acceptance is explicitly **deferred**. Do not change Windows desktop input behavior further unless needed for compatibility; the already made real-cursor-motion edit remains a separate unaccepted change.

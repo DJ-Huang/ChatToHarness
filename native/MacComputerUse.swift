@@ -429,8 +429,21 @@ final class MacComputerUse: NSObject {
     }
 
     private func key(_ code: CGKeyCode, flags: CGEventFlags = []) throws {
+        // Post shortcut's keyDown and keyUp carrying the modifier flags.
+        // Always send a final modifier keyUp with no flags to avoid leaving
+        // macOS in a synthetic Command/Shift-held state.
+        let modifier: CGKeyCode? = flags.contains(.maskCommand) ? 55 :
+                                   flags.contains(.maskShift) ? 56 : nil
+        defer {
+            if let modifier,
+               let release = CGEvent(keyboardEventSource: nil, virtualKey: modifier, keyDown: false) {
+                release.flags = []
+                release.post(tap: .cghidEventTap)
+            }
+        }
         for down in [true, false] {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { throw CUError.input }
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+            else { throw CUError.input }
             event.flags = flags
             event.post(tap: .cghidEventTap)
         }

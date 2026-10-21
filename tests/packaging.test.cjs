@@ -61,7 +61,7 @@ test('macOS PR builds allow only credential-free ad-hoc signing by default', () 
 });
 
 test('package keeps legacy identity and user data while exposing branded native installers', () => {
-  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
   assert.equal(manifest.version, require('../package-lock.json').version);
   assert.equal(manifest.build.appId, 'local.localharness.mac');
   assert.equal(manifest.build.productName, 'ChatToHarness');

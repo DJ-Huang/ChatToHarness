@@ -6,7 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 const {configuration} = require('../scripts/computer-use-config.cjs');
 const {FILES} = require('../scripts/prepare-computer-use.cjs');
-test('packaged computer-use config relocates bundled Node and entry without auto-enabling trust', t => {
+test('packaged computer-use config relocates bundled Node and entry without auto-enabling trust', {skip: process.platform !== 'win32'}, t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-config-test-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const directory = path.join(root, 'computer-use');
@@ -19,7 +19,7 @@ test('packaged computer-use config relocates bundled Node and entry without auto
   assert.deepEqual(Object.keys(config).sort(), ['args', 'command','env']);
   assert.equal(config.env.CTH_COMPUTER_USE_AUTHORIZATION_MODE,'all_windows');
 });
-test('Windows packaging carries native and JS resources but excludes developer launch config', () => {
+test('Windows packaging carries native and JS resources but excludes developer launch config', {skip: process.platform !== 'win32'}, () => {
   assert.ok(FILES.includes('computer-use/ChatToHarness.ComputerUse.exe'));
   assert.ok(FILES.includes('computer-use/app/windows-computer-use-stdio.cjs'));
   if (process.platform === 'win32') {

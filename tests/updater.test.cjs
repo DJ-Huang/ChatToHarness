@@ -32,6 +32,10 @@ test('stable numeric versions, platform selection, and development mode', async 
   assert.equal(newer('0.3.1', '0.3.1'), false);
   assert.equal(newer('0.3.0', '0.3.1'), false);
   assert.throws(() => newer('0.4.0-beta', '0.3.1'));
+  assert.equal(newer('v0.7.0', '0.7.0-beta'), true);
+  assert.equal(newer('v0.6.0', '0.7.0-beta'), false);
+  assert.equal(newer('v0.7.0', '0.7.0'), false);
+  assert.throws(() => newer('v0.7.0-beta', '0.7.0-beta'));
   const f = fixture(t);
   assert.equal((await f.updater.check()).phase, 'available');
   assert.equal(f.calls.length, 1, 'a check never downloads the installer');

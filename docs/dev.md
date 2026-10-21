@@ -1,5 +1,17 @@
 # Development record — Windows computer use
 
+## macOS 0.7.0-beta installer candidate — 2026-10-21
+
+- **Issue:** #1 (Computer Use), **branch:** `feat/computer-use`. User requested a **local macOS arm64 DMG** with exact app version `0.7.0-beta`; this is not a public GitHub Release, and no version tag or push is authorized.
+- **Version:** `package.json` / `package-lock.json` / lock root updated together via `npm version 0.7.0-beta --no-git-tag-version`.
+- **Beta compatibility:** `app/updater.cjs` accepts an installed prerelease when comparing to a published **stable** version; it still rejects published prerelease assets. `scripts/release.cjs check` accepts local beta version, but publication still requires a stable `vX.Y.Z` tag. UI smoke's mocked stable release is now an older version for beta builds.
+- **Cross-platform test precision:** Windows-only native packaging and stdio checks skip on macOS and continue running on Windows.
+- **Source checks:** `npm test`: 328 total, **318 PASS / 0 FAIL / 10 SKIP**. `node scripts/release.cjs check`: `Version verified: 0.7.0-beta`. Signed distribution is not configured; default Mac build uses ad-hoc signing without notarization.
+- **DMG:** Standard `npm run dist` produced a valid signed `.app`, but `dmgbuild` exceeded the local task time limit. A local macOS `hdiutil`-generated UDZO DMG, containing the signed app and an Applications shortcut, was created and verified successfully. A clean-commit rebuild and final installer smoke validation are required before this candidate is accepted.
+- **Initial installer smoke:** DMG mounted, app was copied to an isolated directory and image detached. The UI smoke reached Help but timed out at Update Check because it mocked a prerelease tag; fixed in source. Repeat smoke after clean rebuild.
+- **Remaining known Mac Computer Use limitations:** Command+A modifier shortcut, STOP button visual click, cursor Glow appearance and cross-display Retina visual acceptance still need independent acceptance. The beta package must not be advertised as a stable production release.
+
+
 ## Human-paced native pointer motion — 2026-10-21
 
 - **Key implementation commit:** e0a0f6c (real pointer trajectory, physical multi-monitor routes, source and local acceptance tests).

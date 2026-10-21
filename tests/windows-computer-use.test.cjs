@@ -256,7 +256,7 @@ test('computer use can close busy input and old completion cannot clear a newer 
   assert.equal((await service.call({action:'get_session'})).structuredContent.session_id,next);
   assert.equal(second.closed,false);service.stop();
 });
-test('computer use stdio MCP discovers tool without opening native UI', async t => {
+test('computer use stdio MCP discovers tool without opening native UI', {skip: process.platform !== 'win32'}, async t => {
   const {Client} = require('@modelcontextprotocol/sdk/client/index.js');
   const {StdioClientTransport} = require('@modelcontextprotocol/sdk/client/stdio.js');
   const path = require('node:path');

@@ -327,7 +327,10 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   await instance.evaluate(({net,app})=>{
     net.fetch=async url=>{
       if(url!=='https://api.github.com/repos/DJ-Huang/ChatToHarness/releases/latest')throw new Error('Unexpected update request');
-      const tag='v'+app.getVersion();
+      // The mocked published release must stay stable even when smoke testing
+      // a local prerelease installer. Use an older stable fixture version.
+      const current=app.getVersion();
+      const tag='v'+(current.includes('-')?'0.0.0':current);
       return new Response(JSON.stringify({tag_name:tag,draft:false,prerelease:false,published_at:'2026-10-17T00:00:00Z',html_url:'https://github.com/DJ-Huang/ChatToHarness/releases/tag/'+tag,assets:[]}),{status:200});
     };
   });

@@ -5,11 +5,14 @@ const crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const stable = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+// Local prerelease installer builds are permitted, but public release tags
+// remain strictly stable vX.Y.Z and cannot publish beta artifacts.
+const localVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 function version(tag = '', directory = root) {
   const manifest = JSON.parse(fs.readFileSync(path.join(directory, 'package.json')));
   const lock = JSON.parse(fs.readFileSync(path.join(directory, 'package-lock.json')));
-  if (!stable.test('v' + manifest.version) || lock.version !== manifest.version || lock.packages[''].version !== manifest.version) throw new Error('Application and lockfile versions must match.');
-  if (tag && tag !== 'v' + manifest.version) throw new Error('Release tag must equal v' + manifest.version);
+  if (!localVersion.test(manifest.version) || lock.version !== manifest.version || lock.packages[''].version !== manifest.version) throw new Error('Application and lockfile versions must match.');
+  if (tag && (!stable.test(tag) || tag !== 'v' + manifest.version)) throw new Error('Release tag must equal v' + manifest.version);
   return manifest.version;
 }
 function gh(args, json = true, input) {

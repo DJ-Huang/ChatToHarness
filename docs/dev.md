@@ -1,5 +1,13 @@
 # Development record — Windows computer use
 
+## Isolated macOS installer build for Computer Use corrections — 2026-10-22
+
+- **Code commit:** `ff9577d` (version remains 0.7.2). Built with `CTH_DIST_SUBDIR=0.7.2-cu-fixes npm run dist` EXIT 0, preserving the active prior installation and its unpacked build directory.
+- **DMG:** `dist/0.7.2-cu-fixes/ChatToHarness-0.7.2-macos-arm64.dmg` (about 255 MiB), SHA-256 `4ba888d9da42c4c16707951350bb9bf554337171d27710dd7792fb5354b88c27`.
+- **Bundle:** CFBundleShortVersionString 0.7.2; embedded `build-info.json` has `commit=ff9577d21693759a57568ac5719ec83f2f8531ff`, `dirty=false`; `codesign --verify --deep --strict` PASS (ad hoc, **not notarized**).
+- **Isolated installer smoke:** `CTH_DIST_SUBDIR=0.7.2-cu-fixes CTH_SMOKE_OUTPUT=.cache/acceptance/installer-0.7.2-cu-fixes npm run smoke:installer` EXIT 0. DMG verified/mounted, isolated app launch/GUI smoke passed, uninstall retains user data fixture. Report indicated `installer=true`, `startup=true`, `uninstallRetainsData=true`.
+- **Limits:** The replacement DMG was built, not installed onto the user's currently running application. The real Computer Use HUD appearance and end-to-end automatic post-task close still require subsequent on-desktop observation; the smoke tested isolated app startup, not a new real mouse drag.
+
 ## macOS Computer Use parameter, cleanup and HUD corner fixes — 2026-10-22
 
 - **Work item/branch:** ChatToHarness #1, `feat/computer-use`. User reported 11:25:49 `CU_INVALID_ARGUMENT` for drag button calls, STOP/HUD persisting after a completed task, and four pointed HUD corners. Initial worktree clean.

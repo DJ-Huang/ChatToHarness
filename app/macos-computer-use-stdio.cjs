@@ -5,10 +5,11 @@ const {StdioServerTransport} = require('@modelcontextprotocol/sdk/server/stdio.j
 const {ListToolsRequestSchema, CallToolRequestSchema} = require('@modelcontextprotocol/sdk/types.js');
 const {MacComputerUse, definition:baseDefinition} = require('./macos-computer-use.cjs');
 const {computerUseHome,localComputerIdentity,registeredComputerUse,deviceBoundArgs}=require('./computer-use-devices.cjs');
+const {createSamplingPlanner}=require('./computer-use-sampling-planner.cjs');
 const device=localComputerIdentity(computerUseHome());
 const definition=registeredComputerUse(baseDefinition,device);
-const service = new MacComputerUse();
 const server = new Server({name: 'ChatToHarness macOS Computer Use', version: require('../package.json').version}, {capabilities: {tools: {}}});
+const service = new MacComputerUse({agentPlanner:createSamplingPlanner(()=>server)});
 server.setRequestHandler(ListToolsRequestSchema, () => ({tools: [definition]}));
 server.setRequestHandler(CallToolRequestSchema, (request, {signal}) => {
   if(request.params.name!==definition.name)return {isError:true,content:[{type:'text',text:'Unknown tool'}]};

@@ -1,5 +1,17 @@
 # Development record — Windows computer use
 
+## Generic Computer Use GUI Agent — 2026-10-22
+
+- **Scope / branch:** General, platform-neutral GUI agent core on `feat/computer-use`, in Windows checkout `D:\\proj\\github\\ChatToHarness`. No macHarness invoked; no version number or installed app changed. Legacy window move remains a compatibility test, not the core architecture.
+- [x] **Generic executor:** `app/computer-use-agent-runner.cjs` handles `observe → plan → act → observe` with one scoped native session, dynamic click/type/key/scroll/drag actions, checkpoints, fresh-observation completion decision, cancellation and backoff. Does not blindly replay unknown side effects or reopen terminated sessions.
+- [x] **Public API:** `start_task`, `get_task`, `cancel_task`, `submit_task_decision`; task records persist only status/goal digest/action name and geometry, not screenshots or typed text. No configured Planner means explicit `awaiting_decision`, not false autonomous success.
+- [x] **MCP Sampling bridge:** SDK `Server.createMessage` is available. Win/Mac stdio adapters install an optional planner only when the connected client advertises sampling; requests include only the original window's in-memory screenshot, no arbitrary external model endpoint. Client declines/errors yield safe waiting. Actual ChatGPT/Codex host support still unverified.
+- [x] **Distribution:** Windows and macOS staging + manifests include the generic Agent Runner and sampling planner; `docs/computer-use-agent-architecture.md` and policy updated. Legacy move-specific tasks remain intact.
+- [x] **Mock-only validation:** 82 test cases total, **78 PASS / 0 FAIL / 4 SKIP** (macOS-only skipped on Windows), plus JS syntax and `git diff --check` PASS. Tests include dynamic multi-step Planner, external decisions, stale decision rejection, input conflict recovery, STOP/cancel, native side-effect uncertainty, restart no-replay, sampling fallback and package manifests. No real desktop cursor controlled.
+- [ ] **Remaining gates:** prove sampling works after an MCP call has returned in target clients; Windows installed-app/native GUI acceptance, macOS real-hardware build and GUI acceptance, cross-application authorization transitions, broader UI workflows and full npm test. No claim of fully validated autonomous deployment.
+
+
+
 ## Computer Use TaskRunner V1 — 2026-10-22
 
 - **Issue/branch:** ChatToHarness #1 / `feat/computer-use`. Implemented exclusively through winHarness in `D:\\proj\\github\\ChatToHarness`; no macHarness, no real-system cursor test, no version bump or installed-app replacement.

@@ -2,7 +2,7 @@
 
 ## Scope and authorization
 
-A narrow, deterministic, session-scoped window positioning workflow for both Windows and macOS. This is not a general GUI scripting engine or a model-based autonomous agent. All native input remains mediated by the existing window authorization, Esc/STOP, focus, occlusion and fresh-observation protections.
+This document describes only the legacy deterministic **window positioning compatibility workflow** for Windows and macOS. The product-wide architecture is now the generic autonomous GUI Agent in [computer-use-agent-architecture.md](computer-use-agent-architecture.md), not this specialized workflow. All native input remains mediated by the existing window authorization, Esc/STOP, focus, occlusion and fresh-observation protections.
 
 The caller must already have an authorized and ready Computer Use session and an unexpired observation. A requested target specifies the authorized window's **top-left desktop coordinate**. It must fit wholly on a reported display before any drag is issued. Source and target are never switched to another window or another Harness device.
 

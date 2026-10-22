@@ -3,8 +3,10 @@ const crypto = require('node:crypto');
 const {spawn} = require('node:child_process');
 const {createInterface} = require('node:readline');
 const {ComputerUseTaskRunner} = require('./computer-use-task-runner.cjs');
+const {ComputerUseAgentRunner} = require('./computer-use-agent-runner.cjs');
 const {compressCapture, snapshot, readChunk, MAX_CAPTURE_BYTES, MAX_CHUNK_BYTES} = require('./computer-use-images.cjs');
-const ACTIONS = ['list_windows', 'open_session', 'get_session', 'activate', 'observe', 'read_screenshot', 'click', 'mouse_move', 'mouse_down', 'mouse_drag', 'drag_window', 'mouse_up', 'type_text', 'key_press', 'scroll', 'close_session', 'start_move_task', 'get_move_task', 'cancel_move_task'];
+const ACTIONS = ['list_windows', 'open_session', 'get_session', 'activate', 'observe', 'read_screenshot', 'click', 'mouse_move', 'mouse_down', 'mouse_drag', 'drag_window', 'mouse_up', 'type_text', 'key_press', 'scroll', 'close_session', 'start_move_task', 'get_move_task', 'cancel_move_task',
+  'start_task','get_task','cancel_task','submit_task_decision'];
 const IDLE_SESSION_MS = 120000;
 const KEYS = ['ENTER', 'TAB', 'BACKSPACE', 'DELETE', 'LEFT', 'RIGHT', 'UP', 'DOWN', 'HOME', 'END', 'PAGEUP', 'PAGEDOWN', 'CTRL+A', 'CTRL+C', 'CTRL+V', 'CTRL+Z', 'CTRL+Y', 'SHIFT+TAB'];
 const definition = {
@@ -20,10 +22,13 @@ const definition = {
     target_x: {type: 'integer', minimum: -32768, maximum: 32767},
     target_y: {type: 'integer', minimum: -32768, maximum: 32767},
     task_id: {type:'string', pattern:'^cu_task_[a-f0-9]{64}$'},
-    idempotency_key: {type:'string',minLength:1,maxLength:128}
+    idempotency_key: {type:'string',minLength:1,maxLength:128},
+    goal: {type:'string',minLength:1,maxLength:2000},
+    decision_id: {type:'string',minLength:1,maxLength:100},
+    decision_json: {type:'string',minLength:1,maxLength:4096}
   }},
   outputSchema: {type: 'object', additionalProperties: true, properties: {
-    session_id: {type: ['string', 'null']}, state: {type: 'string', enum: ['none', 'initializing', 'awaiting_consent', 'ready', 'closed']},
+    session_id: {type: ['string', 'null']}, state: {type: 'string', enum: ['none', 'initializing', 'awaiting_consent', 'ready', 'closed', 'queued', 'running', 'planning', 'awaiting_decision', 'recovering', 'succeeded', 'cancelled', 'session_terminated', 'interrupted']},
     authorization_mode: {type: 'string', enum: ['all_windows', 'per_window']},
     observation_id: {type: 'string'}, next_action: {type: 'string'}, code: {type: 'string'},
     task_state: {type: 'string', enum: ['recovering','session_terminated']},
@@ -31,7 +36,7 @@ const definition = {
   }},
   annotations: {readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true}
 };
-const TASK_CONTINUITY_DESCRIPTION = ' For Windows and macOS, a recoverable Computer Use operation error does not end the user task. Keep diagnosing, re-observing and safely resuming while the original session is valid until the task is verified, the user explicitly stops (including STOP/Esc), or the session terminates. Never impose a fixed task recovery-attempt count. CU_USER_INPUT_ACTIVE means pause injected input until released, not user cancellation. CU_WINDOW_NOT_FOREGROUND means reactivate and observe. Never replay uncertain side effects or bypass permission, user takeover or explicit STOP. For window position tasks, start_move_task takes an explicitly authorized session, fresh observation, target_x/target_y and idempotency_key; the local runner persists checkpoints and continues while the MCP service and original native session live. Poll get_move_task or cancel_move_task with the returned task_id. This narrow workflow is not a general autonomous agent and never replays an interrupted task after a service restart. Other GUI work remains caller-orchestrated.';
+const TASK_CONTINUITY_DESCRIPTION = ' For Windows and macOS, a recoverable Computer Use operation error does not end the user task. Keep diagnosing, re-observing and safely resuming while the original session is valid until the task is verified, the user explicitly stops (including STOP/Esc), or the session terminates. Never impose a fixed task recovery-attempt count. CU_USER_INPUT_ACTIVE means pause injected input until released, not user cancellation. CU_WINDOW_NOT_FOREGROUND means reactivate and observe. Never replay uncertain side effects or bypass permission, user takeover or explicit STOP. For general GUI tasks, start_task begins an authorized session-scoped observe-plan-act-verify loop with a goal and stable idempotency_key. get_task retrieves status and the current observation image when waiting for a decision; submit_task_decision accepts one bounded verified action, and cancel_task terminates native control. A trusted optional local planner can decide automatically; if none is configured, the task safely pauses awaiting a decision from the calling agent rather than pretending a model is installed. The former move-task actions remain compatibility workflows, not the core execution model. Do not replay unknown side effects or reopen a terminated native session.';
 const SCREENSHOT_DESCRIPTION = ' If the target loses focus, call activate with session_id, then observe. Never replay input automatically. observe format auto compares lossless WebP and optimized PNG, keeping the smaller at original resolution; format png/webp forces compatibility. Small images return MCP image content and structuredContent.screenshot.data base64. Large images (or delivery chunked) return screenshot metadata only: call read_screenshot with session_id, screenshot_id, byte offset and optional length (default 256 KiB, max 512 KiB). Decode each chunk separately, concatenate bytes in offset order, verify full sha256 and display using mime_type. Repeat reads are safe; next_offset/eof supports resuming. Only the latest snapshot is kept in memory for 120 seconds, cleared by observe, activation, input or close. Chunk reads never refresh the 30-second input observation deadline; obtain a new observation before input if stale. No screenshot files are saved. The native capture guard is 40 MiB, not a per-call network limit.';
 definition.description += TASK_CONTINUITY_DESCRIPTION + SCREENSHOT_DESCRIPTION;
 definition.outputSchema.properties.screenshot = {type: 'object', additionalProperties: true, required: ['screenshot_id', 'mime_type', 'encoding', 'sha256', 'byte_length', 'delivery'], properties: {
@@ -51,7 +56,10 @@ const fields = {
   type_text: ['session_id', 'observation_id', 'text'], key_press: ['session_id', 'observation_id', 'key'],
   scroll: ['session_id', 'observation_id', 'x', 'y', 'delta'],
   start_move_task: ['session_id','observation_id','target_x','target_y','idempotency_key'],
-  get_move_task: ['session_id','task_id'],cancel_move_task: ['session_id','task_id']
+  get_move_task: ['session_id','task_id'],cancel_move_task: ['session_id','task_id'],
+  start_task: ['session_id','observation_id','goal','idempotency_key'],
+  get_task: ['session_id','task_id'],cancel_task: ['session_id','task_id'],
+  submit_task_decision: ['session_id','task_id','decision_id','decision_json']
 };
 function validate(args) {
   if (!args || typeof args !== 'object' || Array.isArray(args) || !ACTIONS.includes(args.action)) throw fail('CU_INVALID_ARGUMENT');
@@ -72,7 +80,10 @@ function validate(args) {
   for (const k of ['session_id', 'observation_id', 'screenshot_id']) if (args[k] !== undefined && (typeof args[k] !== 'string' || !args[k].length || args[k].length > 100)) throw fail('CU_INVALID_ARGUMENT');
   for (const k of ['x', 'y']) if (args[k] !== undefined && (!Number.isSafeInteger(args[k]) || args[k] < 0 || args[k] > 32767)) throw fail('CU_INVALID_ARGUMENT');
   for (const k of ['screen_x', 'screen_y','target_x','target_y']) if (args[k] !== undefined && (!Number.isSafeInteger(args[k]) || args[k] < -32768 || args[k] > 32767)) throw fail('CU_INVALID_ARGUMENT');
-  if (args.task_id !== undefined && (typeof args.task_id !== 'string' || !/^cu_task_[a-f0-9]{64}$/.test(args.task_id))) throw fail('CU_INVALID_ARGUMENT');
+  if (args.task_id !== undefined && (typeof args.task_id !== 'string' || !/^cu_(?:task|agent)_[a-f0-9]{64}$/.test(args.task_id))) throw fail('CU_INVALID_ARGUMENT');
+  if (args.goal !== undefined && (typeof args.goal !== 'string' || !args.goal.trim() || args.goal.length > 2000)) throw fail('CU_INVALID_ARGUMENT');
+  if (args.decision_id !== undefined && (typeof args.decision_id !== 'string' || !args.decision_id || args.decision_id.length > 100)) throw fail('CU_INVALID_ARGUMENT');
+  if (args.decision_json !== undefined && (typeof args.decision_json !== 'string' || !args.decision_json || args.decision_json.length > 4096)) throw fail('CU_INVALID_ARGUMENT');
   if (args.idempotency_key !== undefined && (typeof args.idempotency_key !== 'string' || !args.idempotency_key.trim() || args.idempotency_key.length > 128 || /[\x00-\x1f\x7f]/.test(args.idempotency_key))) throw fail('CU_INVALID_ARGUMENT');
   if (args.button !== undefined && !['left', 'right'].includes(args.button)) throw fail('CU_INVALID_ARGUMENT');
   // Dragging owns only the left button; accept the explicit left alias in the public schema.
@@ -133,7 +144,7 @@ class NativeConnection {
   }
 }
 class BaseComputerUse {
-  constructor({platform = process.platform, connect, helperPath, timeoutMs = 45000, idleTimeoutMs = IDLE_SESSION_MS, supportedPlatform, authorizationMode = process.env.CTH_COMPUTER_USE_AUTHORIZATION_MODE || 'all_windows', onPermissionDenied, taskDirectory, taskRetryMs} = {}) {
+  constructor({platform = process.platform, connect, helperPath, timeoutMs = 45000, idleTimeoutMs = IDLE_SESSION_MS, supportedPlatform, authorizationMode = process.env.CTH_COMPUTER_USE_AUTHORIZATION_MODE || 'all_windows', onPermissionDenied, taskDirectory, taskRetryMs, agentDirectory, agentPlanner} = {}) {
     if (!['darwin', 'win32'].includes(supportedPlatform)) throw fail('CU_PLATFORM_UNSUPPORTED');
     if (typeof helperPath !== 'string' || !helperPath) throw fail('CU_HELPER_UNAVAILABLE');
     if (!['all_windows','per_window'].includes(authorizationMode)) throw fail('CU_INVALID_AUTHORIZATION_MODE');
@@ -141,6 +152,7 @@ class BaseComputerUse {
     this.platform = platform; this.supportedPlatform = supportedPlatform; this.connect = connect || (options => new NativeConnection(helperPath, options));
     this.timeoutMs = timeoutMs; this.idleTimeoutMs = idleTimeoutMs; this.session = null; this.lastSession = null; this.busy = false; this.operation = null;
     this.taskRunner = new ComputerUseTaskRunner(this, {directory: taskDirectory, retryDelayMs: taskRetryMs});
+    this.agentRunner = new ComputerUseAgentRunner(this, {directory:agentDirectory,planner:agentPlanner,retryDelayMs:taskRetryMs});
   }
   status(s = this.session) {
     if (!s) return this.lastSession || {state: 'none', session_id: null, authorization_mode: this.authorizationMode, next_action: 'open_session'};
@@ -167,6 +179,7 @@ class BaseComputerUse {
     this.session = null; this.busy = false; this.operation = null;
     s.state = 'closed'; s.error = code; s.observation = null; s.capture = null;
     try { this.taskRunner.onSessionStop(s.id, code); } catch { /* Session cleanup must win over storage failure. */ }
+    try { this.agentRunner.onSessionStop(s.id, code); } catch { /* Native cleanup must win. */ }
     this.lastSession = {...this.status(s), expires_in_ms: 0, next_action: 'open_session'};
     s.native.stop();
   }
@@ -224,7 +237,7 @@ class BaseComputerUse {
     }, rejectOpen).catch(rejectOpen);
     return this.result({...this.status(s), reused: false});
   }
-  async call(input, {signal, internalTaskId} = {}) {
+  async call(input, {signal, internalTaskId, internalAgentTaskId} = {}) {
     let started = false, timer, abort, operation, activeSession;
     try {
       const args = validate(input);
@@ -232,6 +245,13 @@ class BaseComputerUse {
       signal?.throwIfAborted();
       this.reconcile();
       if (args.action === 'list_windows') return await this.listWindows(signal);
+      if (args.action === 'get_task') {
+        const {record,media=[]}=this.agentRunner.get(args.task_id,args.session_id);
+        return this.result(record,media);
+      }
+      if (args.action === 'cancel_task')return this.result(this.agentRunner.cancel(args.task_id,args.session_id));
+      if (args.action === 'submit_task_decision')
+        return this.result(this.agentRunner.submit(args));
       if (args.action === 'get_move_task' || args.action === 'cancel_move_task') {
         const record = args.action === 'get_move_task' ?
           this.taskRunner.status(args.task_id, args.session_id) :
@@ -249,11 +269,18 @@ class BaseComputerUse {
         this.stop(); return this.result({session_id: id, state: 'closed', closed: true});
       }
       if (args.action === 'open_session') return this.open(args);
+      if (args.action === 'start_task'){
+        if(this.taskRunner.active)throw fail('CU_TASK_RUNNING');
+        return this.result(this.agentRunner.start(args));
+      }
       if (args.action === 'start_move_task') {
+        if(this.agentRunner.active)throw fail('CU_TASK_RUNNING');
         const record = this.taskRunner.start(args);
         return this.result(record);
       }
       if (this.taskRunner.active && this.taskRunner.activeId !== internalTaskId)
+        throw fail('CU_TASK_RUNNING');
+      if (this.agentRunner.active && this.agentRunner.activeId !== internalAgentTaskId && args.action !== 'read_screenshot')
         throw fail('CU_TASK_RUNNING');
       if (!this.session || args.session_id !== this.session.id) throw fail('CU_SESSION_CLOSED');
       if (this.session.state !== 'ready') throw fail(this.authorizationMode === 'per_window' ? 'CU_CONSENT_PENDING' : 'CU_SESSION_STARTING');

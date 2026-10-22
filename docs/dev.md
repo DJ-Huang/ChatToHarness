@@ -1,5 +1,14 @@
 # Development record — Windows computer use
 
+## 0.7.3 Mac installer / atomic drag fix acceptance — 2026-10-22
+
+- **Source commit:** e5038b32d8964a8b27fe701bcea27c9325fcfd64, feat/computer-use, clean at build. Version 0.7.3.
+- **Isolated build:** CTH_DIST_SUBDIR=0.7.3-occlusion-drag npm run dist EXIT 0；没有清理、覆盖当前运行中的旧 0.7.2 安装及其目录。
+- **DMG:** dist/0.7.3-occlusion-drag/ChatToHarness-0.7.3-macos-arm64.dmg；SHA-256 7e2a79e72b6df729d23de80fce321e759a48d5bae93c50d95bdd2f0ccd36e76d。
+- **Bundle:** build-info.json commit=e5038b3、dirty=false、version=0.7.3；codesign --verify --deep --strict EXIT 0（ad-hoc 签名，未 Apple notarize）。
+- **Real isolated installer smoke:** CTH_SMOKE_OUTPUT=.cache/acceptance/installer-0.7.3-occlusion-drag npm run smoke:installer EXIT 0；hdiutil DMG CRC/挂载通过，独立已打包应用启动及 UI smoke 通过，卸载保留用户数据（installer=true / startup=true / uninstallRetainsData=true）。
+- **Scope caveat:** 独立安装验收并不等于用户已升级。仍须在用户安装新版本并使 MCP 刷新后验证 ChatToHarness 本体跨屏拖动、遮挡元数据和完整 HUD 交互；不要自动升级或关闭 Issue #1。
+
 ## macOS CU_TARGET_OCCLUDED / 拖动状态恢复 — 2026-10-22
 
 - **Issue/branch:** ChatToHarness #1, feat/computer-use；修复前工作区 clean；不覆盖当前运行版，不创建 worktree，不通过 setpos 伪装真实鼠标拖动。

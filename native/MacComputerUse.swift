@@ -271,41 +271,38 @@ final class MacComputerUse: NSObject {
         backdrop.blendingMode = .behindWindow
         backdrop.material = .hudWindow
         backdrop.state = .active
-        backdrop.wantsLayer = true
-        backdrop.layer?.cornerRadius = 14
-        backdrop.layer?.masksToBounds = true
-        backdrop.layer?.backgroundColor = NSColor(calibratedRed: 0.05, green: 0.11,
-                                                   blue: 0.19, alpha: 0.69).cgColor
-        backdrop.layer?.borderWidth = 3
-        backdrop.layer?.borderColor = NSColor(calibratedRed: 0.16, green: 0.82,
-                                               blue: 1, alpha: 0.98).cgColor
+        // NSVisualEffectView alone can turn mint-green against bright desktop
+        // content. Keep it for subtle vibrancy behind an independently dark HUD.
+        let surface = MacHUDSurface(frame: backdrop.bounds)
+        surface.autoresizingMask = [.width, .height]
+        backdrop.addSubview(surface)
 
         let title = NSTextField(labelWithString: "● ChatToHarness · Computer Use")
         title.font = NSFont.boldSystemFont(ofSize: 14)
-        title.textColor = NSColor(calibratedRed: 0.46, green: 0.92, blue: 1, alpha: 1)
+        title.textColor = MacHUDSurface.titleColor
         title.frame = NSRect(x: 18, y: 72, width: max(110, panel.frame.width - 164), height: 21)
         title.autoresizingMask = [.width]
         title.lineBreakMode = .byTruncatingTail
-        backdrop.addSubview(title)
+        surface.addSubview(title)
 
         let visibleSession = sessionID ?? "external"
         let session = NSTextField(labelWithString: "Session \(visibleSession)")
         session.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
-        session.textColor = .white
+        session.textColor = MacHUDSurface.secondaryTextColor
         session.lineBreakMode = .byTruncatingTail
         session.frame = NSRect(x: 18, y: 51, width: max(110, panel.frame.width - 164), height: 18)
         session.autoresizingMask = [.width]
         session.toolTip = sessionID ?? "External native helper session"
-        backdrop.addSubview(session)
+        surface.addSubview(session)
         sessionField = session
 
         let activity = NSTextField(labelWithString: hudText("idle"))
         activity.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        activity.textColor = NSColor(calibratedRed: 0.98, green: 0.98, blue: 1, alpha: 1)
+        activity.textColor = MacHUDSurface.primaryTextColor
         activity.frame = NSRect(x: 18, y: 16, width: max(110, panel.frame.width - 164), height: 23)
         activity.autoresizingMask = [.width]
         activity.lineBreakMode = .byTruncatingTail
-        backdrop.addSubview(activity)
+        surface.addSubview(activity)
         activityField = activity
 
         let button = NSButton(title: "STOP  ·  Esc", target: self,
@@ -319,7 +316,7 @@ final class MacComputerUse: NSObject {
                                                  blue: 0.25, alpha: 0.97).cgColor
         button.contentTintColor = .white
         button.font = NSFont.boldSystemFont(ofSize: 13)
-        backdrop.addSubview(button)
+        surface.addSubview(button)
         panel.contentView = backdrop
         panel.orderFrontRegardless()
         stopPanel = panel

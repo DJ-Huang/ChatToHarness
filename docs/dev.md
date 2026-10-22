@@ -1,6 +1,16 @@
 # Development record — Windows computer use
 
 
+## Mac Computer Use HUD contrast and orbiting cyan border — 2026-10-22
+
+- **Issue / branch:** ChatToHarness #1; `feat/computer-use`. User screenshot showed white title, session and activity text almost invisible on a pale green/tinted Computer Use panel.
+- **Fix (P0 legibility):** New `native/MacHUDSurface.swift` applies a strongly opaque dark-navy layer (`alpha=0.97`) **above** NSVisualEffectView instead of relying on the effective system material behind the text. Title, session and activity use dedicated bright cyan, light-gray, and white high-contrast colors. STOP/Esc keeps its existing red-button presentation and callback.
+- **Animation:** Base cyan rounded-rectangle border with a glowing cyan head and dimmer trailing segment. Two CAShapeLayers animate `lineDashPhase` in linear infinite loops, **3.5 seconds per full perimeter**; `layout()` recomputes the rounded path, dash lengths and animation for narrow monitors. No extra global timers/threads; no change to physical cursor, STOP, HUD placement, or window focus policy.
+- **Build integration:** `scripts/build-computer-use.cjs` compiles the new Swift unit; dev rebuild watching and source inventory tests include it. `npm run build:computer-use` PASS (macOS native executable compiled). Dedicated AppKit acceptance checks live layers, infinite path animation, automatic border reflow and text contrast against a **worst-case white desktop**. Measured contrast: title 13.14:1, session 14.31:1, action 16.46:1 (all > WCAG AAA 7:1).
+- **Tests:** `node --test tests/mac-hud-surface.test.cjs tests/mac-computer-use-indicator.test.cjs tests/macos-computer-use.test.cjs tests/mac-display-route.test.cjs tests/mac-permission-diagnostics.test.cjs tests/dev.test.cjs tests/computer-use-platform-packaging.test.cjs` => **39 PASS / 0 FAIL / 0 SKIP**. No running installed 0.7.1 app was replaced, and no Windows real-device test was performed. Visual acceptance of the animated border on the user's desktop is pending a fresh installation of a build containing this commit.
+
+
+
 ## macOS 0.7.1 real cross-display Computer Use acceptance — 2026-10-22
 
 - **Target/build:** running packaged ChatToHarness 0.7.1, build source `5bcca47`, device `unity.local` (macOS arm64). Mac Harness only; no Windows real-device testing.

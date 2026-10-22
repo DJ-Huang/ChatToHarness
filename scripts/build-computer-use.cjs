@@ -21,6 +21,7 @@ function buildComputerUse(root = path.resolve(__dirname, '..')) {
     const output = path.join(directory, 'ChatToHarness.MacComputerUse');
     execFileSync('xcrun', ['swiftc', '-parse-as-library', '-O',
       path.join(root, 'native', 'MacComputerUse.swift'),
+      path.join(root, 'native', 'MacHUDSurface.swift'),
       path.join(root, 'native', 'MacCursorGlow.swift'),
       path.join(root, 'native', 'MacCursorTrajectory.swift'), '-o', output], {stdio: 'pipe'});
     fs.chmodSync(output, 0o755);

@@ -205,3 +205,31 @@ test('STOP cancels a pending model decision without waiting for a 15-second time
   assert.equal(f.native.closed,true);
   assert.equal(f.commands.filter(c=>c.action==='click').length,0);
 });
+
+test('generic Agent reconstructs a forced chunked observe before asking the planner and never touches another session',async t=>{
+  let sawImage=false;
+  const f=await fixture(t,({observation})=>{
+    sawImage=Boolean(observation.structuredContent.screenshot.data &&
+      observation.content.some(c=>c.type==='image'));
+    return {done:true};
+  });
+  const original=f.service.call.bind(f.service);
+  const injected=[];
+  f.service.call=async(input,options)=>{
+    const out=await original(input,options);
+    if(input.action==='read_screenshot')injected.push(input);
+    if(input.action==='observe'&&options?.internalAgentTaskId&&!out.isError){
+      const {data,...manifest}=out.structuredContent.screenshot;
+      return {...out,structuredContent:{...out.structuredContent,
+        screenshot:{...manifest,delivery:'chunked'}},
+        content:out.content.filter(x=>x.type!=='image')};
+    }
+    return out;
+  };
+  const task=(await f.start('chunked-agent','inspect a screen')).structuredContent;
+  await until(async()=>((await f.get(task.task_id)).structuredContent.state==='succeeded'));
+  assert.equal(sawImage,true);
+  assert.ok(injected.length>0,'agent must request chunks through authorized read_screenshot');
+  assert.ok(injected.every(x=>x.session_id===f.session));
+  assert.equal(f.native.closed,true);
+});

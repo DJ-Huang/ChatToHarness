@@ -35,7 +35,7 @@ flowchart TD
 
 - 一次 `observe` 的原生输入有效期为 30 秒。通用 Agent 最迟在 28 秒主动淘汰该截图对应的外部 `decision_id`，清理内存引用并重新观察；旧动作或旧完成判断在进入原生层前即被拒绝。
 - Planner 决策有 15 秒超时，但决策完成后必须清理超时定时器。STOP/Esc 或原会话终止会向待决策模型请求传递 `AbortSignal`，迟到的返回值不得驱动鼠标或键盘。
-- Windows/macOS 共用这些 JavaScript 任务规则；模型客户端支持 MCP Sampling 与否仍需在真实安装版分别验收。当前仅覆盖内联截图，较大的 chunked 截图模型可用性仍待处理。
+- Windows/macOS 共用这些 JavaScript 任务规则；模型客户端支持 MCP Sampling 与否仍需在真实安装版分别验收。已新增分块截图处理：由同一原授权会话通过 `read_screenshot` 分块取回内存数据，逐块和整体验证 SHA-256、长度、offset、EOF；若采样图过大，仅为模型生成有尺寸映射的 JPEG 预览，所有点击的模型图片坐标由执行器映射回原生窗口截图像素。原始截图不写入磁盘。较大截图仍须验证真实客户端的图像输入能力。
 
 ## 安全与持久化
 
@@ -49,7 +49,7 @@ flowchart TD
 
 - **已实现**：动态动作执行内核、可插拔 Planner、MCP Sampling 可选适配器、调用端决策桥、通用任务状态、重观察/错误恢复、取消和安全检查点；Windows/macOS 公共 schema 与资源清单。
 - **已集成可选 MCP Sampling Planner**：win/mac MCP stdio 服务检查客户端是否声明 `sampling`，若支持则通过 SDK `createMessage` 把既有授权窗口的内存截图和目标发送给同一 MCP 客户端，请求 JSON 单步决策；不支持、拒绝、响应不合法时安全进入 `awaiting_decision`，不向任意外部模型 URL 发送请求。
-- **待实现/核验**：真实 ChatGPT/Codex 客户端是否支持服务端异步 sampling（尤其在启动请求已返回后）；跨多应用/窗口的逐目标授权切换；Windows 与 macOS 原生 GUI 实机验收；模型对完成条件的严格视觉验证；高频输入占用、停止竞争及稳定性。
+- **待实现/核验**：真实 ChatGPT/Codex 客户端是否支持服务端异步 sampling（尤其在启动请求已返回后）；模型对 JPEG 预览及坐标变换的实际效果；跨多应用/窗口的逐目标授权切换；Windows 与 macOS 原生 GUI 实机验收；模型对完成条件的严格视觉验证；高频输入占用、停止竞争及稳定性。
 - **兼容层**：\`start_move_task/get_move_task/cancel_move_task\` 仍可用，仅用来兼容和专项回归，不再代表主要架构。
 
 所有日常自动化回归必须使用 mock 原生设备，不得未经明确说明操作用户真实鼠标。

@@ -1,5 +1,16 @@
 # Development record — Windows computer use
 
+## General Computer Use Agent: chunked model screenshots — 2026-10-23
+
+- **Branch / issue:** `feat/computer-use` / ChatToHarness #1; Windows checkout `D:\\proj\\github\\ChatToHarness`. No macHarness used, no real-system pointer input, version bump or installer replacement.
+- [x] **Full screenshot pipeline:** `app/computer-use-planner-images.cjs` reconstructs `observe` screenshots with `delivery=chunked` by bounded `read_screenshot` calls in the same authorized original session. Checks screenshot ID, offset, EOF, byte size, base64, each chunk SHA-256 and overall SHA-256; stops on abort or snapshot expiry. No raw screenshot is persisted to disk.
+- [x] **Model input image:** large screenshots are downsampled only for the model using bounded in-memory JPEG previews. `planner_image` dimensions and image-to-native pixel scale accompany decisions; `x/y` are mapped to actual GUI screenshot coordinates before `BaseComputerUse` input validation. The native screenshot/observation is not resized or given new authority.
+- [x] **Integration:** generic Agent now uses the screenshot preparation layer before calling Planner or awaiting decisions. Corrupt, unavailable or expired chunks cause safe re-observation, not an unverified GUI action. Windows/macOS staging manifests include the shared helper.
+- [x] **Verification:** mock-only cross-platform eight-suite `node --test` **93 total, 89 PASS, 0 FAIL, 4 SKIP** (macOS-dependent skips on Windows), syntax checks and `git diff --check` PASS. Includes large synthetic 2400×1600 screenshot preview, corrupted/out-of-order chunks, abort before read, coordinate transform and end-to-end forced chunked observe → planner.
+- [ ] **Open:** actual ChatGPT/Codex host `sampling/createMessage` after tool return, native Windows and macOS visual integration, cross-application authorization, production JPEG preview readability and overall full-suite environment failures. Mock success is not production acceptance.
+
+
+
 ## General Computer Use Agent reliability — 2026-10-22
 
 - **Branch / issue:** `feat/computer-use`, continuing ChatToHarness #1, Windows checkout `D:\\proj\\github\\ChatToHarness`. No macHarness used, no production mouse movements, installer/version unchanged.

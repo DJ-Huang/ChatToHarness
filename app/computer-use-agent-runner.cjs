@@ -4,6 +4,7 @@ const os=require('node:os');
 const path=require('node:path');
 const crypto=require('node:crypto');
 const {privateDirectory,readJson,atomicJson,syncDirectory}=require('./durable-files.cjs');
+const {preparePlannerObservation,mapImageDecision}=require('./computer-use-planner-images.cjs');
 
 const TERMINAL=new Set(['succeeded','cancelled','session_terminated','interrupted']);
 const OPERATIONS=new Set(['click','mouse_move','mouse_down','mouse_drag','mouse_up',
@@ -204,7 +205,11 @@ class ComputerUseAgentRunner {
           goal:task.goal,step:task.rec.completed_steps,observation,
           last_error:task.rec.last_error,last_action:task.rec.last_action
         },task.abortController.signal);
-        if(response&&!response.wait)return ComputerUseAgentRunner.validateDecision(response);
+        if(response&&!response.wait){
+          if(Date.now()-(this.service.session?.observation?.at??0)>=this.decisionMaxAgeMs)
+            return {wait:true};
+          return mapImageDecision(ComputerUseAgentRunner.validateDecision(response),observation);
+        }
       } catch {
         // A transient planner/model failure cannot end the user task.
         task.rec.last_error='CU_PLANNER_ERROR';
@@ -238,7 +243,7 @@ class ComputerUseAgentRunner {
     task.observationAt=null;
     delete rec.decision_id;
     if(!TERMINAL.has(rec.state)){rec.state='running';rec.phase='planning';this.persist(rec);}
-    return decision;
+    return decision?mapImageDecision(decision,observation):null;
   }
   async execute(task){
     const rec=task.rec;
@@ -262,7 +267,21 @@ class ComputerUseAgentRunner {
       const meta=shot.structuredContent||{};
       rec.last_observed=meta.window_bounds||null;
       this.persist(rec);
-      const decision=await this.decide(task,shot);
+      let prepared;
+      try{
+        prepared=await preparePlannerObservation(shot,{
+          call:input=>this.call(task,input)
+        },rec.session_id,task.abortController.signal);
+      }catch(error){
+        if(TERMINAL.has(rec.state))return;
+        rec.last_error=/^CU_[A-Z_]+$/.test(error.code||'')?error.code:'CU_PLANNER_CAPTURE_UNAVAILABLE';
+        rec.state='recovering';rec.phase='refreshing_capture';this.persist(rec);
+        await pause(backoff);backoff=Math.min(2000,Math.ceil(backoff*1.5));
+        continue;
+      }
+      if(Date.now()-(this.service.session?.observation?.at??0)>=this.decisionMaxAgeMs)
+        continue;
+      const decision=await this.decide(task,prepared);
       if(!decision||TERMINAL.has(rec.state))return;
       if(decision.done){
         // Completion is a decision made only after a real fresh observation;

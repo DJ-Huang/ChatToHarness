@@ -1,5 +1,15 @@
 # Development record — Windows computer use
 
+
+## 已授权的系统窗口 API 兜底与原移动任务收口 — 2026-10-22
+
+- **用户指示：** 真实 Computer Use 因遮挡、拖动状态、设备交互等问题不能完成窗口移动时，不应一次失败便放弃；可以考虑系统 API 兜底。只针对已授权目标窗口定位，不能以 API 绕过权限拒绝、用户接管、STOP/Esc 或错误设备。
+- [x] 更新 docs/computer-use-policy.md 及 AGENTS.md：优先原生真实鼠标，诊断后有限重试；只有用户明确授权时改用目标范围限定的窗口定位 API，必须独立核验坐标，说明使用何种操作方式。其它 GUI 行为未获得额外授权。
+- [x] **真实 Mac 系统 API 操作成功（不是鼠标拖动）：** 目标进程 PID=14254，窗口 ID=6458，ChatToHarness；操作前 System Events 查询大小为 1160×850。读到三显示器第二屏 Quartz 坐标 x=-1640, y=-1440, 2560×1440，按左边缘、上下居中计算目标 (-1640,-1145)；使用授权的 System Events Accessibility 窗口位置接口直接定位。
+- [x] **独立位置校验：** 另行从 Core Graphics CGWindowListCopyWindowInfo 查询目标窗口 ID=6458/PID=14254，得到 Bounds X=-1640,Y=-1145,Width=1160,Height=850，完全符合目标；没有通过 shell 伪装可见鼠标拖动。移动前 Computer Use 的最后会话已处于 closed，无按住的鼠标残留。
+- **注：** 系统 API 直接定位已证明该次任务可以在旧 0.7.2 运行环境下完成；将该兜底能力变成后续可独立授权的正式窗口 API MCP 工具仍是可选工程工作，不得把仓库中的文档规则描述成已经部署的工具能力。0.7.3 DMG 也未因此自动替换当前程序。
+
+
 ## 0.7.3 Mac installer / atomic drag fix acceptance — 2026-10-22
 
 - **Source commit:** e5038b32d8964a8b27fe701bcea27c9325fcfd64, feat/computer-use, clean at build. Version 0.7.3.

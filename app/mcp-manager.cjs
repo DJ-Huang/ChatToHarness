@@ -7,6 +7,7 @@ const {Client} = require('@modelcontextprotocol/sdk/client/index.js');
 const {StreamableHTTPClientTransport} = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 const {ListToolsResultSchema,CallToolResultSchema,ToolListChangedNotificationSchema,McpError,ErrorCode} = require('@modelcontextprotocol/sdk/types.js');
 const {ManagedStdioTransport,toolEnvironment,boundedMessage,observeTransport,boundedFetch,MAX_MESSAGE_BYTES} = require('./mcp-transport.cjs');
+const {COMPUTER_USE_GUI_RULE}=require('./computer-use-devices.cjs');
 
 /** @typedef {'deny'|'allow'|'ask'} McpToolPolicy */
 /**
@@ -138,7 +139,12 @@ class McpManager extends EventEmitter {
   visibleTools() {
     const result=this.running?[...(this.services?.tools()||[]),...(this.content?.tools()||[])]:[];
     for(const record of this.records.values())if(this.available(record))for(const item of record.tools)if(this.policy(record,item)!=='deny')result.push({...this.content?.decorateTool(record,item.tool)||item.tool,name:item.alias});
-    return result.sort((a,b)=>a.name.localeCompare(b.name));
+    // Descriptive policy on command-capable MCP entry points. They remain
+    // general-purpose for builds/diagnostics; text alone cannot sandbox OS APIs.
+    const commands=/(?:^|__)(?:start_process|interact_with_process|start_task)$/;
+    return result.map(item=>commands.test(item.name)
+      ? {...item,description:`${item.description||''} Computer Use policy: ${COMPUTER_USE_GUI_RULE} See docs/computer-use-policy.md.`}
+      : item).sort((a,b)=>a.name.localeCompare(b.name));
   }
   listTools(cursor) {
     const tools=this.visibleTools();let offset=0;

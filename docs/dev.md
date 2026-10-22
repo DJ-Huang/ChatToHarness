@@ -1,6 +1,17 @@
 # Development record — Windows computer use
 
 
+## Computer Use policy: session-first device routing and real input — 2026-10-22
+
+- **Work item / branch:** ChatToHarness #1 / `feat/computer-use`. Canonical policy: `docs/computer-use-policy.md`; new root `AGENTS.md` directs development assistants to read it.
+- **Multi-device selection:** explicit user device overrides all; if not explicit, choose the device **reliably associated with the current ChatGPT conversation** even when more than one Harness is connected; with no session binding choose the sole available device; if still ambiguous, list friendly connected devices as numbered choices `1、2、3…` (never request an internal device UUID). An unavailable explicitly named/bound device never silently falls back to a different one. The function `resolveComputerUseDevice` in `app/computer-use-devices.cjs` implements a pure, tested version of these rules for a trusted router; it cannot determine chat session binding from a standalone Harness.
+- **GUI behavior:** visible native `computer_use` mouse/keyboard is the default for user requests to move/drag windows: `observe → mouse_move → mouse_down → observe → mouse_drag → mouse_up → verify`. Direct AppleScript/Accessibility or Win32 position APIs are not an implicit fallback. Explicit setpos/setsize permission remains separate; preserve Esc/STOP, window consent, screenshot freshness, no uncertain input replay.
+- **Tool surfaces:** `registeredComputerUse` appends device-routing and visible-real-input rules to the platform-specific tool description, and publishes `_meta["com.chattoharness/computer-use-policy"]` (policy v1). `McpManager.visibleTools` attaches a guidance notice to command-capable `start_process`, `interact_with_process`, and `start_task` entries without altering their argument contracts.
+- **Security boundary:** a local Harness does **not** see ChatGPT's entire list of connectors, cannot assert conversation association, and cannot force the ChatGPT UI to ask for device selection. This is guidance plus a pure routing contract, **not** implemented centralized session routing or technical restriction on arbitrary shell commands. Strong enforcement requires a trusted host/router capability boundary.
+- **Validation:** `node --test tests/computer-use-policy.test.cjs tests/computer-use-devices.test.cjs tests/computer-use-toggle.test.cjs` 20/20 PASS; scoped MCP/Computer Use regression 96/96 PASS; full macOS `npm test` **375 total / 366 pass / 0 fail / 9 skip**. No Windows real-device acceptance and no reinstallation of the running app.
+
+
+
 ## Mac Computer Use HUD contrast and orbiting cyan border — 2026-10-22
 
 - **Issue / branch:** ChatToHarness #1; `feat/computer-use`. User screenshot showed white title, session and activity text almost invisible on a pale green/tinted Computer Use panel.

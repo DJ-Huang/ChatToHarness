@@ -159,3 +159,49 @@ test('planner cannot forge session scope or invoke close_session as an arbitrary
   assert.throws(()=>ComputerUseAgentRunner.validateDecision({action:{action:'close_session'}}),
     {code:'CU_INVALID_DECISION'});
 });
+
+test('expired external decision is rejected before native input and replaced with a fresh observation token',async t=>{
+  const f=await fixture(t);
+  const started=(await f.start('expiring-decision','inspect the window')).structuredContent;
+  const first=await until(async()=>{
+    const r=await f.get(started.task_id);
+    return r.structuredContent.state==='awaiting_decision'?r:null;
+  });
+  const firstToken=first.structuredContent.decision_id;
+  const internal=f.service.agentRunner.tasks.get(started.task_id);
+  internal.observationAt=Date.now()-30000; // Simulate elapsed native observation TTL without sleeping.
+  const stale=await f.submit(started.task_id,firstToken,{action:{action:'click',x:15,y:15}});
+  assert.equal(stale.structuredContent.code,'CU_STALE_DECISION');
+  const next=await until(async()=>{
+    const r=await f.get(started.task_id);
+    return r.structuredContent.state==='awaiting_decision'&&
+      r.structuredContent.decision_id!==firstToken?r:null;
+  });
+  assert.ok(next.content.some(c=>c.type==='image'));
+  assert.equal((await f.submit(started.task_id,firstToken,{done:true})).structuredContent.code,'CU_STALE_DECISION');
+  assert.equal(f.commands.filter(c=>c.action==='click').length,0);
+  await f.submit(started.task_id,next.structuredContent.decision_id,{done:true});
+  await until(async()=>((await f.get(started.task_id)).structuredContent.state==='succeeded'));
+});
+
+test('STOP cancels a pending model decision without waiting for a 15-second timeout or executing late input',async t=>{
+  let plannerStarted=false,plannerAborted=false;
+  const planner=({signal})=>{
+    plannerStarted=true;
+    return new Promise(resolve=>signal.addEventListener('abort',()=>{
+      plannerAborted=true;
+      resolve({action:{action:'click',x:20,y:20}}); // Deliberately late input must be ignored.
+    },{once:true}));
+  };
+  const f=await fixture(t,planner);
+  const task=(await f.start('stop-pending-model','do something')).structuredContent;
+  await until(async()=>plannerStarted);
+  const started=Date.now();
+  const result=await f.cancel(task.task_id);
+  assert.equal(result.structuredContent.state,'cancelled');
+  await until(async()=>plannerAborted);
+  assert.ok(Date.now()-started<1000);
+  await sleep(50);
+  assert.equal(f.native.closed,true);
+  assert.equal(f.commands.filter(c=>c.action==='click').length,0);
+});

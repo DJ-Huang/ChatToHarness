@@ -17,7 +17,7 @@ const SYSTEM_PROMPT=[
 ].join(' ');
 function createSamplingPlanner(getServer){
   if(typeof getServer!=='function')throw new TypeError('getServer must be a function');
-  return async ({goal,step,observation,last_error,last_action})=>{
+  return async ({goal,step,observation,last_error,last_action,signal})=>{
     const server=getServer();
     if(!server?.getClientCapabilities?.()?.sampling ||
        typeof server.createMessage!=='function')return {wait:true};
@@ -40,7 +40,7 @@ function createSamplingPlanner(getServer){
           {type:'text',text:prompt},
           {type:'image',mimeType:shot.mime_type,data:shot.data}
         ]}]
-      });
+      },{signal});
       const block=Array.isArray(answer?.content)?
         answer.content.find(x=>x?.type==='text'):answer?.content;
       if(block?.type!=='text'||typeof block.text!=='string')return {wait:true};

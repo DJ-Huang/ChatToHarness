@@ -31,6 +31,12 @@ flowchart TD
 
 \`ComputerUseAgentRunner\` 负责 \`observe → decide → act → observe\` 的执行循环、错误恢复、持久化检查点、取消、重试退避。可注入 \`agentPlanner({goal, step, observation, last_error, last_action})\` 进行真正连续的动态决策。若无已配置 Planner，进入 \`awaiting_decision\` 并提供截图，由 ChatGPT/Codex 等可信调用端回传下一步；**不能把这种等待状态说成已经具有无人值守的模型规划能力**。
 
+## 决策时效与停止机制
+
+- 一次 `observe` 的原生输入有效期为 30 秒。通用 Agent 最迟在 28 秒主动淘汰该截图对应的外部 `decision_id`，清理内存引用并重新观察；旧动作或旧完成判断在进入原生层前即被拒绝。
+- Planner 决策有 15 秒超时，但决策完成后必须清理超时定时器。STOP/Esc 或原会话终止会向待决策模型请求传递 `AbortSignal`，迟到的返回值不得驱动鼠标或键盘。
+- Windows/macOS 共用这些 JavaScript 任务规则；模型客户端支持 MCP Sampling 与否仍需在真实安装版分别验收。当前仅覆盖内联截图，较大的 chunked 截图模型可用性仍待处理。
+
 ## 安全与持久化
 
 - 原生 Esc/STOP、用户接管、授权和目标窗口作用域继续生效；不会自动恢复已终止的原生会话。

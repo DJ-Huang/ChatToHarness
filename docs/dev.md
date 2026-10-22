@@ -1,5 +1,15 @@
 # Development record — Windows computer use
 
+## General Computer Use Agent reliability — 2026-10-22
+
+- **Branch / issue:** `feat/computer-use`, continuing ChatToHarness #1, Windows checkout `D:\\proj\\github\\ChatToHarness`. No macHarness used, no production mouse movements, installer/version unchanged.
+- [x] **Stale decision renewal:** `ComputerUseAgentRunner` automatically invalidates external `decision_id` before the native 30-second observation deadline (28-second limit), drops the previous screenshot from memory, re-observes and issues a fresh decision token. A late submitted action or `done:true` is rejected before native input, not retried against a stale screenshot.
+- [x] **Abortable Planner and MCP Sampling:** replaced `Promise.race`'s leaked 15-second timer with a bounded decision helper that always clears timers and listens for STOP/cancel. Cancelling while sampling aborts the model request signal; late model output cannot execute GUI actions. The optional Sampling Planner forwards AbortSignal to SDK `createMessage`.
+- [x] **Mock-only Windows+macOS-shared regression:** `node --test` for seven Computer Use suites: **85 tests / 81 PASS / 0 FAIL / 4 SKIP** (macOS-only on Windows). Syntax and `git diff --check` PASS. Agent+Sampling focused suite previously took ~15.7s with the dangling timer; after fix 14 cases completed in ~1.4s.
+- [ ] **Still open:** verify the installed ChatGPT/Codex MCP client's async `sampling/createMessage` support, Windows desktop and Mac native acceptance, cross-application authorization handoff, large/chunked screenshot planning, full `npm test` environment failures and arbitrary GUI task completion evidence. Test-only results are not production acceptance.
+
+
+
 ## Generic Computer Use GUI Agent — 2026-10-22
 
 - **Scope / branch:** General, platform-neutral GUI agent core on `feat/computer-use`, in Windows checkout `D:\\proj\\github\\ChatToHarness`. No macHarness invoked; no version number or installed app changed. Legacy window move remains a compatibility test, not the core architecture.

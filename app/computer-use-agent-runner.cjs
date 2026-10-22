@@ -12,6 +12,28 @@ const now=()=>new Date().toISOString();
 const hash=v=>crypto.createHash('sha256').update(v).digest('hex');
 const fault=code=>Object.assign(new Error(code),{code});
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+// A resolved decision must not leave a 15-second timer running. Aborted or
+// timed-out decisions cannot return late GUI actions.
+async function boundedPlanner(planner,context,parentSignal,timeoutMs=15000){
+  const controller=new AbortController();
+  const onStop=()=>controller.abort();
+  parentSignal?.addEventListener('abort',onStop,{once:true});
+  if(parentSignal?.aborted)controller.abort();
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  timer.unref?.();
+  const aborted=new Promise(resolve=>{
+    if(controller.signal.aborted){resolve({wait:true});return;}
+    controller.signal.addEventListener('abort',()=>resolve({wait:true}),{once:true});
+  });
+  try{return await Promise.race([
+    Promise.resolve().then(()=>controller.signal.aborted?{wait:true}:planner({...context,signal:controller.signal})),
+    aborted
+  ]);}finally{
+    clearTimeout(timer);
+    parentSignal?.removeEventListener('abort',onStop);
+    controller.abort();
+  }
+}
 
 /**
  * Platform-neutral, session-scoped GUI task orchestration.
@@ -21,15 +43,21 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  */
 class ComputerUseAgentRunner {
   constructor(service,{directory=path.join(os.homedir(),'.chattoharness','computer-use-agent-tasks'),
-    planner=null,retryDelayMs=200}={}) {
+    planner=null,retryDelayMs=200,decisionMaxAgeMs=28000}={}) {
     this.service=service;
     this.directory=directory;
     this.planner=planner;
     this.retryDelayMs=retryDelayMs;
+    // Native GUI observations are valid for 30 seconds at most.
+    this.decisionMaxAgeMs=Math.min(28000,Math.max(1,decisionMaxAgeMs));
     this.tasks=new Map();
     this.activeId=null;
   }
   get active(){return this.activeId!==null;}
+  decisionExpired(task){
+    return !Number.isFinite(task.observationAt)||
+      Date.now()-task.observationAt>=this.decisionMaxAgeMs;
+  }
   file(id){
     if(typeof id!=='string'||!/^cu_agent_[a-f0-9]{64}$/.test(id))throw fault('CU_INVALID_TASK_ID');
     return path.join(this.directory,id+'.json');
@@ -47,7 +75,8 @@ class ComputerUseAgentRunner {
   get(id,sessionId){
     const rec=this.status(id,sessionId);
     const task=this.tasks.get(id);
-    if(!task||rec.state!=='awaiting_decision'||!task.image)return {record:rec};
+    if(!task||rec.state!=='awaiting_decision'||!task.image||this.decisionExpired(task))
+      return {record:rec};
     // Only the owner-session caller receives an in-memory fresh observation.
     const shot=task.image;
     const metadata={...shot.structuredContent};
@@ -82,7 +111,7 @@ class ComputerUseAgentRunner {
     try{fs.writeFileSync(fd,JSON.stringify(rec)+'\n');fs.fsyncSync(fd);}
     finally{fs.closeSync(fd);}
     syncDirectory(this.directory);
-    const task={rec,goal,decision:null,decisionId:null,image:null};
+    const task={rec,goal,decision:null,decisionId:null,image:null,abortController:new AbortController()};
     this.tasks.set(id,task);this.activeId=id;
     queueMicrotask(()=>this.execute(task).catch(()=>{
       // Uncertain state is never resumed in a different native session.
@@ -97,6 +126,7 @@ class ComputerUseAgentRunner {
   finish(task,state,reason){
     const rec=task.rec;
     if(TERMINAL.has(rec.state))return;
+    task.abortController.abort();
     rec.state=state;rec.phase='finished';rec.finished_at=now();
     if(reason)rec.reason=reason;
     this.persist(rec);
@@ -138,8 +168,8 @@ class ComputerUseAgentRunner {
   }
   submit({task_id,session_id,decision_id,decision_json}){
     const rec=this.status(task_id,session_id),task=this.tasks.get(task_id);
-    if(!task||rec.state!=='awaiting_decision'||decision_id!==task.decisionId)
-      throw fault('CU_STALE_DECISION');
+    if(!task||rec.state!=='awaiting_decision'||decision_id!==task.decisionId||
+      this.decisionExpired(task))throw fault('CU_STALE_DECISION');
     if(typeof decision_json!=='string'||decision_json.length>4096)throw fault('CU_INVALID_DECISION');
     let decoded;
     try{decoded=JSON.parse(decision_json);}catch{throw fault('CU_INVALID_DECISION');}
@@ -170,12 +200,10 @@ class ComputerUseAgentRunner {
       // A planner is trusted code in the local service; no hidden model access.
       // A planner that hangs is bounded; STOP remains effective.
       try {
-        const response=await Promise.race([
-          Promise.resolve().then(()=>this.planner({
-            goal:task.goal,step:task.rec.completed_steps,observation,
-            last_error:task.rec.last_error,last_action:task.rec.last_action})),
-          pause(15000).then(()=>({wait:true}))
-        ]);
+        const response=await boundedPlanner(this.planner,{
+          goal:task.goal,step:task.rec.completed_steps,observation,
+          last_error:task.rec.last_error,last_action:task.rec.last_action
+        },task.abortController.signal);
         if(response&&!response.wait)return ComputerUseAgentRunner.validateDecision(response);
       } catch {
         // A transient planner/model failure cannot end the user task.
@@ -185,9 +213,19 @@ class ComputerUseAgentRunner {
     const rec=task.rec;
     task.decisionId=crypto.randomUUID();
     task.image=observation;
+    task.observationAt=this.service.session?.observation?.at??Date.now();
     rec.state='awaiting_decision';rec.phase='awaiting_decision';
     rec.decision_id=task.decisionId;this.persist(rec);
     while(!TERMINAL.has(rec.state)){
+      if(this.decisionExpired(task)){
+        // Discard an unconsumed decision before the native 30-second input TTL.
+        // Re-observe; never apply or complete a task from an expired screenshot.
+        task.image=null;task.decision=null;task.decisionId=null;
+        delete rec.decision_id;
+        rec.state='planning';rec.phase='observation_expired';
+        this.persist(rec);
+        return {wait:true};
+      }
       if(task.decision)break;
       await pause(Math.max(150,this.retryDelayMs));
       if(!await this.healthy(task)){
@@ -197,6 +235,7 @@ class ComputerUseAgentRunner {
     }
     const decision=task.decision;
     task.image=null;task.decision=null;task.decisionId=null;
+    task.observationAt=null;
     delete rec.decision_id;
     if(!TERMINAL.has(rec.state)){rec.state='running';rec.phase='planning';this.persist(rec);}
     return decision;

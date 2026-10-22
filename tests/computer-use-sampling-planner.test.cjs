@@ -39,3 +39,17 @@ test('MCP sampling planner falls back when client rejects, screenshot is unavail
   }));
   assert.deepEqual(await malformed(input),{wait:true});
 });
+
+test('MCP sampling forwards the task cancellation signal to the host request',async()=>{
+  const controller=new AbortController();
+  let receivedSignal;
+  const planner=createSamplingPlanner(()=>({
+    getClientCapabilities:()=>({sampling:{}}),
+    createMessage:async(_params,options)=>{
+      receivedSignal=options?.signal;
+      return {content:{type:'text',text:'{"wait":true}'}};
+    }
+  }));
+  assert.deepEqual(await planner({...input,signal:controller.signal}),{wait:true});
+  assert.equal(receivedSignal,controller.signal);
+});

@@ -1,5 +1,16 @@
 # Development record — Windows computer use
 
+
+## macOS 0.7.1 real cross-display Computer Use acceptance — 2026-10-22
+
+- **Target/build:** running packaged ChatToHarness 0.7.1, build source `5bcca47`, device `unity.local` (macOS arm64). Mac Harness only; no Windows real-device testing.
+- **User scenario:** move the ChatToHarness application window from the primary display onto the second (upper-left) display and leave the app frontmost. This time actual mouse input was exercised, not AppleScript window positioning.
+- **Real control sequence:** native `list_windows` → `open_session` (target `ChatToHarness`, PID 69895) → `get_session` ready → `activate` → `observe` → `mouse_move` → `observe` → `mouse_down` → `observe` → `mouse_drag` (Quartz desktop destination `-500,-1220`) → `mouse_up` → `close_session`. All returned successful completion; mouse down/drag reported held=true and mouse up held=false.
+- **OS verification after drag:** target window Quartz frame `X=-1100, Y=-1240, Width=1160, Height=850` fully within second display `X=-1640, Y=-1440, Width=2560, Height=1440`; `NSWorkspace.shared.frontmostApplication.processIdentifier == 69895`, `localizedName=ChatToHarness`. **Mac real pointer cross-display drag + foreground acceptance: PASS.**
+- **Coverage limits:** This passes the above concrete scenario only, does not retroactively turn the macOS screenshot probe timeout in the 0.7.1 full suite into a PASS and does not establish Windows actual mouse/GUI acceptance. Explicit multi-device intent still depends on ChatGPT's tool selection behavior.
+- **Git tracking:** current branch `feat/computer-use`; prior implementation and installer evidence already committed. This entry records the newly completed real-device acceptance, rather than creating an unnecessary code change.
+
+
 ## 0.7.1 macOS arm64 DMG acceptance evidence (2026-10-21)
 
 - **Build source:** `5bcca47` on `feat/computer-use`; `npm run dist` EXIT 0, output `dist/ChatToHarness-0.7.1-macos-arm64.dmg`. Previous `0.7.0` DMG preserved; running installed application was not changed.

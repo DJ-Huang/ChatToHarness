@@ -5,6 +5,8 @@
 - **Version bump:** `package.json` and `package-lock.json` to 0.7.2; notes `release-notes/v0.7.2.md`. Current branch `feat/computer-use`, work item ChatToHarness #1.
 - **Scope:** Mac Computer Use HUD high-contrast text and orbiting cyan perimeter; device routing policy explicit > trusted current session > sole available > numbered selection, plus tools' visible real-input guidance.
 - **Delivery:** build local macOS arm64 DMG from committed source (not GitHub Release), no changes to installed/running application. Validate signing, packaged native HUD and actual installer smoke. Keep Windows real GUI and ChatGPT-hosted router enforcement as pending.
+- **Build isolation fix:** First `npm run dist` returned `ENOTEMPTY` while cleaning `dist/mac-arm64`, because the currently running ChatToHarness instance **is launched from that unpacked build directory**. Never remove, rename, or overwrite it while connected. Added `CTH_DIST_SUBDIR` output isolation for build + installer smoke: run `CTH_DIST_SUBDIR=0.7.2 npm run dist` then `CTH_DIST_SUBDIR=0.7.2 npm run smoke:installer`; outputs go to `dist/0.7.2/`. Old default remains unchanged for nonrunning builds. Path validation rejects traversal. Unit tests: `tests/output-directory.test.cjs` 3/3 PASS.
+
 
 
 

@@ -4,6 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const versions = require('./versions.cjs');
+const {outputDirectory}=require('./output-directory.cjs');
 const root = path.resolve(__dirname, '..');
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 function run(script, args = [], env = process.env) {
@@ -69,14 +70,16 @@ function main() {
   run(path.join(__dirname, 'prepare-resources.cjs'));
   verifyResources(path.join(root, 'resources'));
   require('../app/build-identity.cjs').writeBuildInfo(root, path.join(root, 'resources'));
+  const outputRoot = outputDirectory(root);
   const installer = process.argv.includes('--dist');
   const args = ['--config', 'electron-builder.config.cjs', process.platform === 'darwin' ? '--mac' : '--win', process.platform === 'darwin' ? '--arm64' : '--x64',
     ...(installer ? [] : ['--dir']), '--publish', 'never', ...config.overrides,
+    ...(process.env.CTH_DIST_SUBDIR ? [`-c.directories.output=${path.relative(root,outputRoot)}`] : []),
     ...(process.env.CTH_ELECTRON_DIST ? [`-c.electronDist=${process.env.CTH_ELECTRON_DIST}`] : [])];
   console.log(`正在生成 ChatToHarness ${installer ? '安装包' : '应用'}…`);
   run(path.join(root, 'node_modules', 'electron-builder', 'out', 'cli', 'cli.js'), args, config.env);
   const application = process.platform === 'darwin'
-    ? path.join(root, 'dist', 'mac-arm64', 'ChatToHarness.app') : path.join(root, 'dist', 'win-unpacked');
+    ? path.join(outputRoot, 'mac-arm64', 'ChatToHarness.app') : path.join(outputRoot, 'win-unpacked');
   const executable = process.platform === 'darwin'
     ? path.join(application, 'Contents', 'MacOS', 'ChatToHarness') : path.join(application, 'ChatToHarness.exe');
   if (!fs.existsSync(executable)) throw new Error('应用打包未生成预期入口。');
@@ -103,8 +106,8 @@ function main() {
   if (installer) {
     const version = require('../package.json').version;
     const name = process.platform === 'darwin' ? `ChatToHarness-${version}-macos-arm64.dmg` : `ChatToHarness-${version}-windows-x64-setup.exe`;
-    if (!fs.existsSync(path.join(root, 'dist', name))) throw new Error(`缺少预期安装包：${name}`);
-    console.log(`已生成：${path.join(root, 'dist', name)}`);
+    if (!fs.existsSync(path.join(outputRoot, name))) throw new Error(`缺少预期安装包：${name}`);
+    console.log(`已生成：${path.join(outputRoot, name)}`);
   } else console.log(`已生成：${application}`);
 }
 if (require.main === module) { try { main(); } catch (error) { console.error(`构建失败：${error.message}`); process.exitCode = 1; } }

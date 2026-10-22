@@ -459,6 +459,18 @@ class ComputerUse {
                     Region=new Region(shape);
             }
             var next=new Point(work.Left+(work.Width-width)/2,work.Top+10);
+            // The topmost HUD must not become its own title-bar occluder.
+            // Prefer the top edge, but park at the bottom if it overlaps the
+            // draggable title bar of the authorized window. STOP remains clickable.
+            RECT targetRect;
+            if (GetWindowRect(Target,out targetRect)) {
+                var titleBar=Rectangle.FromLTRB(targetRect.Left+72,targetRect.Top+8,
+                    Math.Max(targetRect.Left+72,targetRect.Right-16),
+                    Math.Min(targetRect.Bottom,targetRect.Top+50));
+                var proposed=new Rectangle(next,new Size(width,Height));
+                if (proposed.IntersectsWith(titleBar))
+                    next=new Point(next.X,work.Bottom-Height-10);
+            }
             if (Location!=next) Location=next;
             // Advance the cyan perimeter orbit once per 40ms UI tick.
             orbit=(orbit+40.0/3500.0)%1.0;

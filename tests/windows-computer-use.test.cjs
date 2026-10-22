@@ -345,6 +345,9 @@ test('Windows atomic drag occlusion is recoverable, unknown input failure aborts
   const blocked=await service.call({action:'drag_window',session_id:id,
     observation_id:first,x:80,y:20,screen_x:100,screen_y:160});
   assert.equal(blocked.structuredContent.code,'CU_TARGET_OCCLUDED');
+  assert.equal(blocked.structuredContent.execution_state,'not_started');
+  assert.equal(blocked.structuredContent.operation_executed,false);
+  assert.equal(blocked.structuredContent.next_action,'observe');
   assert.equal(blocked.structuredContent.occlusion.candidates[0].blocker.window_id,'5');
   assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
   assert.equal(commands.filter(x=>x.action==='drag_window').length,0);

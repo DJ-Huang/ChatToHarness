@@ -23,7 +23,7 @@
 - observe 额外报告 window_bounds 和 desktop_displays，按此计算目标光标终点，移动后再次观察核验。
 - 原子拖动只在尚未按下鼠标前对初始标题栏及最多两个备选落点做只读遮挡检测（最多三处）。备选落点变化时同步补偿终点，最终窗口位置不变。已经发送按下/拖动后绝不自动重放。
 - CU_TARGET_OCCLUDED 返回 occlusion 元数据，不返回其它窗口标题。Mac 含窗口 ID/PID/进程名/层级/透明度/边界/AX 检查状态；Windows 使用 WindowFromPoint 命中检测并返回窗口 ID/PID/进程名/边界、hit_test 标识。两端遇到无法确认的命中均应保守拒绝，不得仅凭透明度假定能穿透。
-- 三处均被遮挡、出现 CU_POINTER_OFF_PATH、焦点变化、身份变化或不确定输入时，先检查会话和重新观察，必要时重新激活；不得盲目重复原动作。Esc/STOP、旧分步接口 30 秒 watchdog 和 close_session 保留。
+- 三处均被遮挡、出现 CU_POINTER_OFF_PATH、焦点变化、身份变化或不确定输入时，先检查会话和重新观察，必要时重新激活；不得盲目重复原动作。Windows 原子拖动在尚未注入鼠标动作的确定性遮挡失败时报告 `not_started` 且允许重新观察；输入结果不确定则须关闭会话。Windows HUD 若遮挡目标标题栏，应移至同屏安全位置，不得让 HUD 造成自遮挡。Esc/STOP、旧分步接口 30 秒 watchdog 和 close_session 保留。
 
 ## 2. 直接定位 API 兜底（已取得针对当前窗口任务的授权）
 

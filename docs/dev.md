@@ -1,5 +1,17 @@
 # Development record — Windows computer use
 
+## Windows Computer Use 实机拖动/遮挡/HUD 收口 — 2026-10-22
+
+- **Issue/branch:** ChatToHarness #1, `feat/computer-use`, follow-up to local commit `66ad106`. 用户明确要求删除误放的三个 3DFace 目录；逐个限定目录检查后删除 `.3dface-p0b-matrix-20261020` (1 entry), `.3dface-p0b-review-20261020` (4), `.3dface-render-transfer-20261020` (12)。`git status` 删除后干净，这些文件原本不受 Git 跟踪，没有混入提交。
+- [x] **HUD 自遮挡修复:** Windows `StopWindow.FollowTargetDisplay` 在当前屏幕顶部居中时检查授权目标的可拖动标题栏矩形；如相交，将 HUD 移至该屏底部（STOP 可继续点击），避免 HUD 自身导致 `CU_TARGET_OCCLUDED`。未改 Mac、未引入不可见窗口定位作为实际移动方式。
+- [x] **错误语义:** `drag_window` 的输入前确定性遮挡失败返回 `execution_state:not_started`、`operation_executed:false`、`next_action:observe`；可能已经注入鼠标输入的故障仍返回 unknown、终止会话，禁止自动重放。
+- [x] **真实 Windows SDK→认证 Gateway→MCP→原生 helper→WinForms 临时窗口：** `node scripts/test-computer-use-mcp.cjs --atomic-drag` EXIT 0。实际拖动要求平移 (36,32) px，观察结果完全一致；第一个标题栏落点被独立非激活临时窗口遮挡时自动改用备用点，目标平移保持正确；遮住全部落点时 `CU_TARGET_OCCLUDED` 且未发送鼠标按下，会话维持 ready，清除遮挡后重新观察成功。
+- [x] **真实 HUD/顶部避让：** fixture 枚举 Windows 原生 HUD 的实际窗口和子控件，验证会话原文标题、当前/上一步操作文本及 STOP。通过仅用于测试窗口的 `position_top` 放到屏幕顶部后，核验 HUD 与标题栏不重叠，再次真实拖动成功；这属于测试窗口的定位设置，不是生产 Computer Use 的 API 兜底。
+- [x] **STOP:** 测试 fixture 先核验唯一的预期会话标题，再向其真实原生 STOP 按钮发送 Win32 `BM_CLICK` 测试消息；helper 退出、`get_session` 返回 closed、`close_session` 返回 `closed:true`。这是按钮消息验收，不是肉眼/物理鼠标 STOP 点击验收。
+- [x] **代码回归:** `node scripts/build-computer-use.cjs` 编译通过；定向测试 49 total / 45 PASS / 0 FAIL / 4 Mac-only SKIP；`git diff --check` 通过。验收报告：`.cache/acceptance/computer-use/windows-atomic-drag-result.json`。
+- [ ] **保留未验收项:** `node scripts/test-computer-use-native.cjs` 仍在本机因 `CU_USER_INPUT_ACTIVE` 终止（未取消真实用户接管检测）；Esc 真正热键、肉眼 Cyan 动画质量、异构多屏真实拖动及完整安装包尚未在本轮新改动上验收。此前完整 `npm test` 有 10 FAIL（符号链接权限/资源打包等），并非全量通过。
+- **运行/交付约束:** 未修改版本号、未覆盖运行中的安装或 Windows MCP 服务；此证据仅适用于本地源码构建的原生 helper，正式部署后仍需单独验收。
+
 ## Windows 与 macOS Computer Use 源码对齐 — 2026-10-22
 
 - **Issue/branch:** ChatToHarness #1 / `feat/computer-use`。通过 winHarness 操作 Windows 本地仓库，没有使用 macHarness；原有三个 3DFace 未跟踪目录保留。

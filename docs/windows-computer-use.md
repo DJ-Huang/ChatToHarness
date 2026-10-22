@@ -6,7 +6,9 @@ The Windows native helper now implements a single-call `drag_window`: fresh titl
 
 The new top-center dark rounded HUD has a cyan perimeter animation, current and previous operation with outcome/time, optional genuine caller-provided `session_title` (otherwise marked unavailable), and local STOP/Esc. The native private-stdio title handshake does not log the title or pass it in CLI arguments. The existing light-blue target outline, real-pointer Glow, scoped authorization and session cleanup remain.
 
-**Acceptance boundary:** C# compile and JavaScript contracts passed. Desktop GUI fixture was interrupted by `CU_USER_INPUT_ACTIVE`; no complete native drag, STOP or visual acceptance is claimed from that run. The installed application is unchanged.
+**Real Windows source-build acceptance (2026-10-22):** C# native build PASS; 45 scoped regression PASS, 4 macOS-only SKIP, 0 FAIL. `node scripts/test-computer-use-mcp.cjs --atomic-drag` exited 0 via the actual SDK/gateway/stdio/native helper on a disposable Windows fixture. A requested physical window translation (36,32) pixels matched measured bounds exactly, including recovery from an initial covered title-bar grip. Complete occlusion returned a structured `CU_TARGET_OCCLUDED` with `execution_state: not_started`, `operation_executed: false`; after clearing the test-only occluder, a fresh observation succeeded. HUD genuine title/operation text and safe repositioning at the screen top passed real window enumeration. The STOP button was triggered by a controlled fixture-only Win32 `BM_CLICK` message after confirming the exact session title; its helper exited and `close_session` reported closed.
+
+**Limitations:** This is not a production installation test. A separate `test-computer-use-native.cjs` full interaction fixture failed safely on `CU_USER_INPUT_ACTIVE`, so physical STOP/Esc operation, human-visible cyan animation quality, and actual cross-display drag still require independent acceptance. No current installation was replaced.
 
 ## Shared BaseComputerUse and Windows consent — 2026-10-21
 

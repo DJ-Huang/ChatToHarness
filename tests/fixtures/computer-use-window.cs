@@ -221,6 +221,17 @@ class ComputerUseWindowFixture {
         if(selected<0)throw new Exception("Only the disposable fixture may be authorized");
         SendMessage(list,0x186,new IntPtr(selected),IntPtr.Zero); SendMessage(button,0xF5,IntPtr.Zero,IntPtr.Zero);
     }
+    class FixtureCover : Form {
+        protected override bool ShowWithoutActivation {get{return true;}}
+        protected override CreateParams CreateParams {
+            get {var p=base.CreateParams;p.ExStyle|=0x08000000|0x00000080;return p;}
+        }
+        public FixtureCover() {
+            FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;
+            TopMost=true;StartPosition=FormStartPosition.Manual;
+            BackColor=Color.FromArgb(151,31,26);
+        }
+    }
     static int FixtureServer() {
         Console.InputEncoding=new UTF8Encoding(false); Console.OutputEncoding=new UTF8Encoding(false);
         SetProcessDpiAwarenessContext(new IntPtr(-4)); Application.EnableVisualStyles();
@@ -228,7 +239,8 @@ class ComputerUseWindowFixture {
         using(var form=new Form { Text="ChatToHarness MCP session recovery fixture",Width=620,Height=320,StartPosition=FormStartPosition.CenterScreen }) {
             var distractor=new Form {Text="ChatToHarness disposable focus distractor",Width=400,Height=200,StartPosition=FormStartPosition.Manual,Left=100,Top=150};
             var distractorInput=new RichTextBox {Dock=DockStyle.Fill}; distractor.Controls.Add(distractorInput);
-            form.FormClosed+=delegate {distractor.Dispose();};
+            FixtureCover cover=null;
+            form.FormClosed+=delegate {if (cover != null) cover.Dispose();distractor.Dispose();};
             var input=new RichTextBox {Left=30,Top=30,Width=500,Height=100};
             form.Controls.Add(input); form.Show(); FocusFixture(form);
             Console.WriteLine("{\"ready\":true}"); Console.Out.Flush();
@@ -239,6 +251,67 @@ class ComputerUseWindowFixture {
                         try {
                             string action=(string)command["action"];
                             if(action=="authorize")AuthorizeFixture(Convert.ToInt32(command["server_pid"]),form);
+                            if(action=="position_top") {
+                                // Test-fixture-only geometry setup, never a user window API fallback.
+                                Rectangle screen=Screen.FromHandle(form.Handle).WorkingArea;
+                                form.Location=new Point(screen.Left+(screen.Width-form.Width)/2,screen.Top+12);
+                                Pump();
+                                Rect p;GetWindowRect(form.Handle,out p);
+                                Console.WriteLine(json.Serialize(new {ok=true,
+                                    bounds=new int[]{p.Left,p.Top,p.Right,p.Bottom},
+                                    foreground=GetForegroundWindow()==form.Handle}));
+                                Console.Out.Flush();return;
+                            }
+                            if(action=="overlay_one" || action=="overlay_all") {
+                                if (cover != null) cover.Dispose();
+                                Rect bounds;GetWindowRect(form.Handle,out bounds);
+                                bool all=action=="overlay_all";
+                                cover=new FixtureCover {
+                                    Bounds=new Rectangle(bounds.Left+(all?72:130),bounds.Top+8,
+                                        all?(bounds.Right-bounds.Left-90):40,38)
+                                };
+                                cover.Show();Pump();
+                                var probe=new Point(bounds.Left+150,bounds.Top+16);
+                                Console.WriteLine(json.Serialize(new {ok=true,
+                                    foreground=GetForegroundWindow()==form.Handle,
+                                    covered=GetAncestor(WindowFromPoint(probe),2)==cover.Handle,
+                                    all=all}));Console.Out.Flush();return;
+                            }
+                            if(action=="overlay_off") {
+                                if (cover != null) cover.Dispose();cover=null;Pump();
+                                Console.WriteLine("{\"ok\":true}");Console.Out.Flush();return;
+                            }
+                            if(action=="hud_report" || action=="hud_stop") {
+                                IntPtr hud=IntPtr.Zero;
+                                EnumWindows(delegate(IntPtr h,IntPtr unused) {
+                                    var caption=new StringBuilder(256);
+                                    GetWindowText(h,caption,caption.Capacity);
+                                    if(caption.ToString()=="ChatToHarness — Computer Use")hud=h;
+                                    return true;
+                                },IntPtr.Zero);
+                                Rect hudBounds=new Rect();
+                                if(hud!=IntPtr.Zero)GetWindowRect(hud,out hudBounds);
+                                var labels=new List<string>();
+                                if(hud!=IntPtr.Zero)EnumChildWindows(hud,delegate(IntPtr h,IntPtr unused) {
+                                    var text=new StringBuilder(512);
+                                    GetWindowText(h,text,text.Capacity);
+                                    if(text.Length>0)labels.Add(text.ToString());
+                                    return true;
+                                },IntPtr.Zero);
+                                if(action=="hud_stop") {
+                                    // Only the helper belonging to THIS fixture session can
+                                    // receive a synthetic button-click test message.
+                                    if(!labels.Contains("会话：Computer Use atomic drag fixture"))
+                                        throw new Exception("Refuse to stop an unrelated session");
+                                    IntPtr button=Child(hud,"BUTTON");
+                                    if(button==IntPtr.Zero)throw new Exception("Fixture HUD STOP button missing");
+                                    SendMessage(button,0xF5,IntPtr.Zero,IntPtr.Zero);
+                                    Console.WriteLine("{\"ok\":true}");Console.Out.Flush();return;
+                                }
+                                Console.WriteLine(json.Serialize(new {ok=true,hud_found=hud!=IntPtr.Zero,
+                                    hud_bounds=new int[]{hudBounds.Left,hudBounds.Top,hudBounds.Right,hudBounds.Bottom},
+                                    hud_labels=labels}));Console.Out.Flush();return;
+                            }
                             if(action=="focus")FocusFixture(form);
                             if(action=="defocus") { distractor.Show(); FocusFixture(distractor); distractorInput.Focus(); }
                             if(action=="minimize") { form.WindowState=FormWindowState.Minimized; Pump(); }

@@ -56,7 +56,9 @@ async function main() {
   const listed=await call({action:'list_windows'});
   if(perWindow)assert.equal(listed.structuredContent.code,'CU_WINDOW_LIST_NOT_AUTHORIZED');
   else {assert.ok(listed.structuredContent.windows.some(w=>w.window_id===targetInfo.window_id));report.defaultAllWindows=true;}
-  const opened = await call({action: 'open_session',window_id:targetInfo.window_id}); assert.ok(opened.structuredContent.session_id); assert.equal(opened.structuredContent.state,perWindow?'awaiting_consent':'initializing');
+  const opened = await call({action: 'open_session',window_id:targetInfo.window_id,
+    ...(process.argv.includes('--atomic-drag') ? {session_title:'Computer Use atomic drag fixture'} : {})});
+  assert.ok(opened.structuredContent.session_id); assert.equal(opened.structuredContent.state,perWindow?'awaiting_consent':'initializing');
   const recovered = await call({action: 'get_session'}); const id = recovered.structuredContent.session_id;
   assert.equal(id,opened.structuredContent.session_id);
   assert.equal((await call({action:'open_session'})).structuredContent.session_id,id); report.recoveredLostOpen=true;
@@ -69,6 +71,124 @@ async function main() {
   let capture=await call({action:'observe',session_id:id,format:'png'}); assert.equal(capture.isError,undefined);
   const image=capture.content.find(x=>x.type==='image'); assert.equal(image.mimeType,'image/png');
   fs.mkdirSync(output,{recursive:true}); fs.writeFileSync(path.join(output,'session-recovery-fixture.png'),Buffer.from(image.data,'base64')); report.nativeScreenshot=true;
+  if (process.argv.includes('--atomic-drag')) {
+    const before=capture.structuredContent.window_bounds;
+    const hud=await command({action:'hud_report'});
+    assert.equal(hud.hud_found,true,'Expected native Windows HUD');
+    assert.ok(hud.hud_labels.some(label=>label.includes('Computer Use atomic drag fixture')),
+      'HUD must display exactly the caller-supplied title');
+    assert.ok(hud.hud_labels.some(label=>label.startsWith('当前：')));
+    assert.ok(hud.hud_labels.some(label=>label.startsWith('上一步：')));
+    report.nativeHud=hud; report.nativeHudTitle=true;
+    const dx=36,dy=32,originX=150,originY=16;
+    const drag=await call({action:'drag_window',session_id:id,
+      observation_id:capture.structuredContent.observation_id,
+      x:originX,y:originY,
+      screen_x:before.x+originX+dx,screen_y:before.y+originY+dy});
+    assert.equal(drag.isError,undefined,JSON.stringify(drag.structuredContent));
+    assert.equal(drag.structuredContent.mouse_button_held,false);
+    const observed=await call({action:'observe',session_id:id,format:'png'});
+    assert.equal(observed.isError,undefined,JSON.stringify(observed.structuredContent));
+    const after=observed.structuredContent.window_bounds;
+    const measured={x:after.x-before.x,y:after.y-before.y};
+    report.dragDelta={expected:{x:dx,y:dy},measured,initial:before,final:after};
+    assert.ok(Math.abs(measured.x-dx)<=3&&Math.abs(measured.y-dy)<=3,
+      'Real native window move did not match requested translation');
+    const fixtureState=await command({action:'report'});
+    assert.equal(fixtureState.window_id,targetInfo.window_id);
+    // A nonactivating, topmost window belonging exclusively to the disposable
+    // fixture covers the first title-bar grip, without stealing foreground.
+    const partial=await command({action:'overlay_one'});
+    assert.equal(partial.covered,true,'Fixture first candidate was not covered');
+    if (!partial.foreground) {
+      const focus=await call({action:'activate',session_id:id});
+      assert.equal(focus.structuredContent.foreground,true,
+        'Production activate must recover focus without unsafe clicking');
+    }
+    let coveredShot=await call({action:'observe',session_id:id,format:'png'});
+    assert.equal(coveredShot.isError,undefined,JSON.stringify(coveredShot.structuredContent));
+    const b=coveredShot.structuredContent.window_bounds;
+    const recovered=await call({action:'drag_window',session_id:id,
+      observation_id:coveredShot.structuredContent.observation_id,
+      x:originX,y:originY,screen_x:b.x+originX+dx,screen_y:b.y+originY+dy});
+    assert.equal(recovered.isError,undefined,JSON.stringify(recovered.structuredContent));
+    const recoveredShot=await call({action:'observe',session_id:id,format:'png'});
+    assert.equal(recoveredShot.isError,undefined,JSON.stringify(recoveredShot.structuredContent));
+    const a=recoveredShot.structuredContent.window_bounds;
+    assert.ok(Math.abs(a.x-b.x-dx)<=3&&Math.abs(a.y-b.y-dy)<=3,
+      'Alternate grip must preserve the requested final position');
+    report.singleTitlebarOcclusionRecovery=true;
+    await command({action:'overlay_off'});
+    const all=await command({action:'overlay_all'});
+    assert.equal(all.covered,true);
+    if (!all.foreground) {
+      const focus=await call({action:'activate',session_id:id});
+      assert.equal(focus.structuredContent.foreground,true,
+        'Production activate must recover focus before an occlusion check');
+    }
+    coveredShot=await call({action:'observe',session_id:id,format:'png'});
+    assert.equal(coveredShot.isError,undefined,JSON.stringify(coveredShot.structuredContent));
+    const c=coveredShot.structuredContent.window_bounds;
+    const blocked=await call({action:'drag_window',session_id:id,
+      observation_id:coveredShot.structuredContent.observation_id,
+      x:originX,y:originY,screen_x:c.x+originX+dx,screen_y:c.y+originY+dy});
+    assert.equal(blocked.structuredContent.code,'CU_TARGET_OCCLUDED',
+      JSON.stringify(blocked.structuredContent));
+    assert.equal(blocked.structuredContent.execution_state,'not_started');
+    assert.equal(blocked.structuredContent.operation_executed,false);
+    assert.equal(blocked.structuredContent.next_action,'observe');
+    assert.equal(blocked.structuredContent.occlusion.reason,
+      'all_titlebar_candidates_blocked');
+    assert.ok(blocked.structuredContent.occlusion.candidates.length>=2);
+    assert.equal((await call({action:'get_session'})).structuredContent.state,'ready');
+    report.allTitlebarOcclusionFailClosed=true;
+    await command({action:'overlay_off'});
+    const restart=await call({action:'observe',session_id:id});
+    assert.equal(restart.isError,undefined,JSON.stringify(restart.structuredContent));
+    report.freshObservationAfterOcclusion=true;
+    // Explicit geometry manipulation below is confined to our disposable
+    // test fixture, to verify that the top-center HUD does not self-occlude.
+    const positioned=await command({action:'position_top'});
+    assert.equal(positioned.foreground,true);
+    await new Promise(r=>setTimeout(r,250));
+    const hudTop=await command({action:'hud_report'});
+    const [left,top,right,bottom]=positioned.bounds;
+    const [hLeft,hTop,hRight,hBottom]=hudTop.hud_bounds;
+    const titleLeft=left+72,titleRight=right-16,titleTop=top+8,titleBottom=top+50;
+    const overlaps=Math.max(titleLeft,hLeft)<Math.min(titleRight,hRight) &&
+      Math.max(titleTop,hTop)<Math.min(titleBottom,hBottom);
+    assert.equal(overlaps,false,'HUD must never cover the target title bar');
+    report.nativeHudAvoidsTitlebar=true;
+    const highShot=await call({action:'observe',session_id:id,format:'png'});
+    assert.equal(highShot.isError,undefined,JSON.stringify(highShot.structuredContent));
+    const highStart=highShot.structuredContent.window_bounds;
+    const highDrag=await call({action:'drag_window',session_id:id,
+      observation_id:highShot.structuredContent.observation_id,x:originX,y:originY,
+      screen_x:highStart.x+originX+dx,screen_y:highStart.y+originY+dy});
+    assert.equal(highDrag.isError,undefined,JSON.stringify(highDrag.structuredContent));
+    const highAfter=await call({action:'observe',session_id:id,format:'png'});
+    assert.equal(highAfter.isError,undefined,JSON.stringify(highAfter.structuredContent));
+    const highEnd=highAfter.structuredContent.window_bounds;
+    assert.ok(Math.abs(highEnd.x-highStart.x-dx)<=3&&
+      Math.abs(highEnd.y-highStart.y-dy)<=3,
+      'Top-edge real native drag must keep exact destination');
+    report.realTopEdgeWindowDrag=true;
+    const hudAfter=await command({action:'hud_report'});
+    assert.ok(hudAfter.hud_labels.some(s=>s.includes('上一步：')));
+    report.realAtomicWindowDrag=true; report.observedFinalGeometry=true;
+    await command({action:'hud_stop'});
+    let stopped=false;
+    for(let i=0;i<20;i++) {
+      const state=(await call({action:'get_session'})).structuredContent;
+      if(state.state==='closed') { stopped=true; break; }
+      await new Promise(r=>setTimeout(r,100));
+    }
+    assert.equal(stopped,true,'Native STOP button must terminate the owner-scoped helper');
+    report.nativeStopButton=true;
+    assert.equal((await call({action:'close_session'})).structuredContent.closed,true);
+    report.closeWithoutId=true;
+    return;
+  }
   const away=await command({action:'defocus'}); assert.equal(away.foreground,false);
   const rejected=await call({action:'type_text',session_id:id,observation_id:capture.structuredContent.observation_id,text:'MUST NOT TYPE'});
   assert.equal(rejected.structuredContent.code,'CU_WINDOW_NOT_FOREGROUND');
@@ -169,6 +289,10 @@ main().catch(error => {report.error=error.stack || error.message; process.exitCo
     fixture.stdin.end(); fixture.kill(); await exited;
   }
   lines?.close();
-  fs.mkdirSync(output,{recursive:true}); fs.writeFileSync(path.join(output,perWindow?'per-window-recovery-result.json':'session-recovery-result.json'),JSON.stringify(report,null,2)+'\n'); console.log(JSON.stringify(report));
+  fs.mkdirSync(output,{recursive:true});
+  const reportFile=process.argv.includes('--atomic-drag')?'windows-atomic-drag-result.json':
+    perWindow?'per-window-recovery-result.json':'session-recovery-result.json';
+  fs.writeFileSync(path.join(output,reportFile),JSON.stringify(report,null,2)+'\n');
+  console.log(JSON.stringify(report));
   if(path.dirname(directory)===path.resolve(os.tmpdir()) && path.basename(directory).startsWith('cth-mcp-recovery-')) fs.rmSync(directory,{recursive:true,force:true,maxRetries:4,retryDelay:300});
 });

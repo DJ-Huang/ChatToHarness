@@ -309,9 +309,14 @@ class BaseComputerUse {
           this.session === activeSession && started && !atomicBeforeDown)
         this.stop('CU_DRAG_ABORTED', activeSession);
       const code = /^CU_[A-Z_]+$/.test(error.code || '') ? error.code : 'CU_CANCELLED';
-      return {...this.result({code, execution_state: started ? 'unknown' : 'not_started', operation_executed: started ? null : false,
+      const mayHaveExecuted = started && !atomicBeforeDown;
+      return {...this.result({code, execution_state: mayHaveExecuted ? 'unknown' : 'not_started',
+        operation_executed: mayHaveExecuted ? null : false,
         ...(error.occlusion ? {occlusion: error.occlusion} : {}),
-        ...(['CU_CONSENT_PENDING','CU_SESSION_STARTING'].includes(code) ? this.status() : {}), next_action: code === 'CU_SCREENSHOT_EXPIRED' ? 'observe' : code === 'CU_WINDOW_NOT_FOREGROUND' ? 'activate' : code === 'CU_ACTIVATION_FAILED' ? 'Manually activate the authorized window, then observe; do not replay input.' : 'get_session'}), isError: true};
+        ...(['CU_CONSENT_PENDING','CU_SESSION_STARTING'].includes(code) ? this.status() : {}),
+        next_action: atomicBeforeDown || code === 'CU_SCREENSHOT_EXPIRED' ? 'observe' :
+          code === 'CU_WINDOW_NOT_FOREGROUND' ? 'activate' :
+          code === 'CU_ACTIVATION_FAILED' ? 'Manually activate the authorized window, then observe; do not replay input.' : 'get_session'}), isError: true};
     } finally {
       clearTimeout(timer); signal?.removeEventListener('abort', abort);
       // Rejected concurrent calls must not unlock the active operation.

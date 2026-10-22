@@ -77,6 +77,8 @@ test('staged platform resource manifests contain BaseComputerUse but not opposit
   for(const names of [MACOS_FILES,WINDOWS_FILES]) {
     assert.ok(names.includes('computer-use/app/base-computer-use.cjs'));
     assert.ok(names.includes('computer-use/app/computer-use-images.cjs'));
+    assert.ok(names.includes('computer-use/app/computer-use-task-runner.cjs'));
+    assert.ok(names.includes('computer-use/app/durable-files.cjs'));
   }
   assert.ok(MACOS_FILES.includes('computer-use/app/macos-computer-use.cjs'));
   assert.ok(!MACOS_FILES.some(x=>x.includes('windows-computer-use.cjs')||x.endsWith('.exe')));

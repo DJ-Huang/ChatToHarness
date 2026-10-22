@@ -1,5 +1,17 @@
 # Development record — Windows computer use
 
+## Computer Use TaskRunner V1 — 2026-10-22
+
+- **Issue/branch:** ChatToHarness #1 / `feat/computer-use`. Implemented exclusively through winHarness in `D:\\proj\\github\\ChatToHarness`; no macHarness, no real-system cursor test, no version bump or installed-app replacement.
+- [x] **Narrow, locally executing GUI task engine:** `app/computer-use-task-runner.cjs` adds an authorized `move_window` workflow that keeps running between MCP requests. A fresh scoped observation plus explicit target desktop x/y and idempotency key are required. It never executes Shell or infers permission.
+- [x] **MCP API:** `start_move_task`, `get_move_task`, `cancel_move_task` share the Windows/macOS `BaseComputerUse` contract. One active task per native session; direct concurrent input is rejected. Lost `start` replies are deduplicated, including after the task completes; changed goals with the same key are rejected.
+- [x] **Safe loop and checkpoint:** progress is atomically persisted without screenshots or text; focus/input errors are observed and recovered with backoff, drag status is never treated as task success without fresh geometry verification, STOP/Esc/explicit cancellation/terminated native session aborts. A confirmed completed task closes its native session and overlay. On service restart existing incomplete work is marked interrupted for reads; it is never injected into a new session automatically.
+- [x] **Cross-platform distribution:** both resource manifests and staging copies include the TaskRunner and `durable-files` helpers; `AGENTS.md`, `docs/computer-use-policy.md`, `docs/windows-computer-use.md` and `docs/computer-use-task-runner.md` describe the behavior and boundaries.
+- [x] **Mock-only verification:** `node --test tests/computer-use-task-runner.test.cjs tests/computer-use-platform-packaging.test.cjs tests/windows-computer-use.test.cjs tests/macos-computer-use.test.cjs tests/computer-use-policy.test.cjs`: **71 total, 67 pass, 0 fail, 4 macOS-only skip** on Windows; `git diff --check` PASS. No actual desktop pointer was controlled by these tests.
+- [ ] **Acceptance gates:** native installed Windows workflow, macOS packaged workflow/native Swift acceptance, full npm test environment failures, and general multi-step arbitrary GUI planning remain open. TaskRunner is a narrow session-scoped executor; it does not keep control after the MCP service/native session terminates, nor does it run a model unattended.
+
+
+
 ## Cross-platform Computer Use task continuation — 2026-10-22
 
 - **Issue / branch:** ChatToHarness #1 / feat/computer-use; Windows checkout D:\\proj\\github\\ChatToHarness; worktree clean before editing; no macHarness used, no version bump or installed application replacement.

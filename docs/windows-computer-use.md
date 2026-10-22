@@ -12,6 +12,14 @@ The new top-center dark rounded HUD has a cyan perimeter animation, current and 
 
 Windows 和 macOS 统一采用 [任务级持续恢复规范](computer-use-policy.md)：在原会话有效且用户未 STOP/Esc 或明确停止期间，CU_USER_INPUT_ACTIVE、CU_WINDOW_NOT_FOREGROUND 等可恢复错误不能结束整体任务。Windows 原子拖动在按下鼠标前的失败现在通过 input_started=false 标记，调用端可重新观察后继续；按键已经可能注入时保持保守终止会话，禁止盲目重放。
 
+## TaskRunner V1 (Windows/macOS shared)
+
+在已经授权的 Computer Use 会话中执行 `observe` 后，用 `start_move_task` 提交 `session_id`、新鲜 `observation_id`、目标窗口左上角桌面坐标 `target_x` / `target_y`，以及可用于重发同一请求的 `idempotency_key`。返回 `task_id` 后，本地服务在原会话有效期间持续执行 `observe → 必要的 activate → drag_window → observe 验证`，无需每次 GUI 恢复再等调用端发起 MCP 请求。
+
+使用 `get_move_task(session_id, task_id)` 查询落盘检查点、运行状态及最终核验位置，`cancel_move_task(session_id, task_id)` 请求停止并关闭本地 Computer Use 会话。除非用户主动停止，不能在工作流执行中调用 `close_session`。终止边界为观察结果已达标、用户明确停止/STOP/Esc，或原生会话失效；失败无法恢复时只能等待或结束原会话，绝不绕过用户接管。
+
+该执行器目前**只支持已授权窗口定位**，不执行 Shell、不自动接受新权限、不跨进程重放输入。服务进程重启后，既有检查点可查询为 interrupted，但原会话和输入权限必须重新授权才可新建任务。默认单元测试使用模拟设备，不在使用中的桌面上移动真实鼠标。
+
 ## Shared BaseComputerUse and Windows consent — 2026-10-21
 
 - `WindowsComputerUse extends BaseComputerUse`. Windows installer includes base, image codec, Windows adapter and `ChatToHarness.ComputerUse.exe`, excluding Mac Swift helper and Mac-only JS adapters.

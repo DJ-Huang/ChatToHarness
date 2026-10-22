@@ -73,9 +73,9 @@ function validate(args) {
 class NativeConnection {
   constructor(executable, {operation, mode = 'all_windows', window_id, session_id} = {}) {
     const nativeArguments=[String(process.pid), operation === 'list_windows' ? 'list_windows' : mode, window_id || '0'];
-    // The native macOS HUD shows the actual MCP session, never a fabricated ID.
-    // Windows native CLI retains its original strict three-argument contract.
-    if (process.platform === 'darwin' && session_id && operation !== 'list_windows')
+    // Both native helpers accept session IDs for private HUD diagnostics.
+    // Conversation titles are sent only via private stdio, never argv.
+    if (session_id && operation !== 'list_windows')
       nativeArguments.push(session_id);
     this.child = spawn(executable, nativeArguments, {windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'ignore'], env: Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(SystemRoot|WINDIR|TEMP|TMP|USERPROFILE|HOME|TMPDIR|USER|LOGNAME|LANG)$/i.test(k)))});
     this.pending = null;
@@ -177,7 +177,7 @@ class BaseComputerUse {
     }
     const sessionID=crypto.randomUUID();
     const s = {id: sessionID, native: this.connect({mode:this.authorizationMode,window_id:args.window_id,session_id:sessionID}), windowId:args.window_id,
-      sessionTitle: this.platform === 'darwin' ? args.session_title?.trim() : undefined,
+      sessionTitle: args.session_title?.trim(),
       state: this.authorizationMode === 'per_window' ? 'awaiting_consent' : 'initializing', mouseHeld: false, expiresAt: Date.now() + 600000};
     this.session = s;
     this.touch(s);
@@ -214,7 +214,6 @@ class BaseComputerUse {
     try {
       const args = validate(input);
       if (this.platform !== this.supportedPlatform) throw fail(this.supportedPlatform === 'darwin' ? 'CU_MACOS_REQUIRED' : 'CU_WINDOWS_REQUIRED');
-      if (args.action === 'drag_window' && this.supportedPlatform !== 'darwin') throw fail('CU_INVALID_ARGUMENT');
       signal?.throwIfAborted();
       this.reconcile();
       if (args.action === 'list_windows') return await this.listWindows(signal);
@@ -262,7 +261,11 @@ class BaseComputerUse {
       // Do not send drag button aliases to platform helpers; click alone supports right.
       if (args.action === 'click' && button !== undefined) command.button = button;
       started = args.action !== 'observe';
+      // An atomic drag can hold the native mouse between two internal steps.
+      // Preserve graceful mouse-up on MCP cancellation/owner shutdown.
+      if (args.action === 'drag_window') s.native.mouseHeld = true;
       const data = await s.native.request({...command, ...(isInput ? {geometry: observation.geometry} : {})});
+      if (args.action === 'drag_window') s.native.mouseHeld = false;
       if (this.session !== s || this.operation !== operation) throw fail('CU_SESSION_CLOSED');
       this.touch(s);
       if (args.action === 'activate' && data.foreground !== true) throw fail('CU_ACTIVATION_FAILED');
@@ -297,8 +300,13 @@ class BaseComputerUse {
     } catch (error) {
       // A native failure during a hold/drag may have occurred after injecting down.
       // Kill the helper to trigger its guaranteed mouse-up cleanup; never retry.
-      if (activeSession && ['mouse_down', 'mouse_drag', 'mouse_up'].includes(input?.action) &&
-          this.session === activeSession && started)
+      // Atomic pre-input hit-test failures are deterministic and recoverable.
+      // Other native drag failures may have injected left-down: stop safely.
+      const atomicBeforeDown = input?.action === 'drag_window' &&
+        ['CU_TARGET_OCCLUDED','CU_INVALID_ARGUMENT','CU_COORDINATE_OUTSIDE_DISPLAY','CU_WINDOW_MOVED'].includes(error.code);
+      if (atomicBeforeDown && activeSession?.native) activeSession.native.mouseHeld = false;
+      if (activeSession && ['mouse_down', 'mouse_drag', 'drag_window', 'mouse_up'].includes(input?.action) &&
+          this.session === activeSession && started && !atomicBeforeDown)
         this.stop('CU_DRAG_ABORTED', activeSession);
       const code = /^CU_[A-Z_]+$/.test(error.code || '') ? error.code : 'CU_CANCELLED';
       return {...this.result({code, execution_state: started ? 'unknown' : 'not_started', operation_executed: started ? null : false,

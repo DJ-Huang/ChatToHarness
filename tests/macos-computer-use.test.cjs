@@ -285,11 +285,8 @@ test('Mac native occlusion error includes safe bounded blocker identity, without
   assert.equal((await service.call({action:'close_session'})).structuredContent.closed,true);
 });
 
-test('Windows tool does not advertise or accept Mac-only atomic window dragging', async () => {
-  const {definition:windowsDefinition,WindowsComputerUse}=require('../app/windows-computer-use.cjs');
-  assert.equal(windowsDefinition.inputSchema.properties.action.enum.includes('drag_window'),false);
-  const svc=new WindowsComputerUse({platform:'win32',connect:()=>{throw Error('must not launch');}});
-  const result=await svc.call({action:'drag_window',session_id:'s',
-    observation_id:'o',x:80,y:20,screen_x:100,screen_y:100});
-  assert.equal(result.structuredContent.code,'CU_INVALID_ARGUMENT');
+test('Windows exposes the shared atomic window dragging action', () => {
+  const {definition:windowsDefinition}=require('../app/windows-computer-use.cjs');
+  assert.equal(windowsDefinition.inputSchema.properties.action.enum.includes('drag_window'),true);
+  assert.equal(windowsDefinition.inputSchema.properties.session_title.maxLength,80);
 });

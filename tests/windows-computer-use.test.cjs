@@ -271,6 +271,19 @@ test('computer use stdio MCP discovers tool without opening native UI', {skip: p
   assert.equal(invalid.isError, true);
 });
 
+test('Windows HUD title is passed through private stdio without exposing it in status',async () => {
+  const {service,commands}=fixture();
+  const opened=await service.call({action:'open_session',session_title:'移动窗口'});
+  for(let i=0;i<5;i++) await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(commands.filter(x=>x.action==='set_session_title').length,1);
+  assert.deepEqual(commands.find(x=>x.action==='set_session_title'),
+    {action:'set_session_title',title:'移动窗口'});
+  const status=await service.call({action:'get_session',session_id:opened.structuredContent.session_id});
+  assert.equal(status.structuredContent.state,'ready');
+  assert.equal(JSON.stringify(status.structuredContent).includes('移动窗口'),false);
+  assert.equal((await service.call({action:'close_session'})).structuredContent.closed,true);
+});
+
 test('Windows mouse actions preserve screen coordinates, transitions and fresh observations', async () => {
   const {service, commands} = fixture(); const id = await open(service);
   for (const action of ['mouse_move', 'mouse_down', 'mouse_drag', 'mouse_up'])
@@ -299,6 +312,52 @@ test('Windows mouse actions preserve screen coordinates, transitions and fresh o
   assert.equal(commands.at(-1).geometry,undefined);
   assert.equal((await service.call({action:'mouse_up',session_id:id})).structuredContent.code,'CU_MOUSE_NOT_HELD');
   service.stop();
+});
+
+test('Windows atomic drag uses a fresh observation and never leaves a held button',async () => {
+  const {service,commands}=fixture();
+  const id=await open(service);
+  const first=await observe(service,id);
+  const moved=await service.call({action:'drag_window',session_id:id,
+    observation_id:first,x:80,y:20,screen_x:-800,screen_y:160});
+  assert.equal(moved.structuredContent.mouse_button_held,false);
+  assert.equal(commands.at(-1).action,'drag_window');
+  assert.equal(commands.at(-1).screen_x,-800);
+  assert.equal((await service.call({action:'get_session'})).structuredContent.mouse_button_held,false);
+  const replay=await service.call({action:'drag_window',session_id:id,
+    observation_id:first,x:80,y:20,screen_x:-800,screen_y:160});
+  assert.equal(replay.structuredContent.code,'CU_STALE_OBSERVATION');
+  assert.equal((await service.call({action:'close_session'})).structuredContent.closed,true);
+});
+
+test('Windows atomic drag occlusion is recoverable, unknown input failure aborts',async () => {
+  const {service,native,commands}=fixture();
+  const id=await open(service);
+  const real=native.request;
+  native.request=async command => {
+    if(command.action==='drag_window') throw Object.assign(
+      new Error('CU_TARGET_OCCLUDED'),{code:'CU_TARGET_OCCLUDED',
+        occlusion:{reason:'all_titlebar_candidates_blocked',
+          candidates:[{candidate_x:80,blocker:{window_id:'5',owner_pid:100}}]}});
+    return real(command);
+  };
+  const first=await observe(service,id);
+  const blocked=await service.call({action:'drag_window',session_id:id,
+    observation_id:first,x:80,y:20,screen_x:100,screen_y:160});
+  assert.equal(blocked.structuredContent.code,'CU_TARGET_OCCLUDED');
+  assert.equal(blocked.structuredContent.occlusion.candidates[0].blocker.window_id,'5');
+  assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
+  assert.equal(commands.filter(x=>x.action==='drag_window').length,0);
+  native.request=async command => {
+    if(command.action==='drag_window') throw Object.assign(new Error('CU_INPUT_FAILED'),{code:'CU_INPUT_FAILED'});
+    return real(command);
+  };
+  const second=await observe(service,id);
+  const failed=await service.call({action:'drag_window',session_id:id,
+    observation_id:second,x:80,y:20,screen_x:100,screen_y:160});
+  assert.equal(failed.structuredContent.code,'CU_INPUT_FAILED');
+  assert.equal(native.closed,true);
+  assert.equal(service.session,null);
 });
 
 test('Mouse drag cannot start without mouse_down and failure releases session', async () => {

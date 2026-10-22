@@ -75,6 +75,86 @@ class ComputerUse {
     static volatile bool Closed;
     static bool LeftHeld;
     static DateTime HeldSince;
+    static object LastOcclusion;
+    static void SetHudAction(string action) {
+        var panel = Stop;
+        if (panel != null && !panel.IsDisposed && panel.IsHandleCreated)
+            try { panel.BeginInvoke(new Action(() => panel.SetActivity(action))); } catch (InvalidOperationException) { }
+    }
+    static bool WithinDisplay(Point point) {
+        foreach (var display in Screen.AllScreens) if (display.Bounds.Contains(point)) return true;
+        return false;
+    }
+    static object OccluderAt(Point point) {
+        // WindowFromPoint resolves the real pointer receiver, unlike raw
+        // rectangle intersections. Do not infer click-through from opacity.
+        IntPtr hit = WindowFromPoint(point);
+        if (hit == IntPtr.Zero) return new {reason="hit_test_unavailable"};
+        IntPtr ownerWindow = GetAncestor(hit, 2);
+        if (ownerWindow == Target) return null;
+        uint pid = 0;
+        GetWindowThreadProcessId(ownerWindow, out pid);
+        string processName = "";
+        if (pid != 0) try { processName = Process.GetProcessById((int)pid).ProcessName; }
+                      catch { /* A protected process may deny name access. */ }
+        RECT bounds = new RECT();
+        bool hasBounds = ownerWindow != IntPtr.Zero && GetWindowRect(ownerWindow, out bounds);
+        return new {reason="window_above_target", window_id=ownerWindow.ToInt64().ToString(),
+            owner_pid=pid, owner=processName, bounds=hasBounds ? new int[]{bounds.Left,bounds.Top,
+                bounds.Right-bounds.Left,bounds.Bottom-bounds.Top} : new int[0],
+            hit_test="window_from_point"};
+    }
+    static void RequireUnoccluded(Point point) {
+        LastOcclusion = OccluderAt(point);
+        if (LastOcclusion != null) Error("CU_TARGET_OCCLUDED");
+    }
+    static object DragWindowAtomic(Dictionary<string,object> args, RECT rect) {
+        int x=Number(args,"x"), y=Number(args,"y");
+        int width=rect.Right-rect.Left, height=rect.Bottom-rect.Top;
+        if (x<72 || x>=width-16 || y<8 || y>Math.Min(48,height-1))
+            Error("CU_INVALID_ARGUMENT");
+        var requested=new Point(Number(args,"screen_x"),Number(args,"screen_y"));
+        if (!WithinDisplay(requested)) Error("CU_COORDINATE_OUTSIDE_DISPLAY");
+        // Probe only before injecting left-down, never replay uncertain input.
+        int[] candidates={x,Math.Min(width-17,85),Math.Max(72,Math.Min(width-17,width/2))};
+        var seen=new HashSet<int>();
+        var blocked=new List<object>();
+        int grip=-1;
+        foreach (int candidate in candidates) {
+            if (candidate<72 || candidate>=width-16 || !seen.Add(candidate)) continue;
+            var check=new Point(rect.Left+candidate,rect.Top+y);
+            object blocker=OccluderAt(check);
+            if (blocker==null) { grip=candidate; break; }
+            blocked.Add(new {candidate_x=candidate, blocker=blocker});
+        }
+        if (grip<0) {
+            LastOcclusion=new {reason="all_titlebar_candidates_blocked",candidates=blocked};
+            Error("CU_TARGET_OCCLUDED");
+        }
+        var source=new Point(rect.Left+grip,rect.Top+y);
+        // Preserve requested resulting window placement when grip changes.
+        var destination=new Point(requested.X+grip-x,requested.Y);
+        if (!WithinDisplay(destination)) Error("CU_COORDINATE_OUTSIDE_DISPLAY");
+        SetHudAction("mouse_move");
+        MoveCursorVisible(source);
+        RECT current=Check(true);
+        if (current.Left!=rect.Left || current.Top!=rect.Top ||
+            current.Right!=rect.Right || current.Bottom!=rect.Bottom)
+            Error("CU_WINDOW_MOVED");
+        RequireUnoccluded(source);
+        SetHudAction("mouse_down");
+        Inject(new INPUT[]{new INPUT{data=new UNION{mouse=new MOUSEINPUT{dwFlags=2u}}}});
+        LeftHeld=true;
+        HeldSince=DateTime.UtcNow;
+        try {
+            SetHudAction("mouse_drag");
+            MoveCursorVisibleDuringDrag(destination,true);
+        } finally {
+            SetHudAction("mouse_up");
+            ReleaseHeldMouse();
+        }
+        return new {ok=true};
+    }
     static void ReleaseHeldMouse() {
         if (!LeftHeld) return;
         // Release without foreground/geometry checks: STOP and errors must always work.
@@ -307,30 +387,151 @@ class ComputerUse {
             }
         }
     }
+    // Native Windows equivalent of MacHUDSurface: no blocking focus, no
+    // rectangular system shadow, no fake cursor, and a human-accessible STOP.
     class StopWindow : Form {
         protected override bool ShowWithoutActivation { get { return true; } }
         public bool HotkeyReady;
         public ControlOutline Outline;
         public CursorHighlight CursorHighlight;
+        readonly Label sessionLabel;
+        readonly Label currentLabel;
+        readonly Label previousLabel;
+        double orbit;
         public StopWindow() {
-            Text = "ChatToHarness — Computer Use"; Width = 360; Height = 64; TopMost = true;
-            FormBorderStyle = FormBorderStyle.FixedToolWindow; ShowInTaskbar = false;
-            StartPosition = FormStartPosition.Manual; Location = new Point(12, 12);
-            var button = new Button { Text = "正在控制窗口 · Esc 退出 / STOP", Dock = DockStyle.Fill };
-            button.Click += delegate { Close(); }; Controls.Add(button);
+            Text = "ChatToHarness — Computer Use";
+            Width = 530; Height = 140; TopMost = true;
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
+            BackColor = Color.FromArgb(9,17,31);
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer, true);
+            var title = new Label {Text = "● ChatToHarness · Computer Use",
+                ForeColor = Color.FromArgb(122,240,255),
+                BackColor = BackColor, Font = new Font("Segoe UI",10,FontStyle.Bold),
+                Location = new Point(18,13), Size = new Size(365,21),
+                AutoEllipsis = true, Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
+            sessionLabel = new Label {Text = "会话：名称未提供",
+                ForeColor=Color.FromArgb(217,232,247), BackColor=BackColor,
+                Font=new Font("Consolas",9),
+                Location=new Point(18,39),Size=new Size(365,19),
+                AutoEllipsis=true, Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
+            currentLabel = new Label {Text = "当前：等待下一步操作",
+                ForeColor=Color.White, BackColor=BackColor,
+                Font=new Font("Segoe UI",10,FontStyle.Bold),
+                Location=new Point(18,70),Size=new Size(365,22),
+                AutoEllipsis=true, Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
+            previousLabel = new Label {Text = "上一步：暂无",
+                ForeColor=Color.FromArgb(217,232,247), BackColor=BackColor,
+                Font=new Font("Segoe UI",9),
+                Location=new Point(18,100),Size=new Size(365,20),
+                AutoEllipsis=true, Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
+            var stopButton = new Button {Text="STOP  ·  Esc", Location=new Point(398,48),
+                Size=new Size(115,44), FlatStyle=FlatStyle.Flat,
+                Font=new Font("Segoe UI",10,FontStyle.Bold),
+                ForeColor=Color.White, BackColor=Color.FromArgb(232,48,64),
+                Anchor=AnchorStyles.Right|AnchorStyles.Top, TabStop=false};
+            stopButton.FlatAppearance.BorderSize=0;
+            stopButton.Click += delegate { Close(); };
+            Controls.Add(title); Controls.Add(sessionLabel); Controls.Add(currentLabel);
+            Controls.Add(previousLabel); Controls.Add(stopButton);
+            using (var shape=RoundedFrame(new Rectangle(0,0,Width,Height),14))
+                Region=new Region(shape);
+            FollowTargetDisplay();
+        }
+        static System.Drawing.Drawing2D.GraphicsPath RoundedFrame(Rectangle b,int r) {
+            var p=new System.Drawing.Drawing2D.GraphicsPath();
+            int d=2*r;
+            p.AddArc(b.Left,b.Top,d,d,180,90);
+            p.AddArc(b.Right-d,b.Top,d,d,270,90);
+            p.AddArc(b.Right-d,b.Bottom-d,d,d,0,90);
+            p.AddArc(b.Left,b.Bottom-d,d,d,90,90);
+            p.CloseFigure();
+            return p;
+        }
+        public void FollowTargetDisplay() {
+            if (!IsWindow(Target)) return;
+            Rectangle work=Screen.FromHandle(Target).WorkingArea;
+            int width=Math.Min(530,Math.Max(280,work.Width-20));
+            if (Width!=width) {
+                Width=width;
+                using (var shape=RoundedFrame(new Rectangle(0,0,Width,Height),14))
+                    Region=new Region(shape);
+            }
+            var next=new Point(work.Left+(work.Width-width)/2,work.Top+10);
+            if (Location!=next) Location=next;
+            // Advance the cyan perimeter orbit once per 40ms UI tick.
+            orbit=(orbit+40.0/3500.0)%1.0;
+            Invalidate();
+        }
+        static string ActionLabel(string action) {
+            switch(action) {
+                case "observe": return "截取窗口截图";
+                case "activate": return "激活目标窗口";
+                case "mouse_move": return "移动鼠标";
+                case "mouse_down": return "按住鼠标";
+                case "mouse_drag": return "拖动鼠标";
+                case "drag_window": return "拖动窗口";
+                case "mouse_up": return "松开鼠标";
+                case "click": return "点击鼠标";
+                case "scroll": return "滚动";
+                case "type_text": return "输入文字";
+                case "key_press": return "发送按键";
+                default: return "等待下一步操作";
+            }
+        }
+        public void SetActivity(string action) {
+            currentLabel.Text=action=="idle" ? "当前：等待下一步操作" :
+                "当前：正在"+ActionLabel(action);
+        }
+        public void CompleteActivity(string action,string error) {
+            previousLabel.Text="上一步："+ActionLabel(action)+" · "+
+                (error==null ? "完成" : "失败")+" · "+DateTime.Now.ToString("HH:mm");
+            previousLabel.Tag=error;
+            SetActivity("idle");
+        }
+        public void SetSessionTitle(string title) {
+            sessionLabel.Text="会话："+title;
+            sessionLabel.Tag=title;
+        }
+        protected override void OnPaint(PaintEventArgs e) {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using(var shape=RoundedFrame(new Rectangle(3,3,Width-7,Height-7),11)) {
+                float perimeter=2f*(Width+Height-4*11)+2f*(float)Math.PI*11;
+                using(var basePen=new Pen(Color.FromArgb(190,44,197,243),2.5f))
+                    e.Graphics.DrawPath(basePen,shape);
+                using(var trail=new Pen(Color.FromArgb(138,32,205,255),5.5f)) {
+                    trail.DashStyle=System.Drawing.Drawing2D.DashStyle.Custom;
+                    trail.DashPattern=new float[]{Math.Min(155,perimeter*0.19f)/trail.Width,
+                        (perimeter-Math.Min(155,perimeter*0.19f))/trail.Width};
+                    trail.DashOffset=-(float)(orbit*perimeter/trail.Width);
+                    e.Graphics.DrawPath(trail,shape);
+                }
+                using(var head=new Pen(Color.FromArgb(255,170,255,255),3.8f)) {
+                    head.DashStyle=System.Drawing.Drawing2D.DashStyle.Custom;
+                    head.DashPattern=new float[]{Math.Min(64,perimeter*0.08f)/head.Width,
+                        (perimeter-Math.Min(64,perimeter*0.08f))/head.Width};
+                    head.DashOffset=-(float)(orbit*perimeter/head.Width);
+                    e.Graphics.DrawPath(head,shape);
+                }
+            }
         }
         protected override void OnHandleCreated(EventArgs e) {
             base.OnHandleCreated(e);
-            HotkeyReady = RegisterHotKey(Handle, 1, 0, 0x1B);
+            HotkeyReady = RegisterHotKey(Handle,1,0,0x1B);
         }
-        protected override void OnShown(EventArgs e) { base.OnShown(e); ShowWindow(Handle, 4); }
-        protected override void WndProc(ref Message message) { if (message.Msg == 0x312) { Close(); return; } base.WndProc(ref message); }
+        protected override void OnShown(EventArgs e) { base.OnShown(e); ShowWindow(Handle,4); }
+        protected override void WndProc(ref Message m) {
+            if(m.Msg==0x312) {Close(); return;}
+            base.WndProc(ref m);
+        }
         protected override void OnFormClosed(FormClosedEventArgs e) {
-            ComputerUse.Closed = true;
+            ComputerUse.Closed=true;
             ComputerUse.ReleaseHeldMouse();
-            if (Outline != null) { Outline.Close(); Outline.Dispose(); Outline = null; }
-            if (CursorHighlight != null) { CursorHighlight.Close(); CursorHighlight.Dispose(); CursorHighlight = null; }
-            UnregisterHotKey(Handle, 1);
+            if(Outline!=null) {Outline.Close();Outline.Dispose();Outline=null;}
+            if(CursorHighlight!=null) {CursorHighlight.Close();CursorHighlight.Dispose();CursorHighlight=null;}
+            UnregisterHotKey(Handle,1);
             base.OnFormClosed(e); Environment.Exit(0);
         }
     }
@@ -622,6 +823,7 @@ class ComputerUse {
         if (action == "observe") return Capture(rect);
         var geometry = args["geometry"] as ArrayList;
         if (geometry == null || geometry.Count != 4 || Convert.ToInt32(geometry[0]) != rect.Left || Convert.ToInt32(geometry[1]) != rect.Top || Convert.ToInt32(geometry[2]) != rect.Right || Convert.ToInt32(geometry[3]) != rect.Bottom) Error("CU_WINDOW_MOVED");
+        if (action == "drag_window") return DragWindowAtomic(args,rect);
         if (action == "mouse_drag") {
             int x = Number(args, "screen_x"), y = Number(args, "screen_y");
             var destination = new Point(x, y);
@@ -634,9 +836,9 @@ class ComputerUse {
             int x = Number(args, "x"), y = Number(args, "y");
             if (x < 0 || y < 0 || x >= rect.Right - rect.Left || y >= rect.Bottom - rect.Top) Error("CU_COORDINATE_OUTSIDE_WINDOW");
             var point = new Point(rect.Left + x, rect.Top + y);
-            if (GetAncestor(WindowFromPoint(point), 2) != Target) Error("CU_TARGET_OCCLUDED");
+            RequireUnoccluded(point);
             MoveCursorVisible(point);
-            if (GetAncestor(WindowFromPoint(point), 2) != Target) Error("CU_TARGET_OCCLUDED");
+            RequireUnoccluded(point);
             if (action == "mouse_down") {
                 Inject(new INPUT[] { new INPUT { data = new UNION { mouse = new MOUSEINPUT { dwFlags = 2u } } } });
                 LeftHeld = true;
@@ -671,10 +873,31 @@ class ComputerUse {
                 try {
                     if (line.Length > 20000) Error("CU_INVALID_ARGUMENT");
                     var args = Json.Deserialize<Dictionary<string, object>>(line);
-                    Write(Execute(args));
+                    string action = (string)args["action"];
+                    if (action == "set_session_title") {
+                        string name = args.ContainsKey("title") ? args["title"] as string : null;
+                        if (name == null || name.Trim().Length == 0 || name.Length > 80)
+                            Error("CU_INVALID_ARGUMENT");
+                        foreach (char ch in name) if (char.IsControl(ch)) Error("CU_INVALID_ARGUMENT");
+                        Stop.BeginInvoke(new Action(() => Stop.SetSessionTitle(name.Trim())));
+                        Write(new {ok=true});
+                        continue;
+                    }
+                    LastOcclusion = null;
+                    SetHudAction(action);
+                    try {
+                        Write(Execute(args));
+                        Stop.BeginInvoke(new Action(() => Stop.CompleteActivity(action,null)));
+                    } catch (Exception e) {
+                        SetHudAction("idle");
+                        Stop.BeginInvoke(new Action(() => Stop.CompleteActivity(action,e.Message)));
+                        throw;
+                    }
                 } catch (Exception e) {
                     ReleaseHeldMouse();
-                    Write(new { error = e.Message.StartsWith("CU_") ? e.Message : "CU_NATIVE_ERROR" });
+                    if (e.Message == "CU_TARGET_OCCLUDED" && LastOcclusion != null)
+                        Write(new { error=e.Message, occlusion=LastOcclusion });
+                    else Write(new { error = e.Message.StartsWith("CU_") ? e.Message : "CU_NATIVE_ERROR" });
                 }
             }
         } finally { ReleaseHeldMouse(); Environment.Exit(0); }
@@ -683,9 +906,9 @@ class ComputerUse {
         Console.InputEncoding = new UTF8Encoding(false); Console.OutputEncoding = new UTF8Encoding(false);
         try {
             // Exit even if the MCP owner dies while the consent picker is open.
-            if (args.Length < 1 || args.Length > 3) Error("CU_OWNER_REQUIRED");
+            if (args.Length < 1 || args.Length > 4) Error("CU_OWNER_REQUIRED");
             var owner = Process.GetProcessById(int.Parse(args[0]));
-            var watchdog = new Thread(delegate() { owner.WaitForExit(); Environment.Exit(0); }) { IsBackground = true }; watchdog.Start();
+            var watchdog = new Thread(delegate() { owner.WaitForExit(); ReleaseHeldMouse(); Environment.Exit(0); }) { IsBackground = true }; watchdog.Start();
             try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch (EntryPointNotFoundException) { Error("CU_WINDOWS_VERSION_UNSUPPORTED"); }
             Application.EnableVisualStyles();
             string mode=args.Length>=2?args[1]:"per_window";
@@ -712,6 +935,7 @@ class ComputerUse {
             timer.Tick += delegate {
                 if (DateTime.UtcNow > Deadline || !IsWindow(Target)) { Stop.Close(); return; }
                 if (LeftHeld && (DateTime.UtcNow - HeldSince).TotalSeconds > 30) ReleaseHeldMouse();
+                Stop.FollowTargetDisplay();
                 if (Stop.Outline != null) Stop.Outline.FollowTarget();
                 if (Stop.CursorHighlight != null) Stop.CursorHighlight.FollowRealCursor();
             }; timer.Start();

@@ -1,5 +1,16 @@
 # Development record — Windows computer use
 
+## Windows 与 macOS Computer Use 源码对齐 — 2026-10-22
+
+- **Issue/branch:** ChatToHarness #1 / `feat/computer-use`。通过 winHarness 操作 Windows 本地仓库，没有使用 macHarness；原有三个 3DFace 未跟踪目录保留。
+- [x] Windows 原生 `drag_window`：新鲜 observation、最多三个输入前标题栏命中点、补偿终点、真实鼠标渐进移动/按下/拖动/释放；异常与用户接管时释放左键，不自动重放结果未知的动作。
+- [x] 遮挡诊断：`WindowFromPoint` 返回窗口 ID/PID/进程名/边界与 hit-test 标识，禁止泄露其它窗口标题；安全失败保留会话，输入可能已执行的失败则终止会话。
+- [x] Windows HUD：深色高对比度圆角面板、3.5s Cyan 周界动画、顶部居中、当前原生动作、上一动作结果与时间、可选真实会话名称；保留 STOP/Esc 和光标 Glow。
+- [x] 双平台共享契约：两个平台均公开 `drag_window` 和 `session_title`；标题仅经 private stdio 传递、缺失不编造；明确任务结束应调用 `close_session`。没有添加系统 API 静默定位。
+- [x] Windows C# 原生 helper 重新编译通过。最终定向回归 49 项：45 PASS / 0 FAIL / 4 SKIP（Mac-only）；`git diff --check` 通过。完整 `npm test` 为 390 项：366 PASS / 10 FAIL / 14 SKIP，存在 Windows 符号链接权限 EPERM 与缺少打包资源等非目标失败，不能宣称全量通过。
+- [ ] Windows GUI fixture：`node scripts/test-computer-use-native.cjs` 出现 `CU_USER_INPUT_ACTIVE`，无法标记通过；未关闭保护或盲目重试。原子拖动、跨屏、HUD 真实视觉和 STOP/Esc 需要独立无干扰的 GUI 验收。
+- **Next:** 完成最终全量静态回归与 GUI 验收。没有升级、安装或覆盖正在运行的应用；版本号不变。
+
 
 ## 已授权的系统窗口 API 兜底与原移动任务收口 — 2026-10-22
 

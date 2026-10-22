@@ -17,21 +17,24 @@ test('both desktop adapters inherit from BaseComputerUse, never from each other'
   const windowsSource=fs.readFileSync(path.resolve(__dirname,'../app/windows-computer-use.cjs'),'utf8');
   assert.doesNotMatch(windowsSource,/require\(['"]\.\/macos-computer-use\.cjs['"]\)/);
 });
-test('Mac and Windows share the core MCP contract; Mac alone exposes optional conversation title',()=>{
-  const {session_title: macTitle, ...macProperties}=macDefinition.inputSchema.properties;
-  const {action: macAction, ...macShared}=macProperties;
-  const macCore={...macDefinition.inputSchema,properties:{...macShared,
-    action:{...macAction,enum:macAction.enum.filter(action=>action!=='drag_window')}}};
-  assert.deepEqual(macCore,winDefinition.inputSchema);
+test('Mac and Windows share the complete MCP input contract, atomic drag and session title',()=>{
+  const normalize = schema => {
+    const copy=structuredClone(schema);
+    copy.properties.session_title.description='';
+    return copy;
+  };
+  assert.deepEqual(normalize(macDefinition.inputSchema),normalize(winDefinition.inputSchema));
   assert.deepEqual(macDefinition.outputSchema,winDefinition.outputSchema);
   const windowsBase=structuredClone(baseDefinition.inputSchema);
-  windowsBase.properties.action.enum=windowsBase.properties.action.enum.filter(x=>x!=='drag_window');
-  assert.deepEqual(winDefinition.inputSchema,windowsBase);
-  assert.ok(macAction.enum.includes('drag_window'));
-  assert.equal(winDefinition.inputSchema.properties.action.enum.includes('drag_window'),false);
-  assert.deepEqual(macTitle.type,'string');
-  assert.equal(macTitle.maxLength,80);
-  assert.equal(macDefinition.inputSchema.required.includes('session_title'),false);
+  delete windowsBase.properties.session_title;
+  const windowsInput=structuredClone(winDefinition.inputSchema);
+  delete windowsInput.properties.session_title;
+  assert.deepEqual(windowsInput,windowsBase);
+  for(const schema of [macDefinition,winDefinition]){
+    assert.ok(schema.inputSchema.properties.action.enum.includes('drag_window'));
+    assert.equal(schema.inputSchema.properties.session_title.maxLength,80);
+    assert.equal(schema.inputSchema.required.includes('session_title'),false);
+  }
   assert.match(macDefinition.description,/Screen Recording/);
   assert.match(winDefinition.description,/Windows/);
   for(const schema of [macDefinition,winDefinition]) {

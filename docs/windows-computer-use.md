@@ -1,5 +1,13 @@
 # Windows computer use (source preview)
 
+## Source parity with macOS — 2026-10-22
+
+The Windows native helper now implements a single-call `drag_window`: fresh title-bar observation, up to three safe hit-test candidates **before** mouse down, compensated destination, real cursor travel, press/drag/release and no uncertain replay. Native Windows `WindowFromPoint` reports bounded obstruction ID/PID/process/bounds without exposing other window titles. It does not claim macOS AX support.
+
+The new top-center dark rounded HUD has a cyan perimeter animation, current and previous operation with outcome/time, optional genuine caller-provided `session_title` (otherwise marked unavailable), and local STOP/Esc. The native private-stdio title handshake does not log the title or pass it in CLI arguments. The existing light-blue target outline, real-pointer Glow, scoped authorization and session cleanup remain.
+
+**Acceptance boundary:** C# compile and JavaScript contracts passed. Desktop GUI fixture was interrupted by `CU_USER_INPUT_ACTIVE`; no complete native drag, STOP or visual acceptance is claimed from that run. The installed application is unchanged.
+
 ## Shared BaseComputerUse and Windows consent — 2026-10-21
 
 - `WindowsComputerUse extends BaseComputerUse`. Windows installer includes base, image codec, Windows adapter and `ChatToHarness.ComputerUse.exe`, excluding Mac Swift helper and Mac-only JS adapters.

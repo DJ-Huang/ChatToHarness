@@ -80,11 +80,34 @@ async function main() {
     assert.ok(hud.hud_labels.some(label=>label.startsWith('当前：')));
     assert.ok(hud.hud_labels.some(label=>label.startsWith('上一步：')));
     report.nativeHud=hud; report.nativeHudTitle=true;
+    // Test the shared task-continuation contract against a disposable GUI window.
+    // Keep the original session, never retry unknown side effects without observing,
+    // and let STOP/Esc/session termination end the recovery loop.
+    async function dragUntilDone(first,gripX,gripY,deltaX,deltaY) {
+      const origin=first.structuredContent.window_bounds;
+      const targetX=origin.x+deltaX, targetY=origin.y+deltaY;
+      let shot=first;
+      for (;;) {
+        const session=(await call({action:'get_session'})).structuredContent;
+        if(session.state!=='ready') throw new Error('Computer Use session terminated during drag recovery: '+JSON.stringify(session));
+        const b=shot.structuredContent.window_bounds;
+        if(Math.abs(b.x-targetX)<=3 && Math.abs(b.y-targetY)<=3)
+          return {structuredContent:{execution_state:'complete',mouse_button_held:false}};
+        const attempt=await call({action:'drag_window',session_id:id,
+          observation_id:shot.structuredContent.observation_id,x:gripX,y:gripY,
+          screen_x:targetX+gripX,screen_y:targetY+gripY});
+        if(!attempt.isError) return attempt;
+        const result=attempt.structuredContent;
+        if(result.task_state!=='recovering') throw new Error('Computer Use session cannot recover: '+JSON.stringify(result));
+        // Never blindly repeat an input: observe the actual window before trying again.
+        if(result.recovery_action==='activate') await call({action:'activate',session_id:id});
+        await new Promise(r=>setTimeout(r,180));
+        shot=await call({action:'observe',session_id:id,format:'png'});
+        if(shot.isError) throw new Error('Cannot observe during recovery: '+JSON.stringify(shot.structuredContent));
+      }
+    }
     const dx=36,dy=32,originX=150,originY=16;
-    const drag=await call({action:'drag_window',session_id:id,
-      observation_id:capture.structuredContent.observation_id,
-      x:originX,y:originY,
-      screen_x:before.x+originX+dx,screen_y:before.y+originY+dy});
+    const drag=await dragUntilDone(capture,originX,originY,dx,dy);
     assert.equal(drag.isError,undefined,JSON.stringify(drag.structuredContent));
     assert.equal(drag.structuredContent.mouse_button_held,false);
     const observed=await call({action:'observe',session_id:id,format:'png'});
@@ -108,9 +131,7 @@ async function main() {
     let coveredShot=await call({action:'observe',session_id:id,format:'png'});
     assert.equal(coveredShot.isError,undefined,JSON.stringify(coveredShot.structuredContent));
     const b=coveredShot.structuredContent.window_bounds;
-    const recovered=await call({action:'drag_window',session_id:id,
-      observation_id:coveredShot.structuredContent.observation_id,
-      x:originX,y:originY,screen_x:b.x+originX+dx,screen_y:b.y+originY+dy});
+    const recovered=await dragUntilDone(coveredShot,originX,originY,dx,dy);
     assert.equal(recovered.isError,undefined,JSON.stringify(recovered.structuredContent));
     const recoveredShot=await call({action:'observe',session_id:id,format:'png'});
     assert.equal(recoveredShot.isError,undefined,JSON.stringify(recoveredShot.structuredContent));
@@ -162,9 +183,7 @@ async function main() {
     const highShot=await call({action:'observe',session_id:id,format:'png'});
     assert.equal(highShot.isError,undefined,JSON.stringify(highShot.structuredContent));
     const highStart=highShot.structuredContent.window_bounds;
-    const highDrag=await call({action:'drag_window',session_id:id,
-      observation_id:highShot.structuredContent.observation_id,x:originX,y:originY,
-      screen_x:highStart.x+originX+dx,screen_y:highStart.y+originY+dy});
+    const highDrag=await dragUntilDone(highShot,originX,originY,dx,dy);
     assert.equal(highDrag.isError,undefined,JSON.stringify(highDrag.structuredContent));
     const highAfter=await call({action:'observe',session_id:id,format:'png'});
     assert.equal(highAfter.isError,undefined,JSON.stringify(highAfter.structuredContent));

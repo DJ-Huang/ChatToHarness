@@ -1,5 +1,19 @@
 # Development record — Windows computer use
 
+## Cross-platform Computer Use task continuation — 2026-10-22
+
+- **Issue / branch:** ChatToHarness #1 / feat/computer-use; Windows checkout D:\\proj\\github\\ChatToHarness; worktree clean before editing; no macHarness used, no version bump or installed application replacement.
+- [x] **Both OS task contract:** docs/computer-use-policy.md section 0 and AGENTS.md require recovery without a fixed attempt cap while the original session remains valid, until verified completion, explicit STOP/Esc/user cancellation or terminated session. User input activity means pause, not task cancellation; unknown effects cannot be blindly repeated.
+- [x] **Shared MCP output:** app/base-computer-use.cjs returns task_state (recovering/session_terminated), recovery_action and replay_same_input=false for recoverable failures. Both win/mac tool descriptions require caller continuation. This is a response contract, not an autonomous task scheduler after the chat turn.
+- [x] **Windows atomic pre-press:** native/ComputerUse.cs reports input_started=false until left-down may have been sent; true afterward. JS bridge forwards the flag so focus loss/input collision before down keeps original session, whereas possibly injected mouse-down still terminates session safely.
+- [x] **Cross-platform mocked tests:** Windows helper compiled; initial four-suite run 62 tests / 58 pass / 0 fail / 4 Mac-only skip; git diff --check clean. Separate native GUI acceptance still required.
+- [x] **Real Windows disposable GUI acceptance:** `node scripts/test-computer-use-mcp.cjs --atomic-drag` final rerun EXIT 0 through actual SDK/Gateway/MCP/native helper. Confirmed target drag (36,32) measured (36,32), single-grip occlusion recovery, all-grip occlusion safe fail and fresh observation, HUD top-edge avoidance, real top-edge drag, STOP button and closed session. The first run after edits stopped on `CU_USER_INPUT_ACTIVE` before any mouse-down; after the recovery loop was added a separate run failed because the fixture's `overlay_all` reported `covered:false`. An independent rerun passed all fixture assertions. Do not conceal the two failed runs or infer repeated stability from the passing run.
+- [x] **macOS native parity in shared source:** native/MacComputerUse.swift now reports `input_started` around the atomic left-down boundary, analogous to Windows. Additional mocked Mac pre-press recovery and Swift source regressions bring the focused suites to **64 tests / 60 PASS / 0 FAIL / 4 SKIP** (Mac-only skips) on Windows. Windows C# helper build and `git diff --check` PASS. Swift compiler and physical macOS GUI are **not** verified; no macHarness invoked.
+- [ ] **Full-suite blockers:** `npm test` EXIT 1 on Windows. Reported problems include `EPERM` creating a symlink in temporary settings tests, timeouts in persistent task-store tests, and bundled resources missing for Windows packaging configuration tests. These were not marked PASS or silently changed; the targeted Computer Use tests remain green.
+- [ ] **Remaining:** address unrelated full-suite environment/test blockers, validate installed Windows build and manual Esc, verify Swift build/macOS native input on a macOS machine. No persistent unattended retry scheduler is implemented or claimed.
+
+
+
 ## Windows Computer Use 实机拖动/遮挡/HUD 收口 — 2026-10-22
 
 - **Issue/branch:** ChatToHarness #1, `feat/computer-use`, follow-up to local commit `66ad106`. 用户明确要求删除误放的三个 3DFace 目录；逐个限定目录检查后删除 `.3dface-p0b-matrix-20261020` (1 entry), `.3dface-p0b-review-20261020` (4), `.3dface-render-transfer-20261020` (12)。`git status` 删除后干净，这些文件原本不受 Git 跟踪，没有混入提交。

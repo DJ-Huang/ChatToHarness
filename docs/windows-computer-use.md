@@ -10,6 +10,8 @@ The new top-center dark rounded HUD has a cyan perimeter animation, current and 
 
 **Limitations:** This is not a production installation test. A separate `test-computer-use-native.cjs` full interaction fixture failed safely on `CU_USER_INPUT_ACTIVE`, so physical STOP/Esc operation, human-visible cyan animation quality, and actual cross-display drag still require independent acceptance. No current installation was replaced.
 
+Windows 和 macOS 统一采用 [任务级持续恢复规范](computer-use-policy.md)：在原会话有效且用户未 STOP/Esc 或明确停止期间，CU_USER_INPUT_ACTIVE、CU_WINDOW_NOT_FOREGROUND 等可恢复错误不能结束整体任务。Windows 原子拖动在按下鼠标前的失败现在通过 input_started=false 标记，调用端可重新观察后继续；按键已经可能注入时保持保守终止会话，禁止盲目重放。
+
 ## Shared BaseComputerUse and Windows consent — 2026-10-21
 
 - `WindowsComputerUse extends BaseComputerUse`. Windows installer includes base, image codec, Windows adapter and `ChatToHarness.ComputerUse.exe`, excluding Mac Swift helper and Mac-only JS adapters.

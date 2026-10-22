@@ -20,12 +20,15 @@ const definition = {
   outputSchema: {type: 'object', additionalProperties: true, properties: {
     session_id: {type: ['string', 'null']}, state: {type: 'string', enum: ['none', 'initializing', 'awaiting_consent', 'ready', 'closed']},
     authorization_mode: {type: 'string', enum: ['all_windows', 'per_window']},
-    observation_id: {type: 'string'}, next_action: {type: 'string'}, code: {type: 'string'}
+    observation_id: {type: 'string'}, next_action: {type: 'string'}, code: {type: 'string'},
+    task_state: {type: 'string', enum: ['recovering','session_terminated']},
+    recovery_action: {type: 'string'}, replay_same_input: {type: 'boolean'}
   }},
   annotations: {readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true}
 };
+const TASK_CONTINUITY_DESCRIPTION = ' For Windows and macOS, a recoverable Computer Use operation error does not end the user task. Keep diagnosing, re-observing and safely resuming while the original session is valid until the task is verified, the user explicitly stops (including STOP/Esc), or the session terminates. Never impose a fixed task recovery-attempt count. CU_USER_INPUT_ACTIVE means pause injected input until released, not user cancellation. CU_WINDOW_NOT_FOREGROUND means reactivate and observe. Never replay uncertain side effects or bypass permission, user takeover or explicit STOP. The invoking agent must maintain the recovery loop; an MCP tool response cannot by itself continue working asynchronously.';
 const SCREENSHOT_DESCRIPTION = ' If the target loses focus, call activate with session_id, then observe. Never replay input automatically. observe format auto compares lossless WebP and optimized PNG, keeping the smaller at original resolution; format png/webp forces compatibility. Small images return MCP image content and structuredContent.screenshot.data base64. Large images (or delivery chunked) return screenshot metadata only: call read_screenshot with session_id, screenshot_id, byte offset and optional length (default 256 KiB, max 512 KiB). Decode each chunk separately, concatenate bytes in offset order, verify full sha256 and display using mime_type. Repeat reads are safe; next_offset/eof supports resuming. Only the latest snapshot is kept in memory for 120 seconds, cleared by observe, activation, input or close. Chunk reads never refresh the 30-second input observation deadline; obtain a new observation before input if stale. No screenshot files are saved. The native capture guard is 40 MiB, not a per-call network limit.';
-definition.description += SCREENSHOT_DESCRIPTION;
+definition.description += TASK_CONTINUITY_DESCRIPTION + SCREENSHOT_DESCRIPTION;
 definition.outputSchema.properties.screenshot = {type: 'object', additionalProperties: true, required: ['screenshot_id', 'mime_type', 'encoding', 'sha256', 'byte_length', 'delivery'], properties: {
   screenshot_id: {type: 'string'}, mime_type: {type: 'string', enum: ['image/png', 'image/webp']}, encoding: {type: 'string', const: 'base64'}, data: {type: 'string', maxLength: 1398104},
   sha256: {type: 'string'}, byte_length: {type: 'integer', maximum: MAX_CAPTURE_BYTES}, delivery: {type: 'string', enum: ['inline', 'chunked']}
@@ -88,6 +91,7 @@ class NativeConnection {
       if (!waiter) return this.stop('CU_PROTOCOL_ERROR');
       if (data.error) {
         const error = fail(/^CU_[A-Z_]+$/.test(data.error) ? data.error : 'CU_NATIVE_ERROR');
+        if (typeof data.input_started === 'boolean') error.inputStarted = data.input_started;
         if (data.occlusion && typeof data.occlusion === 'object' && !Array.isArray(data.occlusion))
           error.occlusion = data.occlusion;
         waiter.reject(error);
@@ -303,20 +307,25 @@ class BaseComputerUse {
       // Atomic pre-input hit-test failures are deterministic and recoverable.
       // Other native drag failures may have injected left-down: stop safely.
       const atomicBeforeDown = input?.action === 'drag_window' &&
-        ['CU_TARGET_OCCLUDED','CU_INVALID_ARGUMENT','CU_COORDINATE_OUTSIDE_DISPLAY','CU_WINDOW_MOVED'].includes(error.code);
+        (error.inputStarted === false || (error.inputStarted === undefined &&
+          ['CU_TARGET_OCCLUDED','CU_INVALID_ARGUMENT','CU_COORDINATE_OUTSIDE_DISPLAY','CU_WINDOW_MOVED'].includes(error.code)));
       if (atomicBeforeDown && activeSession?.native) activeSession.native.mouseHeld = false;
       if (activeSession && ['mouse_down', 'mouse_drag', 'drag_window', 'mouse_up'].includes(input?.action) &&
           this.session === activeSession && started && !atomicBeforeDown)
         this.stop('CU_DRAG_ABORTED', activeSession);
       const code = /^CU_[A-Z_]+$/.test(error.code || '') ? error.code : 'CU_CANCELLED';
       const mayHaveExecuted = started && !atomicBeforeDown;
-      return {...this.result({code, execution_state: mayHaveExecuted ? 'unknown' : 'not_started',
+      const sessionActive = !!activeSession && this.session === activeSession && activeSession.state === 'ready';
+      const recoveryAction = code === 'CU_WINDOW_NOT_FOREGROUND' ? 'activate' :
+        code === 'CU_USER_INPUT_ACTIVE' ? 'wait_for_input_release_then_observe' :
+        ['CU_TARGET_OCCLUDED','CU_WINDOW_MOVED','CU_STALE_OBSERVATION','CU_SCREENSHOT_EXPIRED'].includes(code) ? 'observe' : 'get_session';
+      return {...this.result({code, task_state: sessionActive ? 'recovering' : 'session_terminated',
+        ...(sessionActive ? {recovery_action: recoveryAction, replay_same_input: false} : {}),
+        execution_state: mayHaveExecuted ? 'unknown' : 'not_started',
         operation_executed: mayHaveExecuted ? null : false,
         ...(error.occlusion ? {occlusion: error.occlusion} : {}),
         ...(['CU_CONSENT_PENDING','CU_SESSION_STARTING'].includes(code) ? this.status() : {}),
-        next_action: atomicBeforeDown || code === 'CU_SCREENSHOT_EXPIRED' ? 'observe' :
-          code === 'CU_WINDOW_NOT_FOREGROUND' ? 'activate' :
-          code === 'CU_ACTIVATION_FAILED' ? 'Manually activate the authorized window, then observe; do not replay input.' : 'get_session'}), isError: true};
+        next_action: sessionActive ? recoveryAction : 'get_session'}), isError: true};
     } finally {
       clearTimeout(timer); signal?.removeEventListener('abort', abort);
       // Rejected concurrent calls must not unlock the active operation.
@@ -325,4 +334,4 @@ class BaseComputerUse {
   }
   result(data, content = []) { return {content: [{type: 'text', text: JSON.stringify(data)}, ...content], structuredContent: data}; }
 }
-module.exports = {BaseComputerUse, NativeConnection, baseDefinition: definition, validate, KEYS, SCREENSHOT_DESCRIPTION};
+module.exports = {BaseComputerUse, NativeConnection, baseDefinition: definition, validate, KEYS, SCREENSHOT_DESCRIPTION, TASK_CONTINUITY_DESCRIPTION};

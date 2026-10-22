@@ -742,6 +742,8 @@ final class MacComputerUse: NSObject {
     }
 
     private func executeAction(_ args: [String: Any]) async -> [String: Any] {
+        // Set before emitting left-down: an event may be delivered even if the call throws.
+        var atomicInputStarted = false
         do {
             guard let action = args["action"] as? String else { throw CUError.invalid }
             // Release must work even if dragging changed the target geometry or focus.
@@ -820,6 +822,7 @@ final class MacComputerUse: NSObject {
                     guard geometry(latest) == expected else { throw CUError.moved }
                     try requireUnoccluded(start)
                     updateHUD("mouse_down")
+                    atomicInputStarted = true
                     try mouse(.leftMouseDown, at: start, button: .left)
                     leftHeld = true
                     heldSince = Date()
@@ -868,13 +871,13 @@ final class MacComputerUse: NSObject {
         } catch let error as CUError {
             releaseHeldMouse()
             if error == .occluded {
-                return ["error": error.rawValue,
+                return ["error": error.rawValue, "input_started": atomicInputStarted,
                         "occlusion": lastOcclusion ?? ["reason": "unknown"]]
             }
-            return fail(error.rawValue)
+            return ["error": error.rawValue, "input_started": atomicInputStarted]
         } catch {
             releaseHeldMouse()
-            return fail("CU_NATIVE_ERROR")
+            return ["error": "CU_NATIVE_ERROR", "input_started": atomicInputStarted]
         }
     }
 

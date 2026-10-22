@@ -363,6 +363,49 @@ test('Windows atomic drag occlusion is recoverable, unknown input failure aborts
   assert.equal(service.session,null);
 });
 
+test('Windows atomic pre-press input conflict and foreground loss do not end the session', async () => {
+  const {service,native}=fixture();
+  const id=await open(service);
+  const original=native.request;
+  for (const code of ['CU_USER_INPUT_ACTIVE','CU_WINDOW_NOT_FOREGROUND']) {
+    native.request=async command => {
+      if (command.action==='drag_window') throw Object.assign(new Error(code),{code,inputStarted:false});
+      return original(command);
+    };
+    const fresh=await observe(service,id);
+    const failed=await service.call({action:'drag_window',session_id:id,
+      observation_id:fresh,x:80,y:20,screen_x:100,screen_y:160});
+    assert.equal(failed.structuredContent.code,code);
+    assert.equal(failed.structuredContent.execution_state,'not_started');
+    assert.equal(failed.structuredContent.task_state,'recovering');
+    assert.equal(failed.structuredContent.replay_same_input,false);
+    assert.equal(failed.structuredContent.next_action,
+      code==='CU_WINDOW_NOT_FOREGROUND' ? 'activate' : 'wait_for_input_release_then_observe');
+    assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
+  }
+  native.request=original;
+  const final=await observe(service,id);
+  assert.equal((await service.call({action:'drag_window',session_id:id,
+    observation_id:final,x:80,y:20,screen_x:100,screen_y:160})).structuredContent.execution_state,'complete');
+  assert.equal((await service.call({action:'close_session'})).structuredContent.closed,true);
+});
+
+test('Windows atomic input already started ends the unsafe session rather than replaying',async()=>{
+  const {service,native}=fixture(); const id=await open(service);
+  const original=native.request;
+  native.request=async command => {
+    if(command.action==='drag_window') throw Object.assign(new Error('CU_USER_INPUT_ACTIVE'),
+      {code:'CU_USER_INPUT_ACTIVE',inputStarted:true});
+    return original(command);
+  };
+  const obs=await observe(service,id);
+  const failed=await service.call({action:'drag_window',session_id:id,
+    observation_id:obs,x:80,y:20,screen_x:100,screen_y:160});
+  assert.equal(failed.structuredContent.task_state,'session_terminated');
+  assert.equal(native.closed,true);
+  assert.equal((await service.call({action:'get_session'})).structuredContent.state,'closed');
+});
+
 test('Mouse drag cannot start without mouse_down and failure releases session', async () => {
   const {service,native} = fixture();const id = await open(service);
   const obs = await observe(service,id);

@@ -1,7 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const {BaseComputerUse,baseDefinition,SCREENSHOT_DESCRIPTION} = require('./base-computer-use.cjs');
+const {BaseComputerUse,baseDefinition,TASK_CONTINUITY_DESCRIPTION,SCREENSHOT_DESCRIPTION} = require('./base-computer-use.cjs');
 
 // A distinct service ID preserves the Windows MCP tool's explicit grants.
 // Schema, screenshot delivery, session IDs and freshness rules are shared.
@@ -21,7 +21,7 @@ definition.description = [
   'Screenshot delivery follows the same bounded, lossless, single-use observation protocol as Windows. No full-screen capture fallback or persistent screenshot files.',
   'Always invoke close_session when the GUI task finishes, before reporting completion, so STOP, Esc and overlays disappear. A 2-minute idle watchdog is only a fallback.',
   'If permissions are missing, enable them in macOS Privacy & Security and reopen the service; never retry uncertain input automatically.'
-].join(' ') + SCREENSHOT_DESCRIPTION;
+].join(' ') + TASK_CONTINUITY_DESCRIPTION + SCREENSHOT_DESCRIPTION;
 class MacComputerUse extends BaseComputerUse {
   constructor(options = {}) {
     const helperPath = fs.existsSync(path.join(__dirname, '../ChatToHarness.MacComputerUse'))

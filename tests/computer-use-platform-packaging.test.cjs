@@ -37,6 +37,9 @@ test('Mac and Windows share the complete MCP input contract, atomic drag and ses
   }
   assert.match(macDefinition.description,/Screen Recording/);
   assert.match(winDefinition.description,/Windows/);
+  assert.match(macDefinition.description,/Never impose a fixed task recovery-attempt count/);
+  assert.match(winDefinition.description,/Never impose a fixed task recovery-attempt count/);
+  assert.deepEqual(macDefinition.outputSchema.properties.task_state.enum,['recovering','session_terminated']);
   for(const schema of [macDefinition,winDefinition]) {
     assert.ok(schema.inputSchema.properties.action.enum.includes('read_screenshot'));
     assert.ok(schema.inputSchema.properties.action.enum.includes('close_session'));

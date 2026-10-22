@@ -143,6 +143,7 @@ class ComputerUse {
             Error("CU_WINDOW_MOVED");
         RequireUnoccluded(source);
         SetHudAction("mouse_down");
+        AtomicInputStarted=true; // Treat an uncertain SendInput prefix as possibly executed.
         Inject(new INPUT[]{new INPUT{data=new UNION{mouse=new MOUSEINPUT{dwFlags=2u}}}});
         LeftHeld=true;
         HeldSince=DateTime.UtcNow;
@@ -615,6 +616,7 @@ class ComputerUse {
         return new { foreground = true };
     }
     static int Number(Dictionary<string, object> args, string name) { return Convert.ToInt32(args[name]); }
+    static bool AtomicInputStarted;
     static void Inject(INPUT[] inputs, bool allowHeld = false) {
         Check(true);
         // Do not merge automation with a user's held modifiers or mouse buttons.
@@ -896,6 +898,7 @@ class ComputerUse {
                         continue;
                     }
                     LastOcclusion = null;
+                    AtomicInputStarted = false;
                     SetHudAction(action);
                     try {
                         Write(Execute(args));
@@ -908,8 +911,8 @@ class ComputerUse {
                 } catch (Exception e) {
                     ReleaseHeldMouse();
                     if (e.Message == "CU_TARGET_OCCLUDED" && LastOcclusion != null)
-                        Write(new { error=e.Message, occlusion=LastOcclusion });
-                    else Write(new { error = e.Message.StartsWith("CU_") ? e.Message : "CU_NATIVE_ERROR" });
+                        Write(new { error=e.Message, occlusion=LastOcclusion, input_started=AtomicInputStarted });
+                    else Write(new { error = e.Message.StartsWith("CU_") ? e.Message : "CU_NATIVE_ERROR", input_started=AtomicInputStarted });
                 }
             }
         } finally { ReleaseHeldMouse(); Environment.Exit(0); }

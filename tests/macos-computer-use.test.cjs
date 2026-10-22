@@ -285,6 +285,55 @@ test('Mac native occlusion error includes safe bounded blocker identity, without
   assert.equal((await service.call({action:'close_session'})).structuredContent.closed,true);
 });
 
+test('macOS recoverable input collision does not cancel an authorized task',async()=>{
+  const {native,service,session}=await fixture();
+  const original=native.request;
+  native.request=async cmd=>{
+    if(cmd.action==='mouse_move') throw Object.assign(new Error('CU_USER_INPUT_ACTIVE'),{code:'CU_USER_INPUT_ACTIVE'});
+    return original(cmd);
+  };
+  const obs=(await service.call({action:'observe',session_id:session})).structuredContent;
+  const failed=await service.call({action:'mouse_move',session_id:session,
+    observation_id:obs.observation_id,x:20,y:10});
+  assert.equal(failed.structuredContent.task_state,'recovering');
+  assert.equal(failed.structuredContent.next_action,'wait_for_input_release_then_observe');
+  assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
+  native.request=original;
+  const fresh=(await service.call({action:'observe',session_id:session})).structuredContent;
+  assert.equal((await service.call({action:'mouse_move',session_id:session,
+    observation_id:fresh.observation_id,x:20,y:10})).structuredContent.execution_state,'complete');
+  assert.equal((await service.call({action:'close_session'})).structuredContent.closed,true);
+});
+
+test('macOS atomic pre-press input conflict keeps the original authorized session',async()=>{
+  const {native,service,session}=await fixture();
+  const original=native.request;
+  native.request=async cmd=>{
+    if(cmd.action==='drag_window') throw Object.assign(new Error('CU_USER_INPUT_ACTIVE'),
+      {code:'CU_USER_INPUT_ACTIVE',inputStarted:false});
+    return original(cmd);
+  };
+  const before=(await service.call({action:'observe',session_id:session})).structuredContent;
+  const outcome=await service.call({action:'drag_window',session_id:session,
+    observation_id:before.observation_id,x:30,y:12,screen_x:-1100,screen_y:-900});
+  assert.equal(outcome.structuredContent.execution_state,'not_started');
+  assert.equal(outcome.structuredContent.task_state,'recovering');
+  assert.equal(outcome.structuredContent.recovery_action,'wait_for_input_release_then_observe');
+  assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
+  native.request=original;
+  const fresh=(await service.call({action:'observe',session_id:session})).structuredContent;
+  assert.equal((await service.call({action:'drag_window',session_id:session,
+    observation_id:fresh.observation_id,x:30,y:12,screen_x:-1100,screen_y:-900})).structuredContent.execution_state,'complete');
+  await service.call({action:'close_session'});
+});
+
+test('macOS native atomic drag publishes pre-press and post-press state for safe recovery',()=>{
+  const swift=fs.readFileSync(path.join(__dirname,'../native/MacComputerUse.swift'),'utf8');
+  assert.match(swift,/var atomicInputStarted = false/);
+  assert.match(swift,/atomicInputStarted = true\s+try mouse\(\.leftMouseDown/);
+  assert.match(swift,/"input_started": atomicInputStarted/);
+});
+
 test('Windows exposes the shared atomic window dragging action', () => {
   const {definition:windowsDefinition}=require('../app/windows-computer-use.cjs');
   assert.equal(windowsDefinition.inputSchema.properties.action.enum.includes('drag_window'),true);

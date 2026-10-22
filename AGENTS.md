@@ -8,6 +8,8 @@ Before performing or modifying desktop GUI operations, read and follow [docs/com
 
 **Desktop interaction:** default to scoped Computer Use real mouse/keyboard. Do not silently substitute an OS API. The user explicitly permits OS window-positioning API fallback when visible dragging cannot complete the authorized ChatToHarness window move. Follow docs/computer-use-policy.md: validate target/window/device permissions, preserve Esc/STOP and user takeover, close any active CU session, restrict changes to authorized window position only, independently verify, and disclose the actual method. This is not blanket authorization for other targets or GUI actions.
 
+**Windows and macOS Computer Use task continuity:** Keep the authorized task active across recoverable input errors with no fixed attempt limit while its original session remains valid and the user has not explicitly stopped. CU_USER_INPUT_ACTIVE is not cancellation. Recover by safe observation/activation, never replay uncertain side effects or bypass STOP/Esc, user takeover, permissions or a terminated session. Follow policy section 0.
+
 Preserve Esc/STOP, per-window authorization, screenshots, input interruption safety, and exact distinction between real GUI acceptance and static/unit tests. The repository's documentation cannot enforce routing inside ChatGPT itself; do not claim that it can.
 
 ## Repository development

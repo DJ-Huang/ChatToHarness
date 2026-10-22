@@ -119,6 +119,41 @@ test('Mac GUI: real native click, Unicode typing and scroll are confined to disp
     t.diagnostic('human-paced REAL cursor: '+motionDurationMs.toFixed(0)+'ms, '+uniquePositions+
       ' distinct OS pointer positions, '+observedDurationMs.toFixed(0)+'ms sampled span');
     t.diagnostic('scroll events: '+scrolled.scroll_events+', delta: '+scrolled.scroll_delta);
+    // Exercise a *single native action* that moves the real pointer, holds left
+    // button, drags and releases. Only this disposable fixture is affected.
+    obs=await observe();
+    const before=obs.rect;
+    const origin={x:Math.round(before[0]+85*(before[2]-before[0])/obs.w),
+                  y:Math.round(before[1]+20*(before[3]-before[1])/obs.h)};
+    await execute('drag_window',{observation_id:obs.id,x:85,y:20,
+      screen_x:origin.x+78,screen_y:origin.y+45});
+    const after=await observe();
+    assert.ok(Math.abs((after.rect[0]-before[0])-78)<=18,
+      'Atomic drag did not move fixture horizontally: '+JSON.stringify({before,after:after.rect}));
+    assert.ok(Math.abs((after.rect[1]-before[1])-45)<=18,
+      'Atomic drag did not move fixture vertically: '+JSON.stringify({before,after:after.rect}));
+    assert.equal(read().left_button,false,'Native drag must release the button');
+    t.diagnostic('atomic real window drag: '+JSON.stringify({from:before,to:after.rect}));
+    // Cross-monitor real cursor routing is an independent acceptance check.
+    // Test only the disposable fixture and close it afterwards.
+    const displays=(await svc.call({action:'observe',session_id:sessionId,delivery:'chunked'}))
+      .structuredContent.desktop_displays;
+    const remote=displays.find(d=>d.x<0&&d.y<0&&d.width>=480&&d.height>=368);
+    if(remote){
+      const present=(await observe());
+      const destLeft=remote.x+16;
+      const destTop=remote.y+Math.round((remote.height-368)/2);
+      await execute('drag_window',{observation_id:present.id,x:85,y:20,
+        screen_x:destLeft+85,screen_y:destTop+20});
+      const across=await observe();
+      assert.ok(Math.abs(across.rect[0]-destLeft)<=35,
+        'Cross-display left mismatch: '+JSON.stringify({across:across.rect,destLeft}));
+      assert.ok(Math.abs(across.rect[1]-destTop)<=35,
+        'Cross-display vertical mismatch: '+JSON.stringify({across:across.rect,destTop}));
+      assert.equal(read().left_button,false);
+      t.diagnostic('cross-monitor atomic drag: '+JSON.stringify({from:present.rect,to:across.rect,
+        requested:[destLeft,destTop],display:remote}));
+    } else t.diagnostic('cross-monitor drag skipped: no connected upper-left secondary display');
     const closed=await svc.call({action:'close_session',session_id:sessionId});
     assert.equal(closed.structuredContent.closed,true);
     t.diagnostic('safe close_session: PASS');

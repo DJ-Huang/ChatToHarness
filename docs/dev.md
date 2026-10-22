@@ -1,5 +1,17 @@
 # Development record — Windows computer use
 
+## macOS CU_TARGET_OCCLUDED / 拖动状态恢复 — 2026-10-22
+
+- **Issue/branch:** ChatToHarness #1, feat/computer-use；修复前工作区 clean；不覆盖当前运行版，不创建 worktree，不通过 setpos 伪装真实鼠标拖动。
+- [x] **遮挡根因及诊断：** 原函数 isOccluded(at:) 对 CGWindow 仅做矩形测试，可能将透明/穿透重叠层误判为阻挡，且不报告挡住者。新 occluder(at:) 结合 AX 元素真实命中判断，只在命中当前目标进程且候选不是同应用其它窗口时放行；AX 未知 fail-closed，返回 ID/PID/owner/layer/alpha/bounds，隐去窗口标题。
+- [x] **分步状态超时：** 旧 mouse_down — observe — mouse_drag 的 MCP 往返可能超过 30 秒原生保护，出现 CU_MOUSE_NOT_HELD / CU_DRAG_ABORTED。Mac-only drag_window 将真实 CGEvent 指针移动、按下、拖动、松开合并成一次调用，原生失败时也释放；按下之前最多探测三个候选落点，补偿目标坐标；按下后不重放。
+- [x] **安全边界：** observe.window_bounds 公开 Quartz 窗口矩形供精准计算；原子拖动限定标题栏位置和物理存在的显示器目标，仍保留前台、进程身份、geometry、新鲜截图、用户未接管及 Esc/STOP；Windows 不广告、不接受该操作。
+- [x] **自动测试：** npm test 388 total / 379 PASS / 0 FAIL / 9 SKIP；Mac 专项 25 total / 24 PASS / 0 FAIL / 1 SKIP；HUD 6 PASS。Swift 构建及 git diff --check 通过。
+- [x] **真实 Mac GUI：** 临时 AppKit 测试窗口从 (200,791) 移至 (277,835)，目标位移 (78,45)、实际 (77,44)；随后跨屏移动至第二显示器 (-1624,-904)，精准匹配目标坐标；左键释放、close_session 和 Esc 全部验证。第一次跨屏测试轮次在前置点击遇到 CU_POINTER_OFF_PATH、未进入拖动，独立新 fixture 复测通过；不可将保护性失败隐去。
+- [ ] **正式安装版待验收：** 当前运行中的 0.7.2 未被替换。新版本安装后的 MCP 工具刷新、ChatToHarness 主窗口操作和 HUD 实际视觉仍需验收；Command+A、STOP 按钮实际点击和 Glow 视觉效果保持开放。
+- **下一步：** 隔离打包 0.7.3 Mac DMG 并验证签名与隔离安装，不主动覆盖运行版；同步 GitHub Issue #1。
+
+
 ## Isolated macOS HUD conversation and activity DMG — 2026-10-22
 
 - **Build:** source commit `11132d85b36db8c28c57797e5e7c9d3df067eeb5` on `feat/computer-use`; `CTH_DIST_SUBDIR=0.7.2-hud-session npm run dist` PASS. Version stays 0.7.2; output isolated from prior and running installations.

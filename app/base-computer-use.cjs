@@ -3,7 +3,7 @@ const crypto = require('node:crypto');
 const {spawn} = require('node:child_process');
 const {createInterface} = require('node:readline');
 const {compressCapture, snapshot, readChunk, MAX_CAPTURE_BYTES, MAX_CHUNK_BYTES} = require('./computer-use-images.cjs');
-const ACTIONS = ['list_windows', 'open_session', 'get_session', 'activate', 'observe', 'read_screenshot', 'click', 'mouse_move', 'mouse_down', 'mouse_drag', 'mouse_up', 'type_text', 'key_press', 'scroll', 'close_session'];
+const ACTIONS = ['list_windows', 'open_session', 'get_session', 'activate', 'observe', 'read_screenshot', 'click', 'mouse_move', 'mouse_down', 'mouse_drag', 'drag_window', 'mouse_up', 'type_text', 'key_press', 'scroll', 'close_session'];
 const IDLE_SESSION_MS = 120000;
 const KEYS = ['ENTER', 'TAB', 'BACKSPACE', 'DELETE', 'LEFT', 'RIGHT', 'UP', 'DOWN', 'HOME', 'END', 'PAGEUP', 'PAGEDOWN', 'CTRL+A', 'CTRL+C', 'CTRL+V', 'CTRL+Z', 'CTRL+Y', 'SHIFT+TAB'];
 const definition = {
@@ -38,6 +38,7 @@ const fields = {
   mouse_move: ['session_id', 'observation_id', 'x', 'y'],
   mouse_down: ['session_id', 'observation_id', 'x', 'y', 'button'],
   mouse_drag: ['session_id', 'observation_id', 'screen_x', 'screen_y'],
+  drag_window: ['session_id', 'observation_id', 'x', 'y', 'screen_x', 'screen_y'],
   mouse_up: ['session_id', 'button'],
   type_text: ['session_id', 'observation_id', 'text'], key_press: ['session_id', 'observation_id', 'key'],
   scroll: ['session_id', 'observation_id', 'x', 'y', 'delta']
@@ -85,7 +86,12 @@ class NativeConnection {
       let data; try { data = JSON.parse(line); } catch { return this.stop('CU_PROTOCOL_ERROR'); }
       const waiter = this.initial || this.pending; this.initial = null; this.pending = null;
       if (!waiter) return this.stop('CU_PROTOCOL_ERROR');
-      data.error ? waiter.reject(fail(/^CU_[A-Z_]+$/.test(data.error) ? data.error : 'CU_NATIVE_ERROR')) : waiter.resolve(data);
+      if (data.error) {
+        const error = fail(/^CU_[A-Z_]+$/.test(data.error) ? data.error : 'CU_NATIVE_ERROR');
+        if (data.occlusion && typeof data.occlusion === 'object' && !Array.isArray(data.occlusion))
+          error.occlusion = data.occlusion;
+        waiter.reject(error);
+      } else waiter.resolve(data);
     });
     this.child.on('error', () => this.stop('CU_HELPER_UNAVAILABLE'));
     this.child.on('exit', () => this.stop('CU_SESSION_CLOSED'));
@@ -208,6 +214,7 @@ class BaseComputerUse {
     try {
       const args = validate(input);
       if (this.platform !== this.supportedPlatform) throw fail(this.supportedPlatform === 'darwin' ? 'CU_MACOS_REQUIRED' : 'CU_WINDOWS_REQUIRED');
+      if (args.action === 'drag_window' && this.supportedPlatform !== 'darwin') throw fail('CU_INVALID_ARGUMENT');
       signal?.throwIfAborted();
       this.reconcile();
       if (args.action === 'list_windows') return await this.listWindows(signal);
@@ -237,7 +244,7 @@ class BaseComputerUse {
       abort = () => this.stop('CU_CANCELLED', activeSession); signal?.addEventListener('abort', abort, {once: true});
       timer = setTimeout(() => this.stop('CU_TIMEOUT', activeSession), this.timeoutMs);
       const s = activeSession;
-      const isInput = ['click', 'type_text', 'key_press', 'scroll', 'mouse_move', 'mouse_down', 'mouse_drag'].includes(args.action);
+      const isInput = ['click', 'type_text', 'key_press', 'scroll', 'mouse_move', 'mouse_down', 'mouse_drag', 'drag_window'].includes(args.action);
       if (s.mouseHeld && !['mouse_drag', 'mouse_up', 'observe'].includes(args.action)) throw fail('CU_MOUSE_BUTTON_HELD');
       if (args.action === 'mouse_drag' && !s.mouseHeld) throw fail('CU_MOUSE_NOT_HELD');
       if (args.action === 'mouse_up' && !s.mouseHeld) throw fail('CU_MOUSE_NOT_HELD');
@@ -245,7 +252,7 @@ class BaseComputerUse {
       if (isInput) {
         if (!s.observation || Date.now() - s.observation.at > 30000 || args.observation_id !== s.observation.id) throw fail('CU_STALE_OBSERVATION');
         if (args.x !== undefined && (args.x >= s.observation.width || args.y >= s.observation.height)) throw fail('CU_COORDINATE_OUTSIDE_WINDOW');
-        if (args.action === 'mouse_drag' && !s.observation.displays.some(d =>
+        if (['mouse_drag', 'drag_window'].includes(args.action) && !s.observation.displays.some(d =>
           args.screen_x >= d.x && args.screen_x < d.x + d.width &&
           args.screen_y >= d.y && args.screen_y < d.y + d.height)) throw fail('CU_COORDINATE_OUTSIDE_DISPLAY');
       }
@@ -274,7 +281,11 @@ class BaseComputerUse {
           data.displays.every(d => d && ['x','y','width','height'].every(k => Number.isSafeInteger(d[k])) &&
             d.width > 0 && d.height > 0 && d.width <= 32768 && d.height <= 32768) ? data.displays : [];
         s.observation = {id: crypto.randomUUID(), at: capturedAt, width: data.width, height: data.height, geometry: data.geometry, displays};
-        const metadata = {session_id: s.id, observation_id: s.observation.id, width: data.width, height: data.height, coordinate_space: 'window_pixels', desktop_displays: displays, desktop_coordinate_space: this.platform === 'darwin' ? 'quartz_points' : 'virtual_screen_pixels'};
+        const metadata = {session_id: s.id, observation_id: s.observation.id, width: data.width, height: data.height,
+          window_bounds: {x:data.geometry[0], y:data.geometry[1],
+            width:data.geometry[2]-data.geometry[0], height:data.geometry[3]-data.geometry[1]},
+          coordinate_space: 'window_pixels', desktop_displays: displays,
+          desktop_coordinate_space: this.platform === 'darwin' ? 'quartz_points' : 'virtual_screen_pixels'};
         const screenshot = s.capture.metadata;
         if (screenshot.delivery === 'chunked') return this.result({...metadata, screenshot, next_action: 'read_screenshot'});
         const encoded = s.capture.bytes.toString('base64');
@@ -291,6 +302,7 @@ class BaseComputerUse {
         this.stop('CU_DRAG_ABORTED', activeSession);
       const code = /^CU_[A-Z_]+$/.test(error.code || '') ? error.code : 'CU_CANCELLED';
       return {...this.result({code, execution_state: started ? 'unknown' : 'not_started', operation_executed: started ? null : false,
+        ...(error.occlusion ? {occlusion: error.occlusion} : {}),
         ...(['CU_CONSENT_PENDING','CU_SESSION_STARTING'].includes(code) ? this.status() : {}), next_action: code === 'CU_SCREENSHOT_EXPIRED' ? 'observe' : code === 'CU_WINDOW_NOT_FOREGROUND' ? 'activate' : code === 'CU_ACTIVATION_FAILED' ? 'Manually activate the authorized window, then observe; do not replay input.' : 'get_session'}), isError: true};
     } finally {
       clearTimeout(timer); signal?.removeEventListener('abort', abort);

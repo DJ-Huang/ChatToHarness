@@ -20,6 +20,7 @@ final class MacComputerUse: NSObject {
     private var lastGeometry: [Int] = []
     private var leftHeld = false
     private var heldSince: Date?
+    private var lastOcclusion: [String: Any]?
     private var stopPanel: NSPanel?
     private var hudTargetFrame = CGRect.zero
     private var activityField: NSTextField?
@@ -216,6 +217,7 @@ final class MacComputerUse: NSObject {
             "mouse_move": ("正在移动鼠标", "Moving mouse"),
             "mouse_down": ("正在按住鼠标", "Holding mouse button"),
             "mouse_drag": ("正在拖动窗口", "Dragging mouse"),
+            "drag_window": ("正在拖动窗口", "Dragging window"),
             "mouse_up": ("正在松开鼠标", "Releasing mouse"),
             "click": ("正在点击鼠标", "Clicking mouse"),
             "scroll": ("正在滚动", "Scrolling"),
@@ -589,24 +591,57 @@ final class MacComputerUse: NSObject {
         }
     }
 
-    // Ensure that an unrelated app or modal above the target cannot receive a
-    // click. Own STOP/overlay windows are ignored, as they belong to our PID.
-    private func isOccluded(at point: CGPoint) -> Bool {
-        guard let data = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                    as? [[String: Any]] else { return true }
+    // CGWindow bounds alone over-report occlusion for click-through overlays and
+    // window shadows. Require a foreground rectangle AND corroborate actual AX
+    // hit testing when possible. Unknown AX results remain fail-closed.
+    // Only IDs/owner metadata are returned; never leak another window's title.
+    private func occluder(at point: CGPoint) -> [String: Any]? {
+        guard let data = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                  kCGNullWindowID) as? [[String: Any]] else {
+            return ["reason": "window_list_unavailable"]
+        }
         for window in data {
             guard let number = window[kCGWindowNumber as String] as? NSNumber,
                   let owner = window[kCGWindowOwnerPID as String] as? NSNumber else { continue }
-            if number.uint32Value == targetID { return false }
-            if owner.int32Value == getpid() { continue }
+            if number.uint32Value == targetID { return nil }
+            if owner.int32Value == getpid() { continue } // Own click-through HUD/glow.
             guard let rect = window[kCGWindowBounds as String] as? [String: Any],
                   let x = rect["X"] as? NSNumber, let y = rect["Y"] as? NSNumber,
                   let width = rect["Width"] as? NSNumber, let height = rect["Height"] as? NSNumber else { continue }
             let frame = CGRect(x: x.doubleValue, y: y.doubleValue,
                                width: width.doubleValue, height: height.doubleValue)
-            if frame.contains(point) { return true }
+            if !frame.contains(point) { continue }
+
+            // An on-screen rectangle may be transparent to pointer events.
+            // AX hit testing identifies the real receiver; never trust alpha
+            // alone, since a transparent window can still intercept clicks.
+            var element: AXUIElement?
+            let hit = AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(),
+                                                       Float(point.x), Float(point.y), &element)
+            if hit == .success, let element {
+                var hitPID: pid_t = 0
+                // A *different window of the same target app* must not be
+                // confused with the scoped target window.
+                if owner.int32Value != targetPID,
+                   AXUIElementGetPid(element, &hitPID) == .success, hitPID == targetPID {
+                    return nil
+                }
+            }
+            return ["reason": "window_above_target", "window_id": String(number.uint32Value),
+                    "owner_pid": Int(owner.int32Value),
+                    "owner": window[kCGWindowOwnerName as String] as? String ?? "",
+                    "layer": (window[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0,
+                    "alpha": (window[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? -1,
+                    "bounds": [Int(frame.minX), Int(frame.minY),
+                               Int(frame.width), Int(frame.height)],
+                    "ax_hit_test": hit == .success ? "checked" : "unavailable"]
         }
-        return true
+        return ["reason": "target_not_in_window_list"]
+    }
+
+    private func requireUnoccluded(_ point: CGPoint) throws {
+        lastOcclusion = occluder(at: point)
+        if lastOcclusion != nil { throw CUError.occluded }
     }
 
     private func mouse(_ type: CGEventType, at position: CGPoint, button: CGMouseButton) throws {
@@ -732,14 +767,73 @@ final class MacComputerUse: NSObject {
                   lastImageSize.width > 0 else { throw CUError.moved }
             try checkUserIdle(allowHeld: action == "mouse_drag")
             switch action {
-            case "click", "scroll", "mouse_move", "mouse_down":
+            case "click", "scroll", "mouse_move", "mouse_down", "drag_window":
                 let position = try point(args, window: window)
+                // A single native drag avoids losing a held mouse between MCP
+                // calls, screenshots and the 30-second safety watchdog.
+                if action == "drag_window" {
+                    guard let y = args["y"] as? Int, let x = args["x"] as? Int,
+                          y >= 8, y <= min(48, Int(lastImageSize.height) - 1),
+                          x >= 72, x < Int(lastImageSize.width) - 16,
+                          let sx = args["screen_x"] as? Int,
+                          let sy = args["screen_y"] as? Int else { throw CUError.invalid }
+                    let destination = CGPoint(x: sx, y: sy)
+                    guard MacCursorTrajectory.activeDisplays().contains(where: { $0.contains(destination) })
+                    else { throw CUError.outsideDisplay }
+                    // Retry ONLY read-only hit tests of at most three title-bar
+                    // points before pressing. No uncertain mouse action is replayed.
+                    // Shift the destination by the chosen origin delta so the
+                    // requested final window position remains unchanged.
+                    let imageWidth = Int(lastImageSize.width)
+                    let maxX = imageWidth - 17
+                    let leftX = min(maxX, 85)
+                    let middleX = max(72, min(maxX, imageWidth / 2))
+                    let candidates = [x, leftX, middleX]
+                    var tried = Set<Int>()
+                    var selected: CGPoint?
+                    var blocked = [[String: Any]]()
+                    for candidateX in candidates {
+                        if !tried.insert(candidateX).inserted { continue }
+                        let candidate = CGPoint(x: window.frame.minX +
+                            CGFloat(candidateX) * window.frame.width / lastImageSize.width,
+                            y: position.y)
+                        if let reason = occluder(at: candidate) {
+                            blocked.append(["candidate_x": candidateX, "blocker": reason])
+                        } else {
+                            selected = candidate
+                            break
+                        }
+                    }
+                    guard let start = selected else {
+                        lastOcclusion = ["reason": "all_titlebar_candidates_blocked",
+                                         "candidates": blocked]
+                        throw CUError.occluded
+                    }
+                    let shiftedDestination = CGPoint(x: destination.x + start.x - position.x,
+                                                     y: destination.y)
+                    guard MacCursorTrajectory.activeDisplays().contains(where: {
+                        $0.contains(shiftedDestination)
+                    }) else { throw CUError.outsideDisplay }
+                    updateHUD("moving")
+                    try await movePointer(to: start)
+                    let latest = try await currentWindow(requireForeground: true)
+                    guard geometry(latest) == expected else { throw CUError.moved }
+                    try requireUnoccluded(start)
+                    updateHUD("mouse_down")
+                    try mouse(.leftMouseDown, at: start, button: .left)
+                    leftHeld = true
+                    heldSince = Date()
+                    updateHUD("mouse_drag")
+                    try await movePointer(to: shiftedDestination, dragging: true)
+                    releaseHeldMouse()
+                    break
+                }
                 updateHUD("moving")
                 try await movePointer(to: position)
                 updateHUD(action)
                 let latest = try await currentWindow(requireForeground: true)
                 guard geometry(latest) == expected else { throw CUError.moved }
-                guard !isOccluded(at: position) else { throw CUError.occluded }
+                try requireUnoccluded(position)
                 if action == "mouse_down" {
                     try mouse(.leftMouseDown, at: position, button: .left)
                     leftHeld = true
@@ -773,6 +867,10 @@ final class MacComputerUse: NSObject {
             return ["ok": true]
         } catch let error as CUError {
             releaseHeldMouse()
+            if error == .occluded {
+                return ["error": error.rawValue,
+                        "occlusion": lastOcclusion ?? ["reason": "unknown"]]
+            }
             return fail(error.rawValue)
         } catch {
             releaseHeldMouse()

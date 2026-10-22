@@ -19,9 +19,16 @@ test('both desktop adapters inherit from BaseComputerUse, never from each other'
 });
 test('Mac and Windows share the core MCP contract; Mac alone exposes optional conversation title',()=>{
   const {session_title: macTitle, ...macProperties}=macDefinition.inputSchema.properties;
-  assert.deepEqual({...macDefinition.inputSchema,properties:macProperties},winDefinition.inputSchema);
+  const {action: macAction, ...macShared}=macProperties;
+  const macCore={...macDefinition.inputSchema,properties:{...macShared,
+    action:{...macAction,enum:macAction.enum.filter(action=>action!=='drag_window')}}};
+  assert.deepEqual(macCore,winDefinition.inputSchema);
   assert.deepEqual(macDefinition.outputSchema,winDefinition.outputSchema);
-  assert.deepEqual(winDefinition.inputSchema,baseDefinition.inputSchema);
+  const windowsBase=structuredClone(baseDefinition.inputSchema);
+  windowsBase.properties.action.enum=windowsBase.properties.action.enum.filter(x=>x!=='drag_window');
+  assert.deepEqual(winDefinition.inputSchema,windowsBase);
+  assert.ok(macAction.enum.includes('drag_window'));
+  assert.equal(winDefinition.inputSchema.properties.action.enum.includes('drag_window'),false);
   assert.deepEqual(macTitle.type,'string');
   assert.equal(macTitle.maxLength,80);
   assert.equal(macDefinition.inputSchema.required.includes('session_title'),false);

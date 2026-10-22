@@ -49,6 +49,7 @@ test('Mac MCP uses safe fresh screenshot geometry and consumes input observation
   const observed = await service.call({action:'observe',session_id:session,format:'png'});
   assert.equal(observed.isError, undefined);
   assert.equal(observed.structuredContent.coordinate_space,'window_pixels');
+  assert.deepEqual(observed.structuredContent.window_bounds,{x:10,y:20,width:64,height:48});
   assert.ok(observed.structuredContent.screenshot.sha256);
   assert.equal(observed.content[1].type,'image');
   const obs=observed.structuredContent.observation_id;
@@ -236,4 +237,59 @@ test('title is not echoed into arbitrary mouse, screenshot, status or tool resul
  const state=await service.call({action:'get_session'});
  assert.equal(JSON.stringify(state).includes('session_title'),false);
  await service.call({action:'close_session',session_id:session});
+});
+
+test('Mac atomic window drag consumes one observation and never persists a held button', async () => {
+  const {service,requests,session} = await fixture();
+  assert.ok(definition.inputSchema.properties.action.enum.includes('drag_window'));
+  const first=(await service.call({action:'observe',session_id:session})).structuredContent;
+  const result=await service.call({action:'drag_window',session_id:session,
+    observation_id:first.observation_id,x:30,y:12,screen_x:-1100,screen_y:-900});
+  assert.equal(result.structuredContent.execution_state,'complete');
+  assert.equal(result.structuredContent.mouse_button_held,false);
+  assert.deepEqual(requests.at(-1),{action:'drag_window',x:30,y:12,
+    screen_x:-1100,screen_y:-900,geometry:[10,20,74,68]});
+  assert.equal((await service.call({action:'drag_window',session_id:session,
+    observation_id:first.observation_id,x:30,y:12,screen_x:-1100,screen_y:-900}))
+    .structuredContent.code,'CU_STALE_OBSERVATION');
+  const second=(await service.call({action:'observe',session_id:session})).structuredContent;
+  const offscreen=await service.call({action:'drag_window',session_id:session,
+    observation_id:second.observation_id,x:30,y:12,screen_x:-9999,screen_y:-9999});
+  assert.equal(offscreen.structuredContent.code,'CU_COORDINATE_OUTSIDE_DISPLAY');
+  assert.equal(offscreen.structuredContent.operation_executed,false);
+  assert.equal((await service.call({action:'close_session'})).structuredContent.closed,true);
+});
+
+test('Mac native occlusion error includes safe bounded blocker identity, without an automatic replay', async () => {
+  const {service,native,requests,session} = await fixture();
+  const original=native.request.bind(native);
+  native.request = async cmd => {
+    if(cmd.action==='drag_window') {
+      const error=Object.assign(new Error('CU_TARGET_OCCLUDED'), {
+        code:'CU_TARGET_OCCLUDED',
+        occlusion:{reason:'window_above_target',window_id:'22',owner_pid:77,layer:0,alpha:1}
+      });
+      throw error;
+    }
+    return original(cmd);
+  };
+  const obs=(await service.call({action:'observe',session_id:session})).structuredContent;
+  const outcome=await service.call({action:'drag_window',session_id:session,
+    observation_id:obs.observation_id,x:30,y:12,screen_x:-1100,screen_y:-900});
+  assert.equal(outcome.isError,true);
+  assert.equal(outcome.structuredContent.code,'CU_TARGET_OCCLUDED');
+  assert.equal(outcome.structuredContent.occlusion.window_id,'22');
+  assert.equal(outcome.structuredContent.mouse_button_held,undefined);
+  assert.equal(requests.filter(x=>x.action==='drag_window').length,0);
+  assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
+  assert.equal((await service.call({action:'close_session'})).structuredContent.closed,true);
+});
+
+test('Windows tool does not advertise or accept Mac-only atomic window dragging', async () => {
+  const {definition:windowsDefinition,WindowsComputerUse}=require('../app/windows-computer-use.cjs');
+  assert.equal(windowsDefinition.inputSchema.properties.action.enum.includes('drag_window'),false);
+  const svc=new WindowsComputerUse({platform:'win32',connect:()=>{throw Error('must not launch');}});
+  const result=await svc.call({action:'drag_window',session_id:'s',
+    observation_id:'o',x:80,y:20,screen_x:100,screen_y:100});
+  assert.equal(result.structuredContent.code,'CU_INVALID_ARGUMENT');
 });

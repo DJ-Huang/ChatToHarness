@@ -35,7 +35,7 @@ test('permission request is explicit and not reachable from the computer_use MCP
 });
 test('mouse motion verifies current target without a synchronous ScreenCaptureKit per-frame capture',()=>{
   assert.match(swift,/private func checkLivePointerTarget\(\) throws/);
-  const move=swift.split('private func movePointer(')[1].split('private func isOccluded(')[0];
+  const move=swift.split('private func movePointer(')[1].split('private func occluder(')[0];
   assert.match(move,/try checkLivePointerTarget\(\)/);
   assert.doesNotMatch(move,/try await currentWindow\(requireForeground: true\)/);
   assert.match(move,/CGEvent\(mouseEventSource: source, mouseType: \.mouseMoved/);

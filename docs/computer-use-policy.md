@@ -17,6 +17,14 @@
 
 禁止仅为加快执行而**静默改用** AppleScript、Accessibility `AXUIElementSetAttributeValue(kAXPositionAttribute)`、Win32 `SetWindowPos` / `MoveWindow`、shell 脚本或其他不可见的系统级定位手段。系统只读检查、开发编译、诊断、测试不受该限制。
 
+### macOS 原子拖动与遮挡恢复（0.7.3）
+
+- macOS 移动窗口优先使用 drag_window，在一次调用中用新鲜 observation 的 x,y 标题栏位置和 screen_x,screen_y（Quartz 点坐标）完成真实鼠标移动、按下、拖动、松开。无需多次 MCP 往返间保持左键。未经允许仍不得调用 setpos。
+- observe 额外报告 window_bounds 和 desktop_displays，按此计算目标光标终点，移动后再次观察核验。
+- 原子拖动只在尚未按下鼠标前对初始标题栏及最多两个备选落点做只读遮挡检测（最多三处）。备选落点变化时同步补偿终点，最终窗口位置不变。已经发送按下/拖动后绝不自动重放。
+- CU_TARGET_OCCLUDED 返回 occlusion 元数据（窗口 id/PID/进程名/层级/透明度/边界及 AX 检查状态），不返回其它窗口标题。CGWindow 矩形仅是候选，AX 命中目标时才可豁免；AX 不可用、同应用其它窗口时继续拒绝，不能凭透明度假定可以穿透。
+- 三处均被遮挡、出现 CU_POINTER_OFF_PATH、焦点变化、身份变化或不确定输入时，先检查会话和重新观察，必要时重新激活；不得盲目重复原动作。Esc/STOP、旧分步接口 30 秒 watchdog 和 close_session 保留。
+
 ## 2. 直接定位例外
 
 只有用户明确要求“直接设置坐标”“精确定位”“setpos / setsize”或明确允许系统 API 方式时，才允许直接定位。优先使用有独立授权、目标约束和验收证据的专用窗口控制能力。如果当前 Computer Use 未提供这类能力，必须告知限制，不得暗中用 `start_process` 等任意命令通道冒充 Computer Use 完成窗口移动。

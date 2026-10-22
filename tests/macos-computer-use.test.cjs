@@ -198,3 +198,42 @@ test('idle session automatically closes its native helper without a subsequent M
   assert.equal(result.state,'closed');
   assert.equal(result.code,'CU_SESSION_IDLE');
 });
+
+test('macOS only accepts a genuinely supplied bounded session title via private native handshake', async () => {
+  const requests=[];
+  const native={closed:false,ready:Promise.resolve({window_id:'123',input_enabled:true}),
+    stop(){this.closed=true;},async request(command){requests.push(command);return {ok:true};}};
+  const service=new MacComputerUse({platform:'darwin',connect:()=>native});
+  const result=await service.call({action:'open_session',window_id:'123',session_title:'移动窗口'});
+  assert.match(result.structuredContent.session_id,/^[0-9a-f-]{36}$/);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(requests,[{action:'set_session_title',title:'移动窗口'}]);
+  assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
+  const closed=await service.call({action:'close_session'});
+  assert.equal(closed.structuredContent.closed,true);
+  assert.equal(native.closed,true);
+  assert.ok(definition.inputSchema.properties.session_title);
+  assert.equal(definition.inputSchema.properties.session_title.maxLength,80);
+  assert.ok(!definition.inputSchema.properties.action.enum.includes('set_session_title'));
+});
+
+test('missing title cannot be fabricated; unsafe or oversized titles are rejected before opening', async () => {
+  const {validate,baseDefinition}=require('../app/base-computer-use.cjs');
+  assert.doesNotThrow(()=>validate({action:'open_session',window_id:'123'}));
+  assert.equal(Object.hasOwn(baseDefinition.inputSchema.properties,'session_title'),false);
+  for(const name of ['', '  ', 'text\nsecret', 'a'.repeat(81), 123, null]){
+    assert.throws(()=>validate({action:'open_session',window_id:'123',session_title:name}),/CU_INVALID_ARGUMENT/);
+  }
+  assert.throws(()=>validate({action:'observe',session_id:'x',session_title:'not allowed'}),/CU_INVALID_ARGUMENT/);
+  const {service,requests,session}=await fixture();
+  assert.equal(requests.length,0);
+  assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
+  await service.call({action:'close_session',session_id:session});
+});
+
+test('title is not echoed into arbitrary mouse, screenshot, status or tool results', async () => {
+ const {service,session}=await fixture();
+ const state=await service.call({action:'get_session'});
+ assert.equal(JSON.stringify(state).includes('session_title'),false);
+ await service.call({action:'close_session',session_id:session});
+});

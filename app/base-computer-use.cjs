@@ -32,7 +32,7 @@ definition.outputSchema.properties.screenshot = {type: 'object', additionalPrope
 }};
 const fail = code => Object.assign(new Error(code), {code});
 const fields = {
-  list_windows: [], open_session: ['window_id'], get_session: ['session_id'], activate: ['session_id'], observe: ['session_id', 'format', 'delivery'], close_session: ['session_id'],
+  list_windows: [], open_session: ['window_id', 'session_title'], get_session: ['session_id'], activate: ['session_id'], observe: ['session_id', 'format', 'delivery'], close_session: ['session_id'],
   read_screenshot: ['session_id', 'screenshot_id', 'offset', 'length'],
   click: ['session_id', 'observation_id', 'x', 'y', 'button'],
   mouse_move: ['session_id', 'observation_id', 'x', 'y'],
@@ -46,7 +46,13 @@ function validate(args) {
   if (!args || typeof args !== 'object' || Array.isArray(args) || !ACTIONS.includes(args.action)) throw fail('CU_INVALID_ARGUMENT');
   const allowed = fields[args.action];
   if (Object.keys(args).some(k => k !== 'action' && !allowed.includes(k))) throw fail('CU_INVALID_ARGUMENT');
-  for (const k of allowed) if (args[k] === undefined && !['button','window_id','format','delivery','offset','length'].includes(k) && !(k === 'session_id' && ['get_session', 'close_session'].includes(args.action))) throw fail('CU_INVALID_ARGUMENT');
+  for (const k of allowed) if (args[k] === undefined && !['button','window_id','session_title','format','delivery','offset','length'].includes(k) && !(k === 'session_id' && ['get_session', 'close_session'].includes(args.action))) throw fail('CU_INVALID_ARGUMENT');
+  // A title is only displayed when the caller can supply a genuinely known chat title.
+  // It is never derived from the local machine's desktop/window names.
+  if (args.session_title !== undefined && (
+    typeof args.session_title !== 'string' || !args.session_title.trim() ||
+    args.session_title.length > 80 || /[\x00-\x1f\x7f]/.test(args.session_title)
+  )) throw fail('CU_INVALID_ARGUMENT');
   if (args.format !== undefined && !['auto', 'png', 'webp'].includes(args.format)) throw fail('CU_INVALID_ARGUMENT');
   if (args.delivery !== undefined && !['auto', 'chunked'].includes(args.delivery)) throw fail('CU_INVALID_ARGUMENT');
   if (args.offset !== undefined && (!Number.isSafeInteger(args.offset) || args.offset < 0 || args.offset > MAX_CAPTURE_BYTES)) throw fail('CU_INVALID_ARGUMENT');
@@ -165,6 +171,7 @@ class BaseComputerUse {
     }
     const sessionID=crypto.randomUUID();
     const s = {id: sessionID, native: this.connect({mode:this.authorizationMode,window_id:args.window_id,session_id:sessionID}), windowId:args.window_id,
+      sessionTitle: this.platform === 'darwin' ? args.session_title?.trim() : undefined,
       state: this.authorizationMode === 'per_window' ? 'awaiting_consent' : 'initializing', mouseHeld: false, expiresAt: Date.now() + 600000};
     this.session = s;
     this.touch(s);
@@ -173,7 +180,17 @@ class BaseComputerUse {
     // Consent belongs to the session, not the lifetime of this short MCP call.
     // Every outcome is observed; a cancelled/lost opening response cannot orphan
     // an inaccessible session or cause an unhandled ready rejection.
-    Promise.resolve(s.native.ready).then(data => {
+    const rejectOpen = error => {
+      const code=/^CU_[A-Z_]+$/.test(error.code || '') ? error.code : 'CU_NATIVE_ERROR';
+      this.stop(code, s);
+      if (['CU_SCREEN_RECORDING_REQUIRED','CU_ACCESSIBILITY_REQUIRED','CU_CONSENT_DENIED'].includes(code))
+        this.onPermissionDenied?.(code);
+    };
+    Promise.resolve(s.native.ready).then(async data => {
+      if (this.session !== s || s.native.closed) return;
+      // Internal stdio-only handshake. No title in process args, environment or logs.
+      // Set the HUD title before the service transitions to ready.
+      if (s.sessionTitle) await s.native.request({action:'set_session_title',title:s.sessionTitle});
       clearTimeout(s.consentTimer);
       if (this.session === s && !s.native.closed) {
         s.state = 'ready'; s.windowId = data.window_id || s.windowId;
@@ -183,12 +200,7 @@ class BaseComputerUse {
           /^(CU_SCREEN_RECORDING_REQUIRED|CU_ACCESSIBILITY_REQUIRED)$/.test(data.input_blocked_reason || ''))
           this.onPermissionDenied?.(data.input_blocked_reason);
       }
-    }, error => {
-      const code=/^CU_[A-Z_]+$/.test(error.code || '') ? error.code : 'CU_NATIVE_ERROR';
-      this.stop(code, s);
-      if (['CU_SCREEN_RECORDING_REQUIRED','CU_ACCESSIBILITY_REQUIRED','CU_CONSENT_DENIED'].includes(code))
-        this.onPermissionDenied?.(code);
-    });
+    }, rejectOpen).catch(rejectOpen);
     return this.result({...this.status(s), reused: false});
   }
   async call(input, {signal} = {}) {

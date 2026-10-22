@@ -7,7 +7,7 @@ import Foundation
 @main struct HUDSurfaceAcceptance {
     @MainActor static func main() {
         _ = NSApplication.shared
-        let hud = MacHUDSurface(frame: NSRect(x: 0, y: 0, width: 530, height: 108))
+        let hud = MacHUDSurface(frame: NSRect(x: 0, y: 0, width: 530, height: 140))
         hud.layoutSubtreeIfNeeded()
         guard let root = hud.layer else { fatalError("HUD layer unavailable") }
         let shapes = (root.sublayers ?? []).compactMap { $0 as? CAShapeLayer }
@@ -55,7 +55,7 @@ import Foundation
             contrasts[name] = ratio
         }
 
-        hud.setFrameSize(NSSize(width: 280, height: 108))
+        hud.setFrameSize(NSSize(width: 280, height: 140))
         hud.layoutSubtreeIfNeeded()
         let narrowPath = shapes[2].path?.boundingBoxOfPath ?? .zero
         guard narrowPath.width < fullPath.width - 200, narrowPath.width >= 260,

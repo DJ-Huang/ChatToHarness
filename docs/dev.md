@@ -1,5 +1,13 @@
 # Development record — Windows computer use
 
+## Mac Computer Use HUD conversation label and operation visibility — 2026-10-22
+
+- **Request:** replace displayed native UUID with the ChatGPT/Codex visible chat name and make current/previous operations observable while preserving local STOP/Esc behavior.
+- **Source boundary:** standalone MCP registration has no verified ChatGPT/Codex conversation-title field. ChatGPT/Codex chat sidebar titles cannot be read automatically from this local helper. A new optional Mac-only `open_session.session_title` accepts a client-supplied **known actual** title (1–80 safe characters); when absent HUD explicitly states title unavailable rather than fabricating a name. The native UUID remains internal and accessible only in a diagnostic tooltip. The optional title is delivered by an internal stdio handshake only after native ready, before the service is ready for input; no title in process args, environment, logs, or ordinary tool results. Public tool action set does not include the internal setter.
+- **UI:** height 140 points; header/title, conversation label, **current native action** and **previous native result + local completion time** all have separate rows. The executing action appears immediately and persists until native completion; idle remains the accurate current state afterward while the prior action/result remains visible. Actual typed text, screenshot contents and key values are never displayed. Operations rejected before native invocation are not misrepresented as native actions.
+- **Constraints:** Windows MCP input schema remains unchanged. ESC/STOP, permissions, one-use screenshots, session expiration, foreground and input safety remain unchanged. Optional title is not authenticated against the ChatGPT UI; trustworthy host propagation is necessary for automatic accurate naming.
+- **Verification/remaining:** `npm run build:computer-use` native Swift PASS. `npm test` 385 total / 376 PASS / 0 FAIL / 9 SKIP (exit 0); scoped macOS/Windows HUD/API tests 43 PASS / 0 FAIL / 1 SKIP. New regression coverage verifies optional title handshake, bounded/non-control title validation, no title in normal tool output, separate operation rows, timestamp/outcome and shared core MCP schema. Package/installed visual verification reported separately. A real post-install HUD visual check is pending and must not be marked passed from source/static tests.
+
 ## Isolated macOS installer build for Computer Use corrections — 2026-10-22
 
 - **Code commit:** `ff9577d` (version remains 0.7.2). Built with `CTH_DIST_SUBDIR=0.7.2-cu-fixes npm run dist` EXIT 0, preserving the active prior installation and its unpacked build directory.

@@ -60,8 +60,11 @@ test('HUD is top centered in the target monitor, translucent, with visible borde
  assert.match(code,/NSButton\(title: "STOP  ·  Esc"/);
  assert.match(code,/@objc private func stopPressed\(\) \{ stopNow\(\) \}/);
  assert.match(code,/installLocalEsc\(\)/);
- assert.match(code,/sessionID \?\? "external"/);
- assert.ok(code.includes(String.raw`Session \(visibleSession)`));
+ assert.match(code,/Conversation: title unavailable/);
+ assert.match(code,/会话：名称未提供/);
+ assert.match(code,/sessionField\?\.toolTip|session\.toolTip = sessionID/);
+ assert.match(code,/previousField\?\.stringValue/);
+ assert.match(code,/activityField\?\.stringValue/);
 });
 test('native action labels reflect active phases, not text content or keyboard contents',()=>{
  const code=fs.readFileSync(path.join(__dirname,'../native/MacComputerUse.swift'),'utf8');
@@ -70,7 +73,9 @@ test('native action labels reflect active phases, not text content or keyboard c
  assert.match(code,/updateHUD\(action\)/);
  assert.match(code,/updateHUD\("moving"\)/);
  assert.match(code,/try await movePointer\(to: position\)\s+updateHUD\(action\)/);
- assert.match(code,/defer \{ updateHUD\("idle"\) \}/);
+ assert.match(code,/completeHUD\(action, error: result\["error"\] as\? String\)/);
+ assert.match(code,/updateHUD\("idle"\)/);
+ assert.match(code,/previousField\?\.stringValue/);
  assert.doesNotMatch(code,/updateHUD\((?:text|keyName|args\["text"\])\)/);
 });
 test('Mac session-id transfer leaves Windows native CLI unchanged',()=>{
@@ -79,4 +84,21 @@ test('Mac session-id transfer leaves Windows native CLI unchanged',()=>{
  assert.match(content,/nativeArguments\.push\(session_id\)/);
  assert.match(content,/operation !== 'list_windows'/);
  assert.equal(typeof NativeConnection,'function');
+});
+
+test('HUD preserves last operation status and shows current action separately without displaying typed content',()=>{
+ const code=fs.readFileSync(path.join(__dirname,'../native/MacComputerUse.swift'),'utf8');
+ assert.match(code,/let height: CGFloat = 140/);
+ assert.match(code,/let previous = NSTextField\(labelWithString:/);
+ assert.match(code,/completeHUD\(action, error: result\["error"\] as\? String\)/);
+ assert.match(code,/let result = await executeAction\(args\)/);
+ assert.match(code,/previousField\?\.stringValue/);
+ assert.match(code,/let outcome = error == nil/);
+ assert.match(code,/DateFormatter\.localizedString/);
+ assert.match(code,/updateHUD\("moving"\)/);
+ assert.match(code,/updateHUD\("idle"\)/);
+ assert.doesNotMatch(code,/previousField\?\.stringValue\s*=.*args\["text"\]/);
+ assert.doesNotMatch(code,/activityField\?\.stringValue\s*=.*args\["text"\]/);
+ assert.match(code,/if action == "set_session_title"/);
+ assert.match(code,/!title\.unicodeScalars\.contains/);
 });

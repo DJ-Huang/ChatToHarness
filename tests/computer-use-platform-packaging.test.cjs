@@ -17,10 +17,14 @@ test('both desktop adapters inherit from BaseComputerUse, never from each other'
   const windowsSource=fs.readFileSync(path.resolve(__dirname,'../app/windows-computer-use.cjs'),'utf8');
   assert.doesNotMatch(windowsSource,/require\(['"]\.\/macos-computer-use\.cjs['"]\)/);
 });
-test('Mac and Windows share byte-compatible MCP input and screenshot schemas',()=>{
-  assert.deepEqual(macDefinition.inputSchema,winDefinition.inputSchema);
+test('Mac and Windows share the core MCP contract; Mac alone exposes optional conversation title',()=>{
+  const {session_title: macTitle, ...macProperties}=macDefinition.inputSchema.properties;
+  assert.deepEqual({...macDefinition.inputSchema,properties:macProperties},winDefinition.inputSchema);
   assert.deepEqual(macDefinition.outputSchema,winDefinition.outputSchema);
-  assert.deepEqual(macDefinition.inputSchema,baseDefinition.inputSchema);
+  assert.deepEqual(winDefinition.inputSchema,baseDefinition.inputSchema);
+  assert.deepEqual(macTitle.type,'string');
+  assert.equal(macTitle.maxLength,80);
+  assert.equal(macDefinition.inputSchema.required.includes('session_title'),false);
   assert.match(macDefinition.description,/Screen Recording/);
   assert.match(winDefinition.description,/Windows/);
   for(const schema of [macDefinition,winDefinition]) {

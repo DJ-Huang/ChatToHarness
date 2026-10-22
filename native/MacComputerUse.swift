@@ -24,6 +24,8 @@ final class MacComputerUse: NSObject {
     private var hudTargetFrame = CGRect.zero
     private var activityField: NSTextField?
     private var sessionField: NSTextField?
+    private var previousField: NSTextField?
+    private var sessionTitle: String?
     private let sessionID: String?
     private var outlinePanel: NSPanel?
     private var stopTap: CFMachPort?
@@ -225,12 +227,34 @@ final class MacComputerUse: NSObject {
     }
 
     private func updateHUD(_ key: String) {
-        activityField?.stringValue = hudText(key)
+        let prefix = Locale.preferredLanguages.first?.hasPrefix("zh") == true ? "当前：" : "Now: "
+        activityField?.stringValue = prefix + hudText(key)
+    }
+
+    private func completeHUD(_ key: String, error: String?) {
+        // Only bounded action names and status codes; never typed text,
+        // screenshots, keystrokes, or window contents.
+        let chinese = Locale.preferredLanguages.first?.hasPrefix("zh") == true
+        let outcome = error == nil ? (chinese ? "完成" : "Done") : (chinese ? "失败" : "Failed")
+        let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
+        let title = hudText(key)
+        let normalized = chinese ? title.replacingOccurrences(of: "正在", with: "") : title
+        previousField?.stringValue = (chinese ? "上一步：" : "Previous: ") +
+            normalized + " · " + outcome + " · " + time
+        previousField?.toolTip = error
+        updateHUD("idle")
+    }
+
+    private func updateSessionTitle(_ title: String) {
+        sessionTitle = title
+        let chinese = Locale.preferredLanguages.first?.hasPrefix("zh") == true
+        sessionField?.stringValue = (chinese ? "会话：" : "Conversation: ") + title
+        sessionField?.toolTip = title
     }
 
     private func hudFrame() -> NSRect {
         let width: CGFloat = 530
-        let height: CGFloat = 108
+        let height: CGFloat = 140
         let targetFrame = cgToAppKit(hudTargetFrame)
         let screens = NSScreen.screens
         let screen = screens.max(by: { a, b in
@@ -274,34 +298,46 @@ final class MacComputerUse: NSObject {
         let title = NSTextField(labelWithString: "● ChatToHarness · Computer Use")
         title.font = NSFont.boldSystemFont(ofSize: 14)
         title.textColor = MacHUDSurface.titleColor
-        title.frame = NSRect(x: 18, y: 72, width: max(110, panel.frame.width - 164), height: 21)
+        title.frame = NSRect(x: 18, y: 103, width: max(110, panel.frame.width - 164), height: 21)
         title.autoresizingMask = [.width]
         title.lineBreakMode = .byTruncatingTail
         surface.addSubview(title)
 
-        let visibleSession = sessionID ?? "external"
-        let session = NSTextField(labelWithString: "Session \(visibleSession)")
+        // No reliable conversation title in standalone MCP metadata by default.
+        // Preserve the native UUID as a diagnostic tooltip, not display text.
+        let chinese = Locale.preferredLanguages.first?.hasPrefix("zh") == true
+        let session = NSTextField(labelWithString: chinese ? "会话：名称未提供" : "Conversation: title unavailable")
         session.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
         session.textColor = MacHUDSurface.secondaryTextColor
         session.lineBreakMode = .byTruncatingTail
-        session.frame = NSRect(x: 18, y: 51, width: max(110, panel.frame.width - 164), height: 18)
+        session.frame = NSRect(x: 18, y: 81, width: max(110, panel.frame.width - 164), height: 18)
         session.autoresizingMask = [.width]
-        session.toolTip = sessionID ?? "External native helper session"
+        session.toolTip = sessionID.map { "Computer Use session \($0)" } ?? "External native helper session"
         surface.addSubview(session)
         sessionField = session
 
-        let activity = NSTextField(labelWithString: hudText("idle"))
+        let activity = NSTextField(labelWithString: "")
         activity.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         activity.textColor = MacHUDSurface.primaryTextColor
-        activity.frame = NSRect(x: 18, y: 16, width: max(110, panel.frame.width - 164), height: 23)
+        activity.frame = NSRect(x: 18, y: 51, width: max(110, panel.frame.width - 164), height: 23)
         activity.autoresizingMask = [.width]
         activity.lineBreakMode = .byTruncatingTail
         surface.addSubview(activity)
         activityField = activity
+        updateHUD("idle")
+
+        let previous = NSTextField(labelWithString: chinese ? "上一步：暂无" : "Previous: none")
+        previous.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        previous.textColor = MacHUDSurface.secondaryTextColor
+        previous.frame = NSRect(x: 18, y: 23, width: max(110, panel.frame.width - 164), height: 21)
+        previous.autoresizingMask = [.width]
+        previous.lineBreakMode = .byTruncatingTail
+        surface.addSubview(previous)
+        previousField = previous
 
         let button = NSButton(title: "STOP  ·  Esc", target: self,
                               action: #selector(stopPressed))
-        button.frame = NSRect(x: panel.frame.width - 133, y: 29, width: 116, height: 43)
+        button.frame = NSRect(x: panel.frame.width - 133, y: 45, width: 116, height: 43)
         button.autoresizingMask = [.minXMargin]
         button.isBordered = false
         button.wantsLayer = true
@@ -390,6 +426,7 @@ final class MacComputerUse: NSObject {
         stopPanel?.close()
         activityField = nil
         sessionField = nil
+        previousField = nil
         outlinePanel?.close()
         if let source = stopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         stopSource = nil
@@ -651,10 +688,27 @@ final class MacComputerUse: NSObject {
     }
 
     private func command(_ args: [String: Any]) async -> [String: Any] {
+        guard let action = args["action"] as? String else { return fail(CUError.invalid.rawValue) }
+        // This command can be sent only through the native helper's private stdio.
+        // It carries an optional supplied title and does not generate GUI input.
+        if action == "set_session_title" {
+            guard let title = args["title"] as? String,
+                  !title.trimmingCharacters(in: .whitespaces).isEmpty,
+                  title.utf16.count <= 80,
+                  !title.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+            else { return fail(CUError.invalid.rawValue) }
+            updateSessionTitle(title)
+            return ["ok": true]
+        }
+        updateHUD(action)
+        let result = await executeAction(args)
+        completeHUD(action, error: result["error"] as? String)
+        return result
+    }
+
+    private func executeAction(_ args: [String: Any]) async -> [String: Any] {
         do {
             guard let action = args["action"] as? String else { throw CUError.invalid }
-            updateHUD(action)
-            defer { updateHUD("idle") }
             // Release must work even if dragging changed the target geometry or focus.
             if action == "mouse_up" {
                 guard leftHeld else { throw CUError.notHeld }

@@ -1,5 +1,13 @@
 # Development record — Windows computer use
 
+## ChatToHarness 0.7.2 Mac installer acceptance — 2026-10-22
+
+- **Source/build:** `feat/computer-use`, committed source `5b4b34d` (clean), version `0.7.2`; `CTH_DIST_SUBDIR=0.7.2 npm run dist` PASS. DMG: `dist/0.7.2/ChatToHarness-0.7.2-macos-arm64.dmg`, approximately 255 MiB.
+- **SHA-256:** `2e860e2a4f7f582afe67e4972cec465211c34ab20af4847402d64dbd7101b4eb`. `CFBundleShortVersionString=0.7.2`; packaged `build-info.json` commit `5b4b34dce4e9bc54ea515d805ad8c893da1a4def`, `dirty=false`. `codesign --verify --deep --strict` PASS; ad-hoc signature, **not Apple notarized**. Native helper includes `cyanPerimeterOrbit`.
+- **Real isolated installer smoke:** `CTH_DIST_SUBDIR=0.7.2 CTH_SMOKE_OUTPUT=.cache/acceptance/installer-0.7.2 npm run smoke:installer` EXIT 0. DMG CRC verified and mounted; app copied to temporary install dir; GUI smoke PASS; uninstall-preservation fixture PASS: `installer=true`, `startup=true`, `uninstallRetainsData=true` in `.cache/acceptance/installer-0.7.2/installer-result.json`.
+- **Tests:** prior to DMG build, `npm test` 375 total / 366 PASS / 0 FAIL / 9 SKIP; isolated-output unit tests 3/3 PASS. No Windows real GUI test.
+- **Safety:** initial unisolated build failed `ENOTEMPTY` cleaning `dist/mac-arm64`, where the user's connected ChatToHarness app is **running**. Its directory was not moved or deleted. Subsequent build into `dist/0.7.2` succeeded. Old DMG remains unchanged. No application upgrade was performed or GitHub Release created.
+
 ## Release preparation 0.7.2 — 2026-10-22
 
 - **Version bump:** `package.json` and `package-lock.json` to 0.7.2; notes `release-notes/v0.7.2.md`. Current branch `feat/computer-use`, work item ChatToHarness #1.

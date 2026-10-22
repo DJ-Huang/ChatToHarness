@@ -1,5 +1,12 @@
 # Development record — Windows computer use
 
+## Release preparation 0.7.2 — 2026-10-22
+
+- **Version bump:** `package.json` and `package-lock.json` to 0.7.2; notes `release-notes/v0.7.2.md`. Current branch `feat/computer-use`, work item ChatToHarness #1.
+- **Scope:** Mac Computer Use HUD high-contrast text and orbiting cyan perimeter; device routing policy explicit > trusted current session > sole available > numbered selection, plus tools' visible real-input guidance.
+- **Delivery:** build local macOS arm64 DMG from committed source (not GitHub Release), no changes to installed/running application. Validate signing, packaged native HUD and actual installer smoke. Keep Windows real GUI and ChatGPT-hosted router enforcement as pending.
+
+
 
 ## Computer Use policy: session-first device routing and real input — 2026-10-22
 

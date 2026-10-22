@@ -1,5 +1,15 @@
 # Development record — Windows computer use
 
+## macOS Computer Use parameter, cleanup and HUD corner fixes — 2026-10-22
+
+- **Work item/branch:** ChatToHarness #1, `feat/computer-use`. User reported 11:25:49 `CU_INVALID_ARGUMENT` for drag button calls, STOP/HUD persisting after a completed task, and four pointed HUD corners. Initial worktree clean.
+- **Cause #1 (confirmed):** public MCP schema advertised `button` for mouse actions, but the per-action validation whitelist excluded it from both `mouse_down` and `mouse_up`. Supplying `button: left` caused rejection before native input. Required screenshot `x,y` for down but not up was independently correct. Fixed action validation to accept optional explicit left and reject right for drag; normalize native command by removing the alias. Existing `click` right-button functionality is preserved.
+- **Cause #2 (confirmed for incident):** final cross-display drag ended with `mouse_up`, but no `close_session` was invoked before user-facing completion. Helpers intentionally keep STOP/Esc active until explicitly closed, emergency-stopped or expired. Updated shared MCP guidance and `docs/computer-use-policy.md` to require close + verification **before** final completion wording. Added a 120-second no-tool-call shutdown watchdog to terminate orphaned native helper/HUD; it is a fallback, not a task-completion signal. Explicit close remains necessary to close immediately.
+- **Cause #3 (source-based diagnosis):** rounded dark MacHUDSurface was nested inside an unmasked rectangular NSVisualEffectView backdrop and rectangular NSPanel window shadow. Removed both backing artifacts; direct MacHUDSurface root retains `cornerRadius`, `masksToBounds`, dark high-contrast backplate, STOP control and animated cyan orbit.
+- **Verification:** `npm run build:computer-use` PASS, including native Swift helper. Targeted macOS/native/platform tests **54 total / 53 pass / 0 fail / 1 skip**. Shared policy tests **14/14 pass**. Full `npm test` **381 total / 372 pass / 0 fail / 9 skip**, exit 0. Added tests for explicit-left down/up, invalid right-button drag, independent idle cleanup, and corner layering invariant.
+- **Limitations:** The new UI has not been viewed in an installed production 0.7.2 app or verified with a live ChatGPT-to-MCP GUI session. Existing installed/running app was not overwritten. Real cross-display drag was verified on the prior build, not repeated with the modified helper.
+
+
 ## ChatToHarness 0.7.2 Mac installer acceptance — 2026-10-22
 
 - **Source/build:** `feat/computer-use`, committed source `5b4b34d` (clean), version `0.7.2`; `CTH_DIST_SUBDIR=0.7.2 npm run dist` PASS. DMG: `dist/0.7.2/ChatToHarness-0.7.2-macos-arm64.dmg`, approximately 255 MiB.

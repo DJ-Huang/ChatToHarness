@@ -4,6 +4,7 @@ const {spawn} = require('node:child_process');
 const {createInterface} = require('node:readline');
 const {compressCapture, snapshot, readChunk, MAX_CAPTURE_BYTES, MAX_CHUNK_BYTES} = require('./computer-use-images.cjs');
 const ACTIONS = ['list_windows', 'open_session', 'get_session', 'activate', 'observe', 'read_screenshot', 'click', 'mouse_move', 'mouse_down', 'mouse_drag', 'mouse_up', 'type_text', 'key_press', 'scroll', 'close_session'];
+const IDLE_SESSION_MS = 120000;
 const KEYS = ['ENTER', 'TAB', 'BACKSPACE', 'DELETE', 'LEFT', 'RIGHT', 'UP', 'DOWN', 'HOME', 'END', 'PAGEUP', 'PAGEDOWN', 'CTRL+A', 'CTRL+C', 'CTRL+V', 'CTRL+Z', 'CTRL+Y', 'SHIFT+TAB'];
 const definition = {
   name: 'computer_use', title: 'Windows computer use',
@@ -35,9 +36,9 @@ const fields = {
   read_screenshot: ['session_id', 'screenshot_id', 'offset', 'length'],
   click: ['session_id', 'observation_id', 'x', 'y', 'button'],
   mouse_move: ['session_id', 'observation_id', 'x', 'y'],
-  mouse_down: ['session_id', 'observation_id', 'x', 'y'],
+  mouse_down: ['session_id', 'observation_id', 'x', 'y', 'button'],
   mouse_drag: ['session_id', 'observation_id', 'screen_x', 'screen_y'],
-  mouse_up: ['session_id'],
+  mouse_up: ['session_id', 'button'],
   type_text: ['session_id', 'observation_id', 'text'], key_press: ['session_id', 'observation_id', 'key'],
   scroll: ['session_id', 'observation_id', 'x', 'y', 'delta']
 };
@@ -55,6 +56,8 @@ function validate(args) {
   for (const k of ['x', 'y']) if (args[k] !== undefined && (!Number.isSafeInteger(args[k]) || args[k] < 0 || args[k] > 32767)) throw fail('CU_INVALID_ARGUMENT');
   for (const k of ['screen_x', 'screen_y']) if (args[k] !== undefined && (!Number.isSafeInteger(args[k]) || args[k] < -32768 || args[k] > 32767)) throw fail('CU_INVALID_ARGUMENT');
   if (args.button !== undefined && !['left', 'right'].includes(args.button)) throw fail('CU_INVALID_ARGUMENT');
+  // Dragging owns only the left button; accept the explicit left alias in the public schema.
+  if (['mouse_down', 'mouse_up'].includes(args.action) && args.button === 'right') throw fail('CU_INVALID_ARGUMENT');
   if (args.action === 'type_text' && (typeof args.text !== 'string' || !args.text.length || args.text.length > 1000 || /[\x00-\x1f\x7f]/.test(args.text))) throw fail('CU_INVALID_ARGUMENT');
   if (args.action === 'key_press' && !KEYS.includes(args.key)) throw fail('CU_INVALID_ARGUMENT');
   if (args.action === 'scroll' && (!Number.isInteger(args.delta) || !args.delta || Math.abs(args.delta) > 10)) throw fail('CU_INVALID_ARGUMENT');
@@ -105,13 +108,13 @@ class NativeConnection {
   }
 }
 class BaseComputerUse {
-  constructor({platform = process.platform, connect, helperPath, timeoutMs = 45000, supportedPlatform, authorizationMode = process.env.CTH_COMPUTER_USE_AUTHORIZATION_MODE || 'all_windows', onPermissionDenied} = {}) {
+  constructor({platform = process.platform, connect, helperPath, timeoutMs = 45000, idleTimeoutMs = IDLE_SESSION_MS, supportedPlatform, authorizationMode = process.env.CTH_COMPUTER_USE_AUTHORIZATION_MODE || 'all_windows', onPermissionDenied} = {}) {
     if (!['darwin', 'win32'].includes(supportedPlatform)) throw fail('CU_PLATFORM_UNSUPPORTED');
     if (typeof helperPath !== 'string' || !helperPath) throw fail('CU_HELPER_UNAVAILABLE');
     if (!['all_windows','per_window'].includes(authorizationMode)) throw fail('CU_INVALID_AUTHORIZATION_MODE');
     this.authorizationMode = authorizationMode; this.onPermissionDenied = onPermissionDenied;
     this.platform = platform; this.supportedPlatform = supportedPlatform; this.connect = connect || (options => new NativeConnection(helperPath, options));
-    this.timeoutMs = timeoutMs; this.session = null; this.lastSession = null; this.busy = false; this.operation = null;
+    this.timeoutMs = timeoutMs; this.idleTimeoutMs = idleTimeoutMs; this.session = null; this.lastSession = null; this.busy = false; this.operation = null;
   }
   status(s = this.session) {
     if (!s) return this.lastSession || {state: 'none', session_id: null, authorization_mode: this.authorizationMode, next_action: 'open_session'};
@@ -122,9 +125,18 @@ class BaseComputerUse {
       ...(s.inputBlockedReason ? {input_blocked_reason: s.inputBlockedReason} : {}),
       next_action: s.state === 'ready' ? 'observe' : 'get_session', ...(s.error ? {code: s.error} : {})};
   }
+  touch(s = this.session) {
+    if (!s || this.session !== s) return;
+    clearTimeout(s.idleTimer);
+    // Tool calls have no end-of-user-task event. This is only a fail-safe:
+    // agents must explicitly close_session before reporting completion.
+    s.idleTimer = setTimeout(() => this.stop('CU_SESSION_IDLE', s), this.idleTimeoutMs);
+    s.idleTimer.unref?.();
+  }
   stop(code = 'CU_SESSION_CLOSED', s = this.session) {
     if (!s || this.session !== s) return;
     clearTimeout(s.consentTimer);
+    clearTimeout(s.idleTimer);
     this.clearCapture(s);
     this.session = null; this.busy = false; this.operation = null;
     s.state = 'closed'; s.error = code; s.observation = null; s.capture = null;
@@ -148,12 +160,14 @@ class BaseComputerUse {
   open(args) {
     if (this.session) {
       if (args.window_id && args.window_id !== this.session.windowId) throw fail('CU_SESSION_TARGET_MISMATCH');
+      this.touch();
       return this.result({...this.status(), reused: true});
     }
     const sessionID=crypto.randomUUID();
     const s = {id: sessionID, native: this.connect({mode:this.authorizationMode,window_id:args.window_id,session_id:sessionID}), windowId:args.window_id,
       state: this.authorizationMode === 'per_window' ? 'awaiting_consent' : 'initializing', mouseHeld: false, expiresAt: Date.now() + 600000};
     this.session = s;
+    this.touch(s);
     s.consentTimer = setTimeout(() => this.stop(this.authorizationMode === 'per_window' ? 'CU_CONSENT_TIMEOUT' : 'CU_SESSION_START_TIMEOUT', s), this.timeoutMs);
     s.consentTimer.unref?.();
     // Consent belongs to the session, not the lifetime of this short MCP call.
@@ -187,6 +201,7 @@ class BaseComputerUse {
       if (args.action === 'list_windows') return await this.listWindows(signal);
       if (args.action === 'get_session') {
         if (args.session_id && args.session_id !== (this.session?.id || this.lastSession?.session_id)) throw fail('CU_SESSION_CLOSED');
+        this.touch();
         return this.result(this.status());
       }
       if (args.action === 'close_session') {
@@ -200,6 +215,7 @@ class BaseComputerUse {
       if (this.busy) throw fail('CU_BUSY');
       if (args.action === 'read_screenshot') {
         const chunk = readChunk(this.session.capture, args.screenshot_id, args.offset, args.length);
+        this.touch();
         const {data, ...metadata} = chunk;
         return {...this.result({session_id: this.session.id, screenshot: metadata}), structuredContent: {session_id: this.session.id, screenshot: chunk}};
       }
@@ -222,10 +238,14 @@ class BaseComputerUse {
           args.screen_y >= d.y && args.screen_y < d.y + d.height)) throw fail('CU_COORDINATE_OUTSIDE_DISPLAY');
       }
       const observation = s.observation; s.observation = null; this.clearCapture(s);
-      const {session_id, observation_id, format, delivery, ...command} = args;
+      this.touch(s);
+      const {session_id, observation_id, format, delivery, button, ...command} = args;
+      // Do not send drag button aliases to platform helpers; click alone supports right.
+      if (args.action === 'click' && button !== undefined) command.button = button;
       started = args.action !== 'observe';
       const data = await s.native.request({...command, ...(isInput ? {geometry: observation.geometry} : {})});
       if (this.session !== s || this.operation !== operation) throw fail('CU_SESSION_CLOSED');
+      this.touch(s);
       if (args.action === 'activate' && data.foreground !== true) throw fail('CU_ACTIVATION_FAILED');
       if (args.action === 'observe') {
         if (!Number.isInteger(data.width) || !Number.isInteger(data.height) || data.width < 1 || data.height < 1 || data.width > 4096 || data.height > 4096 || data.width * data.height > 8388608 || typeof data.png !== 'string' || data.png.length > Math.ceil(MAX_CAPTURE_BYTES / 3) * 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data.png) || !Array.isArray(data.geometry) || data.geometry.length !== 4) throw fail('CU_INVALID_CAPTURE');

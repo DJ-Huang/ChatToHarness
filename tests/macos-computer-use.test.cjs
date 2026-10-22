@@ -6,6 +6,7 @@ const {spawnSync} = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const sharp = require('sharp');
+const {setTimeout: sleep} = require('node:timers/promises');
 const {MacComputerUse, definition} = require('../app/macos-computer-use.cjs');
 const {configuration} = require('../scripts/computer-use-config.cjs');
 
@@ -158,4 +159,42 @@ test('Mac drag reports Quartz coordinates, holds across observations and release
   assert.equal(up.structuredContent.mouse_button_held,false);
   assert.deepEqual(requests.at(-1),{action:'mouse_up'});
   service.stop();
+});
+
+test('explicit left button is accepted for native drag begin/release and never sent as an extra helper parameter', async () => {
+  const {service, requests, session} = await fixture();
+  const observed=(await service.call({action:'observe',session_id:session})).structuredContent;
+  const down=await service.call({action:'mouse_down',session_id:session,observation_id:observed.observation_id,x:15,y:12,button:'left'});
+  assert.equal(down.structuredContent.execution_state,'complete');
+  assert.equal(down.structuredContent.mouse_button_held,true);
+  assert.deepEqual(requests.at(-1),{action:'mouse_down',x:15,y:12,geometry:[10,20,74,68]});
+  const up=await service.call({action:'mouse_up',session_id:session,button:'left'});
+  assert.equal(up.structuredContent.execution_state,'complete');
+  assert.equal(up.structuredContent.mouse_button_held,false);
+  assert.deepEqual(requests.at(-1),{action:'mouse_up'});
+  assert.equal((await service.call({action:'close_session',session_id:session})).structuredContent.closed,true);
+});
+
+test('drag right button alias is rejected before touching the native service', async () => {
+  const {service,requests,session} = await fixture();
+  const observed=(await service.call({action:'observe',session_id:session})).structuredContent;
+  const down=await service.call({action:'mouse_down',session_id:session,observation_id:observed.observation_id,x:15,y:12,button:'right'});
+  assert.equal(down.structuredContent.code,'CU_INVALID_ARGUMENT');
+  assert.equal(down.structuredContent.operation_executed,false);
+  assert.equal(requests.length,1);
+  const release=await service.call({action:'mouse_up',session_id:session,button:'right'});
+  assert.equal(release.structuredContent.code,'CU_INVALID_ARGUMENT');
+  assert.equal(release.structuredContent.operation_executed,false);
+  assert.equal(requests.length,1);
+  await service.call({action:'close_session',session_id:session});
+});
+
+test('idle session automatically closes its native helper without a subsequent MCP call', async () => {
+  const {native,service,session}=await fixture({idleTimeoutMs:80});
+  assert.equal(native.closed,false);
+  await sleep(175);
+  assert.equal(native.closed,true);
+  const result=(await service.call({action:'get_session',session_id:session})).structuredContent;
+  assert.equal(result.state,'closed');
+  assert.equal(result.code,'CU_SESSION_IDLE');
 });

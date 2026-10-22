@@ -262,20 +262,14 @@ final class MacComputerUse: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
-        panel.hasShadow = true
+        // A rectangular window shadow or a square visual-effect backdrop
+        // produces visible spikes at the four rounded corners. The dark HUD
+        // surface itself provides the only fill and clips to its rounded path.
+        panel.hasShadow = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
-
-        let backdrop = NSVisualEffectView(frame: NSRect(origin: .zero, size: panel.frame.size))
-        backdrop.autoresizingMask = [.width, .height]
-        backdrop.blendingMode = .behindWindow
-        backdrop.material = .hudWindow
-        backdrop.state = .active
-        // NSVisualEffectView alone can turn mint-green against bright desktop
-        // content. Keep it for subtle vibrancy behind an independently dark HUD.
-        let surface = MacHUDSurface(frame: backdrop.bounds)
+        let surface = MacHUDSurface(frame: NSRect(origin: .zero, size: panel.frame.size))
         surface.autoresizingMask = [.width, .height]
-        backdrop.addSubview(surface)
 
         let title = NSTextField(labelWithString: "● ChatToHarness · Computer Use")
         title.font = NSFont.boldSystemFont(ofSize: 14)
@@ -317,7 +311,7 @@ final class MacComputerUse: NSObject {
         button.contentTintColor = .white
         button.font = NSFont.boldSystemFont(ofSize: 13)
         surface.addSubview(button)
-        panel.contentView = backdrop
+        panel.contentView = surface
         panel.orderFrontRegardless()
         stopPanel = panel
     }

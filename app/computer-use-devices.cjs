@@ -96,7 +96,7 @@ function resolveComputerUseDevice({devices,explicitDeviceId,explicitDeviceName,s
 }
 
 const COMPUTER_USE_GUI_RULE =
-  'For graphical desktop interaction, use native computer_use mouse and keyboard events by default. For window dragging use observe, mouse_move, mouse_down, observe, mouse_drag, mouse_up, then verify. Never silently replace visible dragging with shell, AppleScript, Accessibility or Win32 window positioning. Direct setpos/setsize needs explicit user intent and permission. Do not replay uncertain input or bypass STOP/Esc.';
+  'For graphical desktop interaction, use native computer_use mouse and keyboard events by default. For window dragging use observe, mouse_move, mouse_down, observe, mouse_drag, mouse_up, then verify. Never silently replace visible dragging with shell, AppleScript, Accessibility or Win32 window positioning. Direct setpos/setsize needs explicit user intent and permission. Do not replay uncertain input or bypass STOP/Esc. After completing or abandoning a GUI task, always call close_session and confirm closed=true BEFORE telling the user it is finished, even if the task succeeded.';
 const COMPUTER_USE_DEVICE_RULE =
   'Device routing priority: explicit user target > device reliably associated with the current ChatGPT conversation > sole available computer_use device > numbered 1/2/3 choices by friendly name/platform. If the session is associated with this device and no other target is specified, operate without prompting even with multiple harnesses connected. If association is unknown and multiple devices are available, ask the user to choose a number. Never ask for a device UUID. A local harness cannot infer ChatGPT conversation binding or list other connectors.';
 

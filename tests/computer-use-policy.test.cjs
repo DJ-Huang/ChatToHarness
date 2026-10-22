@@ -103,6 +103,7 @@ test('MCP tool catalog also advises command tools not to silently bypass real GU
   }
   assert.equal(tools.find(x=>x.name==='builtin__read_file').description,'Read file');
   assert.ok(COMPUTER_USE_GUI_RULE.includes('mouse_up'));
+  assert.ok(COMPUTER_USE_GUI_RULE.includes('close_session'));
 });
 
 test('repository AGENTS.md points to policy with numbered fallback and real drag prohibition',()=>{

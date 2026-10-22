@@ -38,10 +38,12 @@ test('HUD is top centered in the target monitor, translucent, with visible borde
  assert.match(code,/NSScreen\.screens/);
  assert.match(code,/hudTargetFrame = window\.frame/);
  assert.match(code,/hudTargetFrame = CGRect\(x: x\.doubleValue/);
- assert.match(code,/NSVisualEffectView/);
- assert.match(code,/\.hudWindow/);
+ assert.doesNotMatch(code,/NSVisualEffectView/);
+ assert.match(code,/panel\.hasShadow = false/);
+ assert.match(code,/panel\.backgroundColor = \.clear/);
+ assert.match(code,/panel\.contentView = surface/);
  const hud=fs.readFileSync(path.join(__dirname,'../native/MacHUDSurface.swift'),'utf8');
- assert.match(code,/let surface = MacHUDSurface\(frame: backdrop\.bounds\)/);
+ assert.match(code,/let surface = MacHUDSurface\(frame: NSRect\(origin: \.zero, size: panel\.frame\.size\)\)/);
  assert.match(code,/surface\.autoresizingMask = \[\.width, \.height\]/);
  assert.match(code,/title\.textColor = MacHUDSurface\.titleColor/);
  assert.match(code,/session\.textColor = MacHUDSurface\.secondaryTextColor/);

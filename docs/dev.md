@@ -1,5 +1,13 @@
 # Development record — Windows computer use
 
+## Isolated macOS HUD conversation and activity DMG — 2026-10-22
+
+- **Build:** source commit `11132d85b36db8c28c57797e5e7c9d3df067eeb5` on `feat/computer-use`; `CTH_DIST_SUBDIR=0.7.2-hud-session npm run dist` PASS. Version stays 0.7.2; output isolated from prior and running installations.
+- **Artifact:** `dist/0.7.2-hud-session/ChatToHarness-0.7.2-macos-arm64.dmg` (255 MiB). SHA-256 `2f4440d04d2ab54b53614d49d5158bf509c983ad395b9e2c45332b01d5fb7997`; embedded `build-info.json` records exact commit and `dirty=false`.
+- **Code signing:** `codesign --verify --deep --strict` PASS, ad hoc signature; not notarized.
+- **Isolated installer smoke:** `CTH_DIST_SUBDIR=0.7.2-hud-session CTH_SMOKE_OUTPUT=.cache/acceptance/installer-0.7.2-hud-session npm run smoke:installer` exit 0; DMG integrity/mount PASS; packaged GUI smoke PASS; data-preserving uninstall fixture PASS (`installer/startup/uninstallRetainsData=true`). No active ChatToHarness installation was overwritten.
+- **Remaining acceptance:** A real GUI session using the new build has **not** yet visually confirmed the new current/previous rows or the optional client-supplied conversation name. The ChatGPT/Codex host currently does not automatically convey its chat display title to standalone MCP, so no live automatic-title acceptance is claimed.
+
 ## Mac Computer Use HUD conversation label and operation visibility — 2026-10-22
 
 - **Request:** replace displayed native UUID with the ChatGPT/Codex visible chat name and make current/previous operations observable while preserving local STOP/Esc behavior.

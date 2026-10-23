@@ -37,7 +37,7 @@ test('Mac service advertises same bounded computer_use schema with Mac permissio
   assert.match(definition.description, /macOS Screen Recording and Accessibility/);
   assert.ok(definition.inputSchema.properties.action.enum.includes('read_screenshot'));
   assert.ok(definition.inputSchema.properties.action.enum.includes('close_session'));
-  const service = new MacComputerUse({platform:'win32', connect:()=>{throw Error('should not connect');}});
+  const service = new MacComputerUse({platform:'win32',deviceId:'cu-00000000-0000-4000-8000-000000000000', connect:()=>{throw Error('should not connect');}});
   // A Mac-only service never silently dispatches on a Windows host.
   return service.call({action:'get_session'}).then(result =>
     assert.equal(result.structuredContent.code, 'CU_MACOS_REQUIRED'));
@@ -333,6 +333,42 @@ test('macOS native atomic drag publishes pre-press and post-press state for safe
   assert.match(swift,/var atomicInputStarted = false/);
   assert.match(swift,/atomicInputStarted = true\s+try mouse\(\.leftMouseDown/);
   assert.match(swift,/"input_started": atomicInputStarted/);
+});
+
+test('macOS confirmed release permits drag recovery without replay', async () => {
+  const {native,service,session}=await fixture();
+  const original=native.request.bind(native);
+  native.request=async command=>{
+    if(command.action==='drag_window')throw Object.assign(new Error('CU_USER_INPUT_ACTIVE'),{
+      code:'CU_USER_INPUT_ACTIVE',inputStarted:true,mouseReleased:true,
+      inputConflict:{reason:'sustained_pointer_takeover'}
+    });
+    return original(command);
+  };
+  const observed=(await service.call({action:'observe',session_id:session})).structuredContent;
+  const failed=await service.call({action:'drag_window',session_id:session,
+    observation_id:observed.observation_id,x:30,y:12,screen_x:-1100,screen_y:-900});
+  assert.equal(failed.structuredContent.code,'CU_USER_INPUT_ACTIVE');
+  assert.equal(failed.structuredContent.execution_state,'unknown');
+  assert.equal(failed.structuredContent.task_state,'recovering');
+  assert.equal(failed.structuredContent.replay_same_input,false);
+  assert.deepEqual(failed.structuredContent.input_conflict,{reason:'sustained_pointer_takeover'});
+  assert.equal(native.closed,false);
+  assert.equal((await service.call({action:'observe',session_id:session})).isError,undefined);
+  await service.call({action:'close_session'});
+});
+
+test('macOS native pointer recovery and verified-release safeguards remain present', () => {
+  const swift=fs.readFileSync(path.join(__dirname,'../native/MacComputerUse.swift'),'utf8');
+  for(const required of [
+    'waitForQuietPointer(dragging: dragging)',
+    'throw inputConflict("sustained_pointer_takeover")',
+    'startedAt = ProcessInfo.processInfo.systemUptime',
+    'lastMouseReleaseConfirmed = true',
+    'CGEventSource.buttonState(.combinedSessionState, button: .left)',
+    'result["mouse_released"] = true',
+    'NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID'
+  ])assert.ok(swift.includes(required),'Native safeguard missing: '+required);
 });
 
 test('Windows exposes the shared atomic window dragging action', () => {

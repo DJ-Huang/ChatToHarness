@@ -30,7 +30,7 @@ async function fixture(t,planner=null,intercept=()=>{}){
     }
   };
   t.after(()=>{native.closed=true;fs.rmSync(dir,{recursive:true,force:true,maxRetries:5,retryDelay:30});});
-  const service=new WindowsComputerUse({platform:'win32',connect:()=>native,
+  const service=new WindowsComputerUse({platform:'win32',deviceId:'cu-00000000-0000-4000-8000-000000000000',connect:()=>native,
     agentPlanner:planner,agentDirectory:dir,taskRetryMs:10,idleTimeoutMs:10000});
   const session=(await service.call({action:'open_session',session_title:'Computer Use 测试会话',window_id:'12345'})).structuredContent.session_id;
   await until(async()=>((await service.call({action:'get_session'})).structuredContent.state==='ready'));
@@ -146,7 +146,7 @@ test('restarted agent reads interrupted checkpoint without reattaching to a nati
   const f=await fixture(t);
   const task=(await f.start()).structuredContent;
   await until(async()=>((await f.get(task.task_id)).structuredContent.state==='awaiting_decision'));
-  const other=new WindowsComputerUse({platform:'win32',agentDirectory:f.dir,
+  const other=new WindowsComputerUse({platform:'win32',deviceId:'cu-00000000-0000-4000-8000-000000000000',agentDirectory:f.dir,
     connect:()=>{throw Error('Native GUI unexpectedly touched on restart');}});
   const record=(await other.call({action:'get_task',session_id:f.session,task_id:task.task_id})).structuredContent;
   assert.equal(record.state,'interrupted');

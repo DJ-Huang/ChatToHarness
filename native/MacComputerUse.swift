@@ -21,6 +21,9 @@ final class MacComputerUse: NSObject {
     private var leftHeld = false
     private var heldSince: Date?
     private var lastOcclusion: [String: Any]?
+    private var lastInputConflict: [String: Any]?
+    private var lastMouseReleaseConfirmed = false
+    private var lastPostedDragPoint: CGPoint?
     private var stopPanel: NSPanel?
     private var hudTargetFrame = CGRect.zero
     private var activityField: NSTextField?
@@ -512,12 +515,17 @@ final class MacComputerUse: NSObject {
                 "geometry": lastGeometry, "displays": desktopDisplays(), "png": png.base64EncodedString()]
     }
 
+    private func inputConflict(_ reason: String) -> CUError {
+        lastInputConflict = ["reason": reason]
+        return .userActive
+    }
+
     private func checkUserIdle(allowHeld: Bool = false) throws {
         let flags = CGEventSource.flagsState(.combinedSessionState)
         if !flags.intersection([.maskCommand, .maskControl, .maskShift, .maskAlternate]).isEmpty ||
            (!allowHeld && CGEventSource.buttonState(.combinedSessionState, button: .left)) ||
            CGEventSource.buttonState(.combinedSessionState, button: .right) {
-            throw CUError.userActive
+            throw inputConflict("held_key_or_button")
         }
     }
 
@@ -554,27 +562,49 @@ final class MacComputerUse: NSObject {
         guard allowMovingWindow || rect == lastGeometry else { throw CUError.moved }
     }
 
+    // Distinguish transient interference from sustained user takeover.
+    // Stop injecting input while the pointer is moving independently.
+    private func waitForQuietPointer(dragging: Bool) async throws -> CGPoint? {
+        guard var previous = CGEvent(source: nil)?.location else { throw CUError.input }
+        let start = ProcessInfo.processInfo.systemUptime
+        var quiet: TimeInterval = 0
+        while quiet < 0.32 {
+            try Task.checkCancellation()
+            if dragging { try checkLivePointerTargetDuringDrag(allowMovingWindow: true) }
+            else { try checkLivePointerTarget() }
+            try checkUserIdle(allowHeld: dragging)
+            try await Task.sleep(nanoseconds: 25_000_000)
+            guard let current = CGEvent(source: nil)?.location else { throw CUError.input }
+            if hypot(current.x - previous.x, current.y - previous.y) <= 2 {
+                quiet += 0.025
+            } else {
+                quiet = 0
+            }
+            previous = current
+            if ProcessInfo.processInfo.systemUptime - start >= 1.8 { return nil }
+        }
+        return previous
+    }
+
     // Move the physical macOS cursor at a visibly human-paced speed.
     // A monotonic clock prevents frame rates or window checks from shortening
     // long moves; the 60 Hz target leaves enough time for the native glow.
     // Typical moves: 100pt ≈ 0.29s, 500pt ≈ 0.76s, 1000pt ≈ 1.35s.
     private func movePointer(to destination: CGPoint, dragging: Bool = false) async throws {
         let source = CGEventSource(stateID: .combinedSessionState)
-        guard let start = CGEvent(source: nil)?.location else { throw CUError.input }
+        guard var start = CGEvent(source: nil)?.location else { throw CUError.input }
         let displays = MacCursorTrajectory.activeDisplays()
-        guard let waypoints = MacCursorTrajectory.route(from: start, to: destination,
-                                                        displays: displays) else { throw CUError.input }
-        let distance = MacCursorTrajectory.length(of: waypoints)
-        // Scale travel time to actual on-screen route length. Cross-monitor
-        // paths can take several seconds instead of "teleporting" through gaps.
-        let duration = min(3.6, max(0.24, 0.17 + Double(distance) / 850.0))
-        let sameDisplay = waypoints.count == 2 ? displays.first(where: {
+        guard let initial = MacCursorTrajectory.route(from: start, to: destination,
+                                                      displays: displays) else { throw CUError.input }
+        var waypoints = initial
+        // Scale duration to the remaining route each time it is replanned.
+        var duration = min(3.6, max(0.24, 0.17 + Double(MacCursorTrajectory.length(of: waypoints)) / 850.0))
+        var sameDisplay = waypoints.count == 2 ? displays.first(where: {
             $0.contains(start) && $0.contains(destination)
         }) : nil
-        let startedAt = ProcessInfo.processInfo.systemUptime
-        // Quartz may deliver a posted cursor event a few frames later.
-        // Keep a short history of our OWN emitted positions, rather than
-        // mistaking OS event delivery latency for human mouse intervention.
+        var startedAt = ProcessInfo.processInfo.systemUptime
+        // Quartz delivers some synthetic positions with a delay. Recognize
+        // our recent path rather than treating latency as user intervention.
         var recentExpected = [start]
 
         while true {
@@ -586,7 +616,24 @@ final class MacComputerUse: NSObject {
                !recentExpected.contains(where: {
                    hypot(physical.x - $0.x, physical.y - $0.y) <= 18
                }) {
-                throw CUError.pointerOffPath
+                // Unlike the old fixed 18pt abort, wait for the human input
+                // to settle, then route from the *actual* pointer position.
+                // Do not send mouse-move events while the user is moving.
+                guard let settled = try await waitForQuietPointer(dragging: dragging) else {
+                    throw inputConflict("sustained_pointer_takeover")
+                }
+                start = settled
+                guard let route = MacCursorTrajectory.route(from: start, to: destination,
+                                                            displays: displays) else { throw CUError.input }
+                waypoints = route
+                duration = min(3.6, max(0.24, 0.17 +
+                    Double(MacCursorTrajectory.length(of: route)) / 850.0))
+                sameDisplay = route.count == 2 ? displays.first(where: {
+                    $0.contains(start) && $0.contains(destination)
+                }) : nil
+                startedAt = ProcessInfo.processInfo.systemUptime
+                recentExpected = [start]
+                continue
             }
 
             let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
@@ -605,6 +652,7 @@ final class MacComputerUse: NSObject {
             }
             guard let event else { throw CUError.input }
             event.post(tap: .cghidEventTap)
+            if dragging { lastPostedDragPoint = next }
             recentExpected.append(next)
             if recentExpected.count > 12 { recentExpected.removeFirst() }
             if t >= 1 { break }
@@ -669,15 +717,39 @@ final class MacComputerUse: NSObject {
         guard let event = CGEvent(mouseEventSource: nil, mouseType: type,
                                   mouseCursorPosition: position, mouseButton: button) else { throw CUError.input }
         event.post(tap: .cghidEventTap)
+        if type == .leftMouseDown || type == .leftMouseDragged { lastPostedDragPoint = position }
     }
 
-    private func releaseHeldMouse() {
-        guard leftHeld else { return }
-        // Always attempt release, including STOP, timeout and failed drag.
-        let here = CGEvent(source: nil)?.location ?? CGPoint.zero
-        try? mouse(.leftMouseUp, at: here, button: .left)
-        leftHeld = false
-        heldSince = nil
+    @discardableResult
+    private func releaseHeldMouse() -> Bool {
+        guard leftHeld else { return lastMouseReleaseConfirmed }
+        // Quartz posting has no delivery acknowledgement. Confirm actual
+        // session button state before permitting a recoverable atomic drag.
+        // The physical pointer may lag the last queued Quartz drag event.
+        // Release at exactly the last *posted drag point* to preserve sequence.
+        let here = lastPostedDragPoint ?? CGEvent(source: nil)?.location ?? CGPoint.zero
+        guard let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                               mouseCursorPosition: here, mouseButton: .left) else { return false }
+        up.post(tap: .cghidEventTap)
+        var stableReleasedSamples = 0
+        for _ in 0..<20 {
+            Thread.sleep(forTimeInterval: 0.02)
+            if !CGEventSource.buttonState(.combinedSessionState, button: .left) {
+                stableReleasedSamples += 1
+                if stableReleasedSamples >= 3 {
+                    leftHeld = false
+                    heldSince = nil
+                    lastPostedDragPoint = nil
+                    lastMouseReleaseConfirmed = true
+                    return true
+                }
+            } else {
+                stableReleasedSamples = 0
+            }
+        }
+        // Never report successful release while the system still sees a hold.
+        // STOP/termination attempts release again; unsafe input is not replayed.
+        return false
     }
 
     private func desktopDisplays() -> [[String: Int]] {
@@ -781,12 +853,14 @@ final class MacComputerUse: NSObject {
     private func executeAction(_ args: [String: Any]) async -> [String: Any] {
         // Set before emitting left-down: an event may be delivered even if the call throws.
         var atomicInputStarted = false
+        lastInputConflict = nil
+        lastMouseReleaseConfirmed = false
         do {
             guard let action = args["action"] as? String else { throw CUError.invalid }
             // Release must work even if dragging changed the target geometry or focus.
             if action == "mouse_up" {
                 guard leftHeld else { throw CUError.notHeld }
-                releaseHeldMouse()
+                guard releaseHeldMouse() else { throw CUError.input }
                 lastImageSize = .zero
                 lastGeometry = []
                 return ["ok": true]
@@ -799,7 +873,15 @@ final class MacComputerUse: NSObject {
             if action == "activate" {
                 guard let app = NSRunningApplication(processIdentifier: targetPID),
                       app.activate(options: []) else { throw CUError.activation }
-                return ["foreground": true]
+                // NSRunningApplication.activate is a request, not evidence that
+                // foreground changed. Verify actual focus before taking a screenshot.
+                for _ in 0..<10 {
+                    if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID {
+                        return ["foreground": true]
+                    }
+                    try await Task.sleep(nanoseconds: 30_000_000)
+                }
+                throw CUError.activation
             }
             guard let expected = args["geometry"] as? [Int], expected.count == 4,
                   expected == geometry(window), expected == lastGeometry,
@@ -865,7 +947,7 @@ final class MacComputerUse: NSObject {
                     heldSince = Date()
                     updateHUD("mouse_drag")
                     try await movePointer(to: shiftedDestination, dragging: true)
-                    releaseHeldMouse()
+                    guard releaseHeldMouse() else { throw CUError.input }
                     break
                 }
                 updateHUD("moving")
@@ -906,15 +988,21 @@ final class MacComputerUse: NSObject {
             lastGeometry = []
             return ["ok": true]
         } catch let error as CUError {
-            releaseHeldMouse()
+            let released = releaseHeldMouse()
+            var result: [String: Any] = ["error": error.rawValue, "input_started": atomicInputStarted]
             if error == .occluded {
-                return ["error": error.rawValue, "input_started": atomicInputStarted,
-                        "occlusion": lastOcclusion ?? ["reason": "unknown"]]
+                result["occlusion"] = lastOcclusion ?? ["reason": "unknown"]
             }
-            return ["error": error.rawValue, "input_started": atomicInputStarted]
+            if error == .userActive {
+                result["input_conflict"] = lastInputConflict ?? ["reason": "unclassified_input"]
+            }
+            if atomicInputStarted && released { result["mouse_released"] = true }
+            return result
         } catch {
-            releaseHeldMouse()
-            return ["error": "CU_NATIVE_ERROR", "input_started": atomicInputStarted]
+            let released = releaseHeldMouse()
+            var result: [String: Any] = ["error": "CU_NATIVE_ERROR", "input_started": atomicInputStarted]
+            if atomicInputStarted && released { result["mouse_released"] = true }
+            return result
         }
     }
 

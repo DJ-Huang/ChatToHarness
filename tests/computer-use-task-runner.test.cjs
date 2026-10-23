@@ -31,7 +31,7 @@ async function fixture(t, behavior={}) {
       return {ok:true,foreground:true};
     }
   };
-  const service=new WindowsComputerUse({platform:'win32',connect:()=>native,authorizationMode:'all_windows',
+  const service=new WindowsComputerUse({platform:'win32',deviceId:'cu-00000000-0000-4000-8000-000000000000',connect:()=>native,authorizationMode:'all_windows',
     taskDirectory:path.join(root,'records'),taskRetryMs:12,idleTimeoutMs:10000});
   const opened=await service.call({action:'open_session',session_title:'Computer Use 测试会话',window_id:'12345'});
   const id=opened.structuredContent.session_id;
@@ -120,7 +120,7 @@ test('TaskRunner does not auto-replay a running checkpoint after controller rest
     {code:'CU_USER_INPUT_ACTIVE',inputStarted:false});}});
   const original=(await f.start()).structuredContent;
   await until(async()=>((await f.status(original.task_id)).structuredContent.last_error==='CU_USER_INPUT_ACTIVE'));
-  const other=new WindowsComputerUse({platform:'win32',authorizationMode:'all_windows',
+  const other=new WindowsComputerUse({platform:'win32',deviceId:'cu-00000000-0000-4000-8000-000000000000',authorizationMode:'all_windows',
     connect:()=>{throw new Error('Restart must not connect to native GUI');},
     taskDirectory:path.join(f.root,'records')});
   const status=await other.call({action:'get_move_task',session_id:f.id,task_id:original.task_id});

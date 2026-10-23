@@ -595,3 +595,15 @@ Setup and exact supported calls: [windows-computer-use.md](windows-computer-use.
 
 - [ ] **Windows 鼠标位置/辉光跳回**：用户反馈启用 Computer Use 后，鼠标位于授权目标窗口之外时出现“移动一小段距离后立即跳回原位”的抖动。当前尚未确认是鼠标真实坐标被复位还是辉光视图位置错误；不宣称已解决。需优先在真实桌面做鼠标坐标与辉光位置独立采样，检查 `MoveCursorVisibleDuringDrag` 的用户输入接管逻辑和 HUD/光标跟踪、进程间位置控制冲突；修复后覆盖“窗口内→窗口外→跨屏”的人工/自动混合轨迹验收。
 - **提交性质**：本次为当前实现检查点；包含未完成的 macOS 原生验收、外部 ChatGPT Schema 缓存端到端验收及上述抖动缺陷。关联 Issue #2。
+
+## 2026-10-23 macOS Computer Use 按 Windows 基准对齐（Issue #2 后续）
+
+- **基准**：Windows 与 macOS 均为 feat/computer-use / cd747f0，工作区起始干净；JavaScript BaseComputerUse、任务 ID Schema、Planner 和路由相同。差异在 macOS 原生 Quartz 实现。
+- [x] **用户指针输入恢复**：macOS 不再因为一次超过 18pt 的偏移就终止拖动；先停止注入并等待 320ms 安静期（总等待上限约 1.8 秒），从实际鼠标位置重建剩余跨屏轨迹。持续鼠标移动/按键接管返回 CU_USER_INPUT_ACTIVE，向上层暴露 input_conflict.reason，由同一任务会话继续观察/恢复而不抢夺用户输入。
+- [x] **左键释放确认**：Quartz mouse-up 使用上一次真实发送的 drag 终点坐标，避免事件排队中的位置滞后；等待连续三次系统按钮释放状态采样。只有确认释放才上报 mouse_released=true，未确认不得在原会话里盲目重放；STOP/Esc 保留独立释放兜底。
+- [x] **真实前台验证**：activate 不再只信 NSRunningApplication.activate 返回值，还核对 NSWorkspace.shared.frontmostApplication 的 PID，失败仍可恢复。
+- [x] **Native 构建**：Mac 本机 npm run build:computer-use Exit 0；生成资源目录的 ChatToHarness.MacComputerUse。
+- [x] **Mac 非交互**：npm run test:computer-use-mac，30 测试 / 28 通过 / 2 按环境跳过 / 0 失败；增加 deviceId wrong-platform fixture 修正和 post-press release contract。
+- [x] **Mac 真实 GUI**：npm run test:computer-use-mac:gui Exit 0；临时测试窗口真实点击、Unicode 输入/退格、滚动、鼠标可见轨迹、跨屏拖动、一次外部 pointer-nudge（+34,+19）后的路线恢复、mouse-up 状态和 close_session 均通过；分别测试全局 Esc 成功关闭原生 helper 而不关闭测试窗口。
+- [ ] **未完成验收**：STOP 按钮的真实鼠标点击、不同鼠标/刷新率组合下的持续用户接管、HUD 外观人工视觉检查及安装后 ChatGPT 缓存 Schema 验收仍需独立确认。
+- [ ] **交付**：尚未重新构建/安装正式 macOS DMG；运行中的应用包仍不等于当前源码。Windows 真实鼠标在目标窗口外偶发跳回的回归 Issue 保持开放。

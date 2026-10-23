@@ -33,7 +33,7 @@ test('macOS local Esc event tap closes a real input-enabled session and leaves t
   const target=native(String(process.pid),'list_windows','0').windows.find(w=>w.pid===app.pid&&w.title==='CTH Computer Use Acceptance Fixture');
   assert.ok(target,'Fixture not visible');
   service=new MacComputerUse({platform:'darwin',helperPath:helper,authorizationMode:'all_windows'});
-  const open=await service.call({action:'open_session',window_id:target.window_id});
+  const open=await service.call({action:'open_session',window_id:target.window_id,session_title:'macOS disposable Esc emergency stop acceptance'});
   assert.equal(open.isError,undefined,JSON.stringify(open.structuredContent));
   const sessionId=open.structuredContent.session_id;
   let status;

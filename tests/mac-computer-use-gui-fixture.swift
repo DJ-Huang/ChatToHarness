@@ -15,6 +15,8 @@ import Foundation
     private var clicks = 0
     private var scrollEvents = 0
     private var scrollDelta = 0.0
+    private var pointerNudges = 0
+    private var pendingNudgeAt: TimeInterval?
     private let stateURL = URL(fileURLWithPath: CommandLine.arguments[1])
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -56,6 +58,20 @@ import Foundation
         save()
     }
     private func captureCursor() {
+        // Explicit disposable-fixture-only pointer perturbation for trajectory
+        // recovery tests. Never touch unrelated applications or user windows.
+        let marker = stateURL.deletingLastPathComponent().appendingPathComponent("pointer-nudge-request")
+        if window.isKeyWindow && FileManager.default.fileExists(atPath: marker.path),
+           pendingNudgeAt == nil {
+            pendingNudgeAt = ProcessInfo.processInfo.systemUptime + 0.23
+        }
+        if let when = pendingNudgeAt, ProcessInfo.processInfo.systemUptime >= when,
+           window.isKeyWindow, let current = CGEvent(source: nil)?.location {
+            try? FileManager.default.removeItem(at: marker)
+            pendingNudgeAt = nil
+            _ = CGWarpMouseCursorPosition(CGPoint(x: current.x + 34, y: current.y + 19))
+            pointerNudges += 1
+        }
         guard let point = CGEvent(source: nil)?.location else { return }
         if let last = cursorTrace.last,
            abs(last["x", default: 0] - Double(point.x)) < 0.6,
@@ -75,6 +91,7 @@ import Foundation
         guard let data = try? JSONSerialization.data(withJSONObject: [
             "pid": Int(getpid()), "clicks": clicks, "text": field.stringValue,
             "scroll_events": scrollEvents, "scroll_delta": scrollDelta,
+            "pointer_nudges": pointerNudges,
             "button": center(button), "field": center(field), "scroll": center(scrollArea),
             "cursor_trace": cursorTrace,
             "frontmost_pid": Int(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0),

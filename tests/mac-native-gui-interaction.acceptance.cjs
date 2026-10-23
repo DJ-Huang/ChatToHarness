@@ -39,7 +39,7 @@ test('Mac GUI: real native click, Unicode typing and scroll are confined to disp
     const target=windows.find(w=>w.title==='CTH Computer Use Acceptance Fixture'&&w.pid===child.pid);
     assert.ok(target,'Fixture target window missing in ScreenCaptureKit');
     svc=new MacComputerUse({platform:'darwin',helperPath:helper,authorizationMode:'all_windows'});
-    const opened=await svc.call({action:'open_session',window_id:target.window_id});
+    const opened=await svc.call({action:'open_session',window_id:target.window_id,session_title:'macOS disposable GUI input acceptance'});
     assert.equal(opened.isError,undefined,JSON.stringify(opened.structuredContent));
     const sessionId=opened.structuredContent.session_id;
     let status;
@@ -125,9 +125,15 @@ test('Mac GUI: real native click, Unicode typing and scroll are confined to disp
     const before=obs.rect;
     const origin={x:Math.round(before[0]+85*(before[2]-before[0])/obs.w),
                   y:Math.round(before[1]+20*(before[3]-before[1])/obs.h)};
+    // Shift the physical pointer once during the native operation.
+    // The algorithm must rebase the remaining path, not throw a fixed
+    // off-path threshold or fight sustained human control.
+    fs.writeFileSync(path.join(directory,'pointer-nudge-request'),'once');
     await execute('drag_window',{observation_id:obs.id,x:85,y:20,
       screen_x:origin.x+78,screen_y:origin.y+45});
     const after=await observe();
+    assert.equal(read().pointer_nudges,1,'Fixture failed to inject transient cursor perturbation');
+    t.diagnostic('physical pointer perturbation recovered without cancelling the drag');
     assert.ok(Math.abs((after.rect[0]-before[0])-78)<=18,
       'Atomic drag did not move fixture horizontally: '+JSON.stringify({before,after:after.rect}));
     assert.ok(Math.abs((after.rect[1]-before[1])-45)<=18,

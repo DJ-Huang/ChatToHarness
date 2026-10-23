@@ -25,6 +25,8 @@ final class MacComputerUse: NSObject {
     private var hudTargetFrame = CGRect.zero
     private var activityField: NSTextField?
     private var sessionField: NSTextField?
+    private var conversationField: NSTextField?
+    private var targetField: NSTextField?
     private var previousField: NSTextField?
     private var sessionTitle: String?
     private let sessionID: String?
@@ -210,7 +212,11 @@ final class MacComputerUse: NSObject {
     private func hudText(_ key: String) -> String {
         let isChinese = Locale.preferredLanguages.first?.hasPrefix("zh") == true
         let names: [String: (String, String)] = [
-            "idle": ("等待下一步操作", "Waiting for next action"),
+            "idle": ("等待任务规划", "Waiting for task plan"),
+            "planning": ("正在规划操作步骤", "Planning next action"),
+            "awaiting_decision": ("等待 AI 确认下一动作", "Waiting for AI decision"),
+            "recovering": ("正在恢复并重新观察", "Recovering and observing"),
+            "running": ("执行已规划步骤", "Running planned steps"),
             "observe": ("正在截取窗口截图", "Capturing window"),
             "activate": ("正在激活目标窗口", "Activating target window"),
             "moving": ("正在移动鼠标", "Moving mouse pointer"),
@@ -250,13 +256,19 @@ final class MacComputerUse: NSObject {
     private func updateSessionTitle(_ title: String) {
         sessionTitle = title
         let chinese = Locale.preferredLanguages.first?.hasPrefix("zh") == true
-        sessionField?.stringValue = (chinese ? "会话：" : "Conversation: ") + title
+        sessionField?.stringValue = (chinese ? "任务：" : "Task: ") + title
         sessionField?.toolTip = title
+    }
+
+    private func updateConversationTitle(_ title: String) {
+        let chinese = Locale.preferredLanguages.first?.hasPrefix("zh") == true
+        conversationField?.stringValue = (chinese ? "聊天：" : "Chat: ") + title
+        conversationField?.toolTip = title
     }
 
     private func hudFrame() -> NSRect {
         let width: CGFloat = 530
-        let height: CGFloat = 140
+        let height: CGFloat = 188
         let targetFrame = cgToAppKit(hudTargetFrame)
         let screens = NSScreen.screens
         let screen = screens.max(by: { a, b in
@@ -300,7 +312,7 @@ final class MacComputerUse: NSObject {
         let title = NSTextField(labelWithString: "● ChatToHarness · Computer Use")
         title.font = NSFont.boldSystemFont(ofSize: 14)
         title.textColor = MacHUDSurface.titleColor
-        title.frame = NSRect(x: 18, y: 103, width: max(110, panel.frame.width - 164), height: 21)
+        title.frame = NSRect(x: 18, y: 151, width: max(110, panel.frame.width - 164), height: 21)
         title.autoresizingMask = [.width]
         title.lineBreakMode = .byTruncatingTail
         surface.addSubview(title)
@@ -308,20 +320,38 @@ final class MacComputerUse: NSObject {
         // No reliable conversation title in standalone MCP metadata by default.
         // Preserve the native UUID as a diagnostic tooltip, not display text.
         let chinese = Locale.preferredLanguages.first?.hasPrefix("zh") == true
-        let session = NSTextField(labelWithString: chinese ? "会话：名称未提供" : "Conversation: title unavailable")
+        let conversation = NSTextField(labelWithString: chinese ? "聊天：客户端未提供真实会话标题" : "Chat: host title unavailable")
+        conversation.font = NSFont.systemFont(ofSize: 11)
+        conversation.textColor = MacHUDSurface.secondaryTextColor
+        conversation.lineBreakMode = .byTruncatingTail
+        conversation.frame = NSRect(x: 18, y: 126, width: max(110, panel.frame.width - 164), height: 18)
+        conversation.autoresizingMask = [.width]
+        surface.addSubview(conversation)
+        conversationField = conversation
+
+        let session = NSTextField(labelWithString: chinese ? "任务：名称未提供" : "Task: title unavailable")
         session.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
         session.textColor = MacHUDSurface.secondaryTextColor
         session.lineBreakMode = .byTruncatingTail
-        session.frame = NSRect(x: 18, y: 81, width: max(110, panel.frame.width - 164), height: 18)
+        session.frame = NSRect(x: 18, y: 104, width: max(110, panel.frame.width - 164), height: 18)
         session.autoresizingMask = [.width]
         session.toolTip = sessionID.map { "Computer Use session \($0)" } ?? "External native helper session"
         surface.addSubview(session)
         sessionField = session
 
+        let target = NSTextField(labelWithString: (chinese ? "目标：" : "Target: ") + targetTitle + " · PID " + String(targetPID))
+        target.font = NSFont.systemFont(ofSize: 11)
+        target.textColor = MacHUDSurface.secondaryTextColor
+        target.lineBreakMode = .byTruncatingTail
+        target.frame = NSRect(x: 18, y: 82, width: max(110, panel.frame.width - 164), height: 18)
+        target.autoresizingMask = [.width]
+        surface.addSubview(target)
+        targetField = target
+
         let activity = NSTextField(labelWithString: "")
         activity.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         activity.textColor = MacHUDSurface.primaryTextColor
-        activity.frame = NSRect(x: 18, y: 51, width: max(110, panel.frame.width - 164), height: 23)
+        activity.frame = NSRect(x: 18, y: 52, width: max(110, panel.frame.width - 164), height: 23)
         activity.autoresizingMask = [.width]
         activity.lineBreakMode = .byTruncatingTail
         surface.addSubview(activity)
@@ -339,7 +369,7 @@ final class MacComputerUse: NSObject {
 
         let button = NSButton(title: "STOP  ·  Esc", target: self,
                               action: #selector(stopPressed))
-        button.frame = NSRect(x: panel.frame.width - 133, y: 45, width: 116, height: 43)
+        button.frame = NSRect(x: panel.frame.width - 134, y: 69, width: 110, height: 43)
         button.autoresizingMask = [.minXMargin]
         button.isBordered = false
         button.wantsLayer = true
@@ -401,22 +431,11 @@ final class MacComputerUse: NSObject {
     }
 
     private func updateCursorGlow() {
-        guard targetID != 0, CGPreflightScreenCaptureAccess(),
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID,
-              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
-                                                       kCGNullWindowID) as? [[String: Any]],
-              let record = windows.first(where: {
-                  ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == targetID
-              }),
-              let bounds = record[kCGWindowBounds as String] as? [String: Any],
-              let x = bounds["X"] as? NSNumber, let y = bounds["Y"] as? NSNumber,
-              let w = bounds["Width"] as? NSNumber, let h = bounds["Height"] as? NSNumber else {
-            cursorGlow.update(target: .zero, frontmost: false)
+        guard targetID != 0, inputBlockedReason == nil else {
+            cursorGlow.stop()
             return
         }
-        cursorGlow.update(target: CGRect(x: x.doubleValue, y: y.doubleValue,
-                                        width: w.doubleValue, height: h.doubleValue),
-                          frontmost: true)
+        cursorGlow.update()
     }
 
     @objc private func stopPressed() { stopNow() }
@@ -428,6 +447,8 @@ final class MacComputerUse: NSObject {
         stopPanel?.close()
         activityField = nil
         sessionField = nil
+        conversationField = nil
+        targetField = nil
         previousField = nil
         outlinePanel?.close()
         if let source = stopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
@@ -726,6 +747,22 @@ final class MacComputerUse: NSObject {
         guard let action = args["action"] as? String else { return fail(CUError.invalid.rawValue) }
         // This command can be sent only through the native helper's private stdio.
         // It carries an optional supplied title and does not generate GUI input.
+        if action == "set_task_status" {
+            guard let state = args["status"] as? String,
+                  ["planning", "awaiting_decision", "recovering", "running"].contains(state)
+            else { return fail(CUError.invalid.rawValue) }
+            updateHUD(state)
+            return ["ok": true]
+        }
+        if action == "set_conversation_title" {
+            guard let title = args["title"] as? String,
+                  !title.trimmingCharacters(in: .whitespaces).isEmpty,
+                  title.utf16.count <= 80,
+                  !title.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+            else { return fail(CUError.invalid.rawValue) }
+            updateConversationTitle(title)
+            return ["ok": true]
+        }
         if action == "set_session_title" {
             guard let title = args["title"] as? String,
                   !title.trimmingCharacters(in: .whitespaces).isEmpty,

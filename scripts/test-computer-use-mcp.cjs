@@ -46,6 +46,10 @@ async function main() {
   const tools = await client.listTools();
   const computer=tools.tools.find(t=>t.name==='windows-computer__computer_use');
   assert.ok(computer?.inputSchema?.properties?.action?.enum.includes('get_session'));
+  const {NEW_RE}=require('../app/computer-use-task-ids.cjs');
+  assert.equal(computer.inputSchema.properties.task_id.pattern,NEW_RE.source,
+    'Gateway-exposed task ID schema must match generated device-time IDs');
+  report.taskIdSchemaMatches=true;
   const targetDeviceId=computer._meta?.['com.chattoharness/device']?.id;
   assert.ok(targetDeviceId,'Device-bound Computer Use registration is required');
   async function call(args) { return client.callTool({name: 'windows-computer__computer_use',
@@ -57,11 +61,11 @@ async function main() {
   if(perWindow)assert.equal(listed.structuredContent.code,'CU_WINDOW_LIST_NOT_AUTHORIZED');
   else {assert.ok(listed.structuredContent.windows.some(w=>w.window_id===targetInfo.window_id));report.defaultAllWindows=true;}
   const opened = await call({action: 'open_session',window_id:targetInfo.window_id,
-    ...(process.argv.includes('--atomic-drag') ? {session_title:'Computer Use atomic drag fixture'} : {})});
+    session_title:'Computer Use atomic drag fixture'});
   assert.ok(opened.structuredContent.session_id); assert.equal(opened.structuredContent.state,perWindow?'awaiting_consent':'initializing');
   const recovered = await call({action: 'get_session'}); const id = recovered.structuredContent.session_id;
   assert.equal(id,opened.structuredContent.session_id);
-  assert.equal((await call({action:'open_session'})).structuredContent.session_id,id); report.recoveredLostOpen=true;
+  assert.equal((await call({action:'open_session',session_title:'Computer Use atomic drag fixture'})).structuredContent.session_id,id); report.recoveredLostOpen=true;
   if(perWindow)await command({action:'authorize',server_pid:manager.record('windows-computer').transport.child.pid});
   report.authorizationMode=perWindow?'per_window':'all_windows';
   let status;
@@ -79,6 +83,10 @@ async function main() {
       'HUD must display exactly the caller-supplied title');
     assert.ok(hud.hud_labels.some(label=>label.startsWith('当前：')));
     assert.ok(hud.hud_labels.some(label=>label.startsWith('上一步：')));
+    assert.ok(hud.hud_labels.some(label=>label.startsWith('目标：')),
+      'HUD must visibly name the authorized window');
+    assert.ok(hud.hud_labels.some(label=>label.startsWith('聊天：')),
+      'HUD must not invent a ChatGPT conversation title');
     report.nativeHud=hud; report.nativeHudTitle=true;
     // Test the shared task-continuation contract against a disposable GUI window.
     // Keep the original session, never retry unknown side effects without observing,
@@ -139,6 +147,21 @@ async function main() {
     assert.ok(Math.abs(a.x-b.x-dx)<=3&&Math.abs(a.y-b.y-dy)<=3,
       'Alternate grip must preserve the requested final position');
     report.singleTitlebarOcclusionRecovery=true;
+    // Deliberately perturb the physical pointer while the disposable fixture
+    // is being dragged; it must replan or safely recover, never blindly replay.
+    await command({action:'overlay_off'});
+    const nudgeBefore=await call({action:'observe',session_id:id,format:'png'});
+    assert.equal(nudgeBefore.isError,undefined);
+    await command({action:'nudge_once'});
+    const perturbed=await dragUntilDone(nudgeBefore,originX,originY,dx,dy);
+    assert.equal(perturbed.isError,undefined,JSON.stringify(perturbed.structuredContent));
+    const nudgeAfter=await call({action:'observe',session_id:id,format:'png'});
+    assert.equal(nudgeAfter.isError,undefined);
+    assert.equal(nudgeAfter.structuredContent.window_bounds.x,
+      nudgeBefore.structuredContent.window_bounds.x+dx);
+    assert.equal(nudgeAfter.structuredContent.window_bounds.y,
+      nudgeBefore.structuredContent.window_bounds.y+dy);
+    report.transientPointerReplan=true;
     await command({action:'overlay_off'});
     const all=await command({action:'overlay_all'});
     assert.equal(all.covered,true);
@@ -206,6 +229,52 @@ async function main() {
     report.nativeStopButton=true;
     assert.equal((await call({action:'close_session'})).structuredContent.closed,true);
     report.closeWithoutId=true;
+
+    // Complete public schema round-trip through real MCP Gateway: not only
+    // start_task, but get_task, submit_task_decision, and terminal auto-close.
+    const taskOpen=await call({action:'open_session',window_id:targetInfo.window_id,
+      session_title:'Computer Use public task schema acceptance'});
+    const taskSession=taskOpen.structuredContent.session_id;
+    let taskSessionState;
+    for(let i=0;i<50;i++){
+      taskSessionState=(await call({action:'get_session',session_id:taskSession})).structuredContent;
+      if(taskSessionState.state==='ready')break;
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    assert.equal(taskSessionState.state,'ready');
+    if(taskSessionState.next_action==='activate')
+      assert.equal((await call({action:'activate',session_id:taskSession})).structuredContent.foreground,true);
+    const taskShot=await call({action:'observe',session_id:taskSession});
+    assert.equal(taskShot.isError,undefined);
+    const taskStart=await call({action:'start_task',session_id:taskSession,
+      observation_id:taskShot.structuredContent.observation_id,
+      goal:'Confirm the authorized fixture window is present; do not change it.',
+      idempotency_key:'acceptance-'+taskSession});
+    assert.equal(taskStart.isError,undefined,JSON.stringify(taskStart.structuredContent));
+    const taskId=taskStart.structuredContent.task_id;
+    assert.match(taskId,NEW_RE);
+    let pendingTask;
+    for(let i=0;i<75;i++){
+      pendingTask=await call({action:'get_task',session_id:taskSession,task_id:taskId});
+      assert.equal(pendingTask.isError,undefined,JSON.stringify(pendingTask.structuredContent));
+      if(pendingTask.structuredContent.state==='awaiting_decision')break;
+      await new Promise(resolve=>setTimeout(resolve,120));
+    }
+    assert.equal(pendingTask.structuredContent.state,'awaiting_decision');
+    const decision=await call({action:'submit_task_decision',session_id:taskSession,
+      task_id:taskId,decision_id:pendingTask.structuredContent.decision_id,
+      decision_json:JSON.stringify({done:true})});
+    assert.equal(decision.structuredContent.accepted,true);
+    let completedTask;
+    for(let i=0;i<70;i++){
+      completedTask=await call({action:'get_task',session_id:taskSession,task_id:taskId});
+      if(completedTask.structuredContent.state==='succeeded')break;
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    assert.equal(completedTask.structuredContent.state,'succeeded');
+    assert.equal((await call({action:'get_session',session_id:taskSession})).structuredContent.state,'closed');
+    report.taskIdFullRoundTrip=true;
+    report.taskAutoClose=true;
     return;
   }
   const away=await command({action:'defocus'}); assert.equal(away.foreground,false);
@@ -235,7 +304,7 @@ async function main() {
   assert.equal(png.length,screenshot.byte_length);
   fs.writeFileSync(path.join(output,'structured-screenshot-fallback.png'),png); report.structuredScreenshotFallback=true;
   fs.writeFileSync(path.join(output,'session-recovery-fixture-final.png'),Buffer.from(finalCapture.content.find(x=>x.type==='image').data,'base64'));
-  assert.equal((await call({action:'open_session'})).structuredContent.session_id,id);
+  assert.equal((await call({action:'open_session',session_title:'Computer Use atomic drag fixture'})).structuredContent.session_id,id);
   assert.equal((await command({action:'report'})).text,text); report.noInputReplay=true;
   const forced=(await call({action:'observe',session_id:id,format:'png',delivery:'chunked'})).structuredContent.screenshot;
   assert.equal(forced.delivery,'chunked');
@@ -266,7 +335,7 @@ async function main() {
   assert.equal((await call({action:'read_screenshot',session_id:id,screenshot_id:meta.screenshot_id})).structuredContent.code,'CU_SCREENSHOT_EXPIRED');
   assert.equal((await call({action:'close_session'})).structuredContent.closed,true); report.closeWithoutId=true;
   assert.equal((await call({action:'observe',session_id:id})).structuredContent.code,'CU_SESSION_CLOSED');
-  const next=await call({action:'open_session',window_id:targetInfo.window_id}); assert.notEqual(next.structuredContent.session_id,id);
+  const next=await call({action:'open_session',window_id:targetInfo.window_id,session_title:'Computer Use atomic drag fixture'}); assert.notEqual(next.structuredContent.session_id,id);
   assert.equal((await call({action:'close_session'})).structuredContent.closed,true);
   assert.equal((await call({action:'get_session'})).structuredContent.state,'closed'); report.pendingConsentCleanup=true;
   if(process.argv.includes('--control-app')) {
@@ -275,7 +344,7 @@ async function main() {
     fixture.stdin.end();
     const windows=(await call({action:'list_windows'})).structuredContent.windows.filter(w=>w.title==='ChatToHarness');
     assert.equal(windows.length,1,'Expected one ChatToHarness app window');
-    const appSession=(await call({action:'open_session',window_id:windows[0].window_id})).structuredContent.session_id;
+    const appSession=(await call({action:'open_session',window_id:windows[0].window_id,session_title:'ChatToHarness App acceptance'})).structuredContent.session_id;
     for(let i=0;i<50;i++){if((await call({action:'get_session'})).structuredContent.state==='ready')break;await new Promise(r=>setTimeout(r,100));}
     assert.equal((await call({action:'activate',session_id:appSession})).structuredContent.foreground,true);
     let observation;

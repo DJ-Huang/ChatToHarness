@@ -55,7 +55,7 @@ test('Mac MCP uses safe fresh screenshot geometry and consumes input observation
   const obs=observed.structuredContent.observation_id;
   const click=await service.call({action:'click',session_id:session,observation_id:obs,x:22,y:33});
   assert.equal(click.structuredContent.execution_state,'complete');
-  assert.deepEqual(requests[1].geometry,[10,20,74,68]);
+  assert.deepEqual(requests.find(cmd=>cmd.action==='click').geometry,[10,20,74,68]);
   assert.equal((await service.call({action:'click',session_id:session,observation_id:obs,x:1,y:1})).structuredContent.code,'CU_STALE_OBSERVATION');
   assert.equal((await service.call({action:'close_session',session_id:session})).structuredContent.closed,true);
   assert.equal(native.closed,true);
@@ -182,11 +182,11 @@ test('drag right button alias is rejected before touching the native service', a
   const down=await service.call({action:'mouse_down',session_id:session,observation_id:observed.observation_id,x:15,y:12,button:'right'});
   assert.equal(down.structuredContent.code,'CU_INVALID_ARGUMENT');
   assert.equal(down.structuredContent.operation_executed,false);
-  assert.equal(requests.length,1);
+  assert.deepEqual(requests.map(c=>c.action),['activate','observe']);
   const release=await service.call({action:'mouse_up',session_id:session,button:'right'});
   assert.equal(release.structuredContent.code,'CU_INVALID_ARGUMENT');
   assert.equal(release.structuredContent.operation_executed,false);
-  assert.equal(requests.length,1);
+  assert.deepEqual(requests.map(c=>c.action),['activate','observe']);
   await service.call({action:'close_session',session_id:session});
 });
 
@@ -208,7 +208,7 @@ test('macOS only accepts a genuinely supplied bounded session title via private 
   const result=await service.call({action:'open_session',window_id:'123',session_title:'移动窗口'});
   assert.match(result.structuredContent.session_id,/^[0-9a-f-]{36}$/);
   await new Promise(resolve=>setImmediate(resolve));
-  assert.deepEqual(requests,[{action:'set_session_title',title:'移动窗口'}]);
+  assert.deepEqual(requests,[{action:'set_session_title',title:'移动窗口'},{action:'activate'}]);
   assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
   const closed=await service.call({action:'close_session'});
   assert.equal(closed.structuredContent.closed,true);
@@ -228,7 +228,7 @@ test('missing title cannot be fabricated; unsafe or oversized titles are rejecte
   }
   assert.throws(()=>validate({action:'observe',session_id:'x',session_title:'not allowed'}),/CU_INVALID_ARGUMENT/);
   const {service,requests,session}=await fixture();
-  assert.equal(requests.length,0);
+  assert.deepEqual(requests.map(c=>c.action),['activate']);
   assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
   await service.call({action:'close_session',session_id:session});
 });

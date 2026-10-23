@@ -16,10 +16,10 @@ final class MacCursorGlow {
     private var hotspot = NSPoint.zero
     private let padding: CGFloat = 12
 
-    func update(target: CGRect, frontmost: Bool) {
-        guard frontmost, !target.isEmpty,
-              let point = CGEvent(source: nil)?.location,
-              target.contains(point),
+    // Continuous desktop-wide cursor glow while the scoped CU session is active.
+    // Actual input remains restricted to the authorized window.
+    func update() {
+        guard let point = CGEvent(source: nil)?.location,
               let cursor = NSCursor.currentSystem,
               let pixels = cursor.image.tiffRepresentation else {
             panel?.orderOut(nil)

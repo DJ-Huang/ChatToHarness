@@ -203,6 +203,7 @@ class ComputerUseAgentRunner {
     return status.structuredContent?.state==='ready';
   }
   async decide(task,observation){
+    await this.service.updateTaskHud?.(task.rec.session_id,'planning');
     if(task.planner){
       // A planner is trusted code in the local service; no hidden model access.
       // A planner that hangs is bounded; STOP remains effective.
@@ -227,6 +228,7 @@ class ComputerUseAgentRunner {
     task.observationAt=this.service.session?.observation?.at??Date.now();
     rec.state='awaiting_decision';rec.phase='awaiting_decision';
     rec.decision_id=task.decisionId;this.persist(rec);
+    await this.service.updateTaskHud?.(rec.session_id,'awaiting_decision');
     while(!TERMINAL.has(rec.state)){
       if(this.decisionExpired(task)){
         // Discard an unconsumed decision before the native 30-second input TTL.
@@ -254,15 +256,31 @@ class ComputerUseAgentRunner {
   async execute(task){
     const rec=task.rec;
     let backoff=this.retryDelayMs;
+    let needsActivation=true;
     while(!TERMINAL.has(rec.state)){
       if(!await this.healthy(task)){
         this.finish(task,'session_terminated','CU_SESSION_CLOSED');
         return;
       }
+      if(needsActivation){
+        const focus=await this.call(task,{action:'activate',session_id:rec.session_id});
+        if(focus.isError){
+          rec.last_error=focus.structuredContent?.code||'CU_ACTIVATION_FAILED';
+          rec.state='recovering';this.persist(rec);
+          if(focus.structuredContent?.task_state==='session_terminated'){
+            this.finish(task,'session_terminated',rec.last_error);return;
+          }
+          await pause(backoff);backoff=Math.min(2000,Math.ceil(backoff*1.5));
+          continue;
+        }
+        needsActivation=false;
+      }
       const shot=await this.call(task,{action:'observe',session_id:rec.session_id});
       if(shot.isError){
         rec.last_error=shot.structuredContent?.code||'CU_OBSERVE_FAILED';
+        if(rec.last_error==='CU_WINDOW_NOT_FOREGROUND')needsActivation=true;
         rec.state='recovering';this.persist(rec);
+        await this.service.updateTaskHud?.(rec.session_id,'recovering');
         if(shot.structuredContent?.task_state==='session_terminated'){
           this.finish(task,'session_terminated',rec.last_error);return;
         }

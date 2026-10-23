@@ -525,3 +525,23 @@ Setup and exact supported calls: [windows-computer-use.md](windows-computer-use.
 - Real Harness SDK relay -> authenticated production gateway -> manager -> installed native service acceptance passed in both `all_windows` and `per_window`. It uses `windows-computer__computer_use`, without the official computer-use provider. Synthetic Chinese fixture: native PNG **7196 bytes**, optimized PNG **5765**, lossless WebP **2108** (selected). Large synthetic fixture: native PNG **9304486 bytes**, compressed WebP **8148258 bytes**, **32 chunks**, largest response **350988 bytes**, exact reconstructed length/hash and decodable 2000x1500 image. Small forced chunk mode and stale screenshot rejection also pass. The earlier smaller fixture (3.7 MB source/3.3 MB compressed) passed before increasing stress dimensions.
 - Relocated production resources and bundled Node to an unrelated temporary directory: `scripts/smoke-computer-use.cjs` exit 0, portable/MCP/native all true. Production consent, STOP, Ctrl+Alt+F12, Unicode, clicks, wheel and existing focus/geometry rejections passed. This is resource staging/relocation acceptance, not a new installer build or NSIS install/uninstall acceptance.
 - Updated the current installed optional service, helper, production dependencies and bundle hashes. Prior service directory/manifest are backed up under `.cache/hotfix-backups/compression-chunks-20261020`. Restarted only that configured service and restored its previous direct permission using our local Harness computer-use tool. Controller/test sessions closed normally. Live connector confirms **ready, 46 tools, tools_version 11**. The earlier installer/release assets and package build identity remain unchanged. No commit/public release was made. Remote chat rendering and remote chunk assembly remain unverified; actual local Harness transport and installed native implementation passed.
+
+## 2026-10-23 Computer Use 交互与任务 ID 整改（Issue #2）
+
+- **分支/范围**：feat/computer-use；Windows native/ComputerUse.cs、Mac native/MacComputerUse.swift / MacCursorGlow.swift、通用 app/base-computer-use.cjs / computer-use-agent-runner.cjs、MCP 验收与文档。
+- [x] 会话 ready 后先激活窗口，失败时提示重试激活再截图；Agent 先激活后观察。原子拖动仍按标题栏真实鼠标移动→按下→拖动→释放→核验。
+- [x] Windows 移除 6 像素硬失败；短暂外部指针偏移重新计算路径，持续用户接管时让渡控制；仅在原生确认 left-up 后保留会话继续观察。
+- [x] Windows/macOS 源码改为全桌面光标辉光，不扩大输入窗口授权。HUD 新增目标窗口标题/PID、任务与聊天分离、STOP 圆角边距、阶段状态。
+- [x] 真正聊天标题通过可选 conversation_title 从宿主传递；不可获取时保留明确缺失提示，不推测。session_title 继续表示任务。
+- [x] Windows C# helper 编译及聚焦跨平台 JS 测试通过；真实 MCP Gateway 窗口夹具 node scripts/test-computer-use-mcp.cjs --atomic-drag 返回 Exit 0，报告 .cache/acceptance/computer-use/windows-atomic-drag-result.json。
+- [x] 真实鼠标 (+36,+32) 位移验证、部分/全部标题栏遮挡处理、HUD 避挡、测试注入一次指针偏移后的重新规划、实际 STOP 按钮退出通过。
+- [x] SDK→McpGateway→McpManager→native：start_task→get_task→submit_task_decision→succeeded→closed 的新任务 ID 完整链路通过。
+- [ ] Mac Swift 本机编译和动态 HUD/鼠标视觉验收尚未做；Windows 上的 Mac JS 模拟测试不能替代原生验收。
+- [ ] ChatGPT 宿主当前聊天真实标题元数据注入及客户端缓存工具 Schema 的刷新，需要实际客户端验证。
+- [ ] 安装包构建与干净重装后验证，按后续构建结果更新；本轮尚未覆盖安装版。
+- **Issue**：https://github.com/watermoon/ChatToHarness/issues/2。未通过项保持开放。
+
+### 2026-10-23 后续回归缺陷（未完成）
+
+- [ ] **Windows 鼠标位置/辉光跳回**：用户反馈启用 Computer Use 后，鼠标位于授权目标窗口之外时出现“移动一小段距离后立即跳回原位”的抖动。当前尚未确认是鼠标真实坐标被复位还是辉光视图位置错误；不宣称已解决。需优先在真实桌面做鼠标坐标与辉光位置独立采样，检查 `MoveCursorVisibleDuringDrag` 的用户输入接管逻辑和 HUD/光标跟踪、进程间位置控制冲突；修复后覆盖“窗口内→窗口外→跨屏”的人工/自动混合轨迹验收。
+- **提交性质**：本次为当前实现检查点；包含未完成的 macOS 原生验收、外部 ChatGPT Schema 缓存端到端验收及上述抖动缺陷。关联 Issue #2。

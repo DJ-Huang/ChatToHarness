@@ -251,6 +251,18 @@ class ComputerUseWindowFixture {
                         try {
                             string action=(string)command["action"];
                             if(action=="authorize")AuthorizeFixture(Convert.ToInt32(command["server_pid"]),form);
+                            if(action=="nudge_once") {
+                                // Test-only transient external pointer disturbance.
+                                // Never sent to an application other than this fixture.
+                                var jitter=new System.Windows.Forms.Timer { Interval=180 };
+                                jitter.Tick+=delegate {
+                                    jitter.Stop(); jitter.Dispose();
+                                    Point cursorNow=Cursor.Position;
+                                    Cursor.Position=new Point(cursorNow.X+32,cursorNow.Y+18);
+                                };
+                                jitter.Start();
+                                Console.WriteLine("{\"ok\":true}");Console.Out.Flush();return;
+                            }
                             if(action=="position_top") {
                                 // Test-fixture-only geometry setup, never a user window API fallback.
                                 Rectangle screen=Screen.FromHandle(form.Handle).WorkingArea;
@@ -301,7 +313,8 @@ class ComputerUseWindowFixture {
                                 if(action=="hud_stop") {
                                     // Only the helper belonging to THIS fixture session can
                                     // receive a synthetic button-click test message.
-                                    if(!labels.Contains("会话：Computer Use atomic drag fixture"))
+                                    if(!labels.Exists(label => label.EndsWith("Computer Use atomic drag fixture")) ||
+                                       !labels.Exists(label => label.Contains("MCP session recovery fixture")))
                                         throw new Exception("Refuse to stop an unrelated session");
                                     IntPtr button=Child(hud,"BUTTON");
                                     if(button==IntPtr.Zero)throw new Exception("Fixture HUD STOP button missing");

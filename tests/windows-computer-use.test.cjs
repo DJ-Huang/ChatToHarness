@@ -103,7 +103,7 @@ test('computer use refuses other platforms and stale or foreign sessions', async
   const {service, commands} = fixture(); const id = await open(service);
   assert.equal((await service.call({action: 'observe', session_id: 'foreign'})).isError, true);
   assert.equal((await service.call({action: 'click', session_id: id, observation_id: 'old', x: 1, y: 1})).structuredContent.code, 'CU_STALE_OBSERVATION');
-  assert.equal(commands.length, 0); service.stop();
+  assert.deepEqual(commands, [{action:'activate'}]); service.stop();
 });
 test('computer use returns native image, rejects bounds and consumes each observation once', async () => {
   const {service, commands} = fixture(); const id = await open(service);
@@ -116,7 +116,7 @@ test('computer use returns native image, rejects bounds and consumes each observ
   const obs = capture.structuredContent.observation_id;
   assert.equal((await service.call({action: 'click', session_id: id, observation_id: obs, x: 100, y: 0})).structuredContent.code, 'CU_COORDINATE_OUTSIDE_WINDOW');
   assert.equal((await service.call({action: 'click', session_id: id, observation_id: obs, x: 99, y: 79})).isError, undefined);
-  assert.deepEqual(commands[1].geometry, [10, 20, 110, 100]);
+  assert.deepEqual(commands.find(c=>c.action==='click').geometry, [10, 20, 110, 100]);
   assert.equal((await service.call({action: 'click', session_id: id, observation_id: obs, x: 1, y: 1})).structuredContent.code, 'CU_STALE_OBSERVATION');
   const fresh = await observe(service, id); service.session.observation.at -= 31000;
   assert.equal((await service.call({action: 'key_press', session_id: id, observation_id: fresh, key: 'ENTER'})).structuredContent.code, 'CU_STALE_OBSERVATION');
@@ -128,7 +128,7 @@ test('activation needs no old observation and invalidates it on success or failu
   const old = await observe(service, id);
   const activated = await service.call({action: 'activate', session_id: id});
   assert.equal(activated.structuredContent.foreground, true);
-  assert.deepEqual(commands[1], {action: 'activate'});
+  assert.deepEqual(commands.filter(c=>c.action==='activate'), [{action:'activate'},{action:'activate'}]);
   assert.equal((await service.call({action: 'key_press', session_id: id, observation_id: old, key: 'ENTER'})).structuredContent.code, 'CU_STALE_OBSERVATION');
   await observe(service, id);
   native.request = async () => ({foreground: false});
@@ -150,7 +150,7 @@ test('computer use uncertain native failure never replays input and consumes obs
   let count = 0; native.request = async () => { count++; throw Object.assign(new Error(), {code: 'CU_INPUT_FAILED'}); };
   const result = await service.call({action: 'type_text', session_id: id, observation_id: obs, text: '中文'});
   assert.equal(result.structuredContent.execution_state, 'unknown');
-  assert.equal(count, 1); assert.equal(commands.length, 1);
+  assert.equal(count, 1); assert.deepEqual(commands.map(c=>c.action), ['activate','observe']);
   assert.equal((await service.call({action: 'key_press', session_id: id, observation_id: obs, key: 'ENTER'})).structuredContent.code, 'CU_STALE_OBSERVATION'); service.stop();
 });
 test('computer use cancellation closes helper and a closed session cannot be reused', async () => {
@@ -247,7 +247,7 @@ test('computer use only lists windows in globally authorized mode', async () => 
 });
 test('computer use can close busy input and old completion cannot clear a newer session', async () => {
   let reject;
-  const first={ready:Promise.resolve({ready:true}),closed:false,request:cmd=>cmd.action==='set_session_title'?Promise.resolve({ok:true}):new Promise((_r,j)=>{reject=j;}),stop(){this.closed=true;reject?.(Object.assign(new Error(),{code:'CU_SESSION_CLOSED'}));}};
+  const first={ready:Promise.resolve({ready:true}),closed:false,request:cmd=>['set_session_title','activate'].includes(cmd.action)?Promise.resolve({ok:true,foreground:true}):new Promise((_r,j)=>{reject=j;}),stop(){this.closed=true;reject?.(Object.assign(new Error(),{code:'CU_SESSION_CLOSED'}));}};
   const second={ready:Promise.resolve({ready:true}),closed:false,request:async()=>({ok:true}),stop(){this.closed=true;}};
   let count=0;const service=new WindowsComputerUse({platform:'win32',connect:()=>++count===1?first:second});
   const id=await open(service);service.session.observation={id:'obs',at:Date.now(),width:10,height:10,geometry:[0,0,10,10]};
@@ -266,6 +266,12 @@ test('computer use stdio MCP discovers tool without opening native UI', {skip: p
   t.after(() => client.close());
   await client.connect(new StdioClientTransport({command: process.execPath, args: [path.resolve(__dirname, '../app/windows-computer-use-stdio.cjs')], stderr: 'pipe'}));
   const tools = await client.listTools(); assert.equal(tools.tools.length, 1); assert.equal(tools.tools[0].name, 'computer_use');
+  const {NEW_RE}=require('../app/computer-use-task-ids.cjs');
+  assert.equal(tools.tools[0].inputSchema.properties.task_id.pattern,NEW_RE.source);
+  const nextId='cu-20436e7e-24f0-4f0a-a37d-1d174c1efe69_9999999999999';
+  assert.match(nextId,NEW_RE);
+  const get=await client.callTool({name:'computer_use',arguments:{action:'get_task',task_id:nextId,session_id:'synthetic'}});
+  assert.equal(get.structuredContent.code,'CU_TASK_NOT_FOUND');
   assert.ok(tools.tools[0].outputSchema.properties.session_id);
   const status = await client.callTool({name: 'computer_use', arguments: {action: 'get_session'}});
   assert.equal(status.structuredContent.state, 'none');
@@ -284,6 +290,23 @@ test('Windows HUD title is passed through private stdio without exposing it in s
   assert.equal(status.structuredContent.state,'ready');
   assert.equal(JSON.stringify(status.structuredContent).includes('移动窗口'),false);
   assert.equal((await service.call({action:'close_session'})).structuredContent.closed,true);
+});
+
+test('verified chat title remains separate from actual task label and stays private', async () => {
+  const {service,commands}=fixture({captureTitle:true});
+  const opened=await service.call({action:'open_session',
+    session_title:'移动测试窗口',conversation_title:'Computer Use 修复验收'});
+  for(let i=0;i<6;i++) await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(commands.filter(c=>c.action==='set_session_title'),
+    [{action:'set_session_title',title:'移动测试窗口'}]);
+  assert.deepEqual(commands.filter(c=>c.action==='set_conversation_title'),
+    [{action:'set_conversation_title',title:'Computer Use 修复验收'}]);
+  assert.equal(commands.filter(c=>c.action==='activate').length,1);
+  assert.equal(JSON.stringify((await service.call({action:'get_session',
+    session_id:opened.structuredContent.session_id})).structuredContent).includes('修复验收'),false);
+  assert.throws(()=>validate({action:'open_session',session_title:'Task',
+    conversation_title:'fake\nheader'}),/CU_INVALID_ARGUMENT/);
+  await service.call({action:'close_session'});
 });
 
 test('Windows mouse actions preserve screen coordinates, transitions and fresh observations', async () => {
@@ -406,6 +429,32 @@ test('Windows atomic input already started ends the unsafe session rather than r
   assert.equal(failed.structuredContent.task_state,'session_terminated');
   assert.equal(native.closed,true);
   assert.equal((await service.call({action:'get_session'})).structuredContent.state,'closed');
+});
+
+test('verified left-button release permits safe observation after drag takeover',async()=>{
+  const {service,native}=fixture();const id=await open(service);
+  const original=native.request;
+  native.request=async command=>{
+    if(command.action==='drag_window')
+      throw Object.assign(new Error('CU_USER_INPUT_ACTIVE'),{
+        code:'CU_USER_INPUT_ACTIVE',inputStarted:true,mouseReleased:true,
+        inputConflict:{reason:'sustained_pointer_takeover'}
+      });
+    return original(command);
+  };
+  const shot=await observe(service,id);
+  const failed=await service.call({action:'drag_window',session_id:id,
+    observation_id:shot,x:80,y:20,screen_x:100,screen_y:160});
+  assert.equal(failed.structuredContent.code,'CU_USER_INPUT_ACTIVE');
+  assert.equal(failed.structuredContent.execution_state,'unknown');
+  assert.equal(failed.structuredContent.task_state,'recovering');
+  assert.equal(failed.structuredContent.replay_same_input,false);
+  assert.deepEqual(failed.structuredContent.input_conflict,
+    {reason:'sustained_pointer_takeover'});
+  assert.equal(native.closed,false);
+  assert.equal((await service.call({action:'get_session'})).structuredContent.state,'ready');
+  assert.equal((await service.call({action:'observe',session_id:id})).isError,undefined);
+  assert.equal((await service.call({action:'close_session'})).structuredContent.closed,true);
 });
 
 test('Mouse drag cannot start without mouse_down and failure releases session', async () => {

@@ -17,7 +17,8 @@ const definition = {
   description: 'Computer Use requires native OS permissions, per-window authorization and fresh observations before every input',
   inputSchema: {type: 'object', additionalProperties: false, required: ['action'], properties: {
     action: {type: 'string', enum: ACTIONS}, session_id: {type: 'string'}, observation_id: {type: 'string'}, window_id: {type: 'string', pattern: '^[1-9][0-9]{0,18}$'},
-    session_title: {type: 'string', minLength: 1, maxLength: 80, description: 'Required for open_session. Human-readable description of the current authorized task (never a fabricated conversation title).'},
+    session_title: {type: 'string', minLength: 1, maxLength: 80, description: 'Required for open_session. Actual task label; do not pass it off as the ChatGPT conversation title.'},
+    conversation_title: {type:'string',minLength:1,maxLength:80,description:'Optional: EXACT current ChatGPT/Codex conversation title provided by the host. Omit if not available; never guess or use the task label.'},
     format: {type: 'string', enum: ['auto', 'png', 'webp']},  delivery: {type: 'string', enum: ['auto', 'chunked']}, screenshot_id: {type: 'string'},
     offset: {type: 'integer', minimum: 0, maximum: MAX_CAPTURE_BYTES}, length: {type: 'integer', minimum: 1, maximum: MAX_CHUNK_BYTES},
     x: {type: 'integer', minimum: 0}, y: {type: 'integer', minimum: 0},
@@ -41,7 +42,7 @@ const definition = {
   annotations: {readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true}
 };
 const TASK_CONTINUITY_DESCRIPTION = ' Before opening any Computer Use session, AI must pass a concise, human-readable session_title describing the actual current work; do not display a UUID as the title or invent a ChatGPT conversation name. For Windows and macOS, a recoverable Computer Use operation error does not end the user task. Keep diagnosing, re-observing and safely resuming while the original session is valid until the task is verified, the user explicitly stops (including STOP/Esc), or the session terminates. Never impose a fixed task recovery-attempt count. CU_USER_INPUT_ACTIVE means pause injected input until released, not user cancellation. CU_WINDOW_NOT_FOREGROUND means reactivate and observe. Never replay uncertain side effects or bypass permission, user takeover or explicit STOP. For general GUI tasks, start_task begins an authorized session-scoped observe-plan-act-verify loop with a goal and stable idempotency_key. get_task retrieves status and the current observation image when waiting for a decision; submit_task_decision accepts one bounded verified action, and cancel_task terminates native control. A trusted optional local planner can decide automatically; if none is configured, the task safely pauses awaiting a decision from the calling agent rather than pretending a model is installed. The former move-task actions remain compatibility workflows, not the core execution model. Do not replay unknown side effects or reopen a terminated native session.';
-const SCREENSHOT_DESCRIPTION = ' If the target loses focus, call activate with session_id, then observe. Never replay input automatically. observe format auto compares lossless WebP and optimized PNG, keeping the smaller at original resolution; format png/webp forces compatibility. Small images return MCP image content and structuredContent.screenshot.data base64. Large images (or delivery chunked) return screenshot metadata only: call read_screenshot with session_id, screenshot_id, byte offset and optional length (default 256 KiB, max 512 KiB). Decode each chunk separately, concatenate bytes in offset order, verify full sha256 and display using mime_type. Repeat reads are safe; next_offset/eof supports resuming. Only the latest snapshot is kept in memory for 120 seconds, cleared by observe, activation, input or close. Chunk reads never refresh the 30-second input observation deadline; obtain a new observation before input if stale. No screenshot files are saved. The native capture guard is 40 MiB, not a per-call network limit.';
+const SCREENSHOT_DESCRIPTION = ' An open_session first verifies target foreground; if next_action is activate, call activate before the initial screenshot. If the target loses focus, call activate with session_id, then observe. Never replay input automatically. observe format auto compares lossless WebP and optimized PNG, keeping the smaller at original resolution; format png/webp forces compatibility. Small images return MCP image content and structuredContent.screenshot.data base64. Large images (or delivery chunked) return screenshot metadata only: call read_screenshot with session_id, screenshot_id, byte offset and optional length (default 256 KiB, max 512 KiB). Decode each chunk separately, concatenate bytes in offset order, verify full sha256 and display using mime_type. Repeat reads are safe; next_offset/eof supports resuming. Only the latest snapshot is kept in memory for 120 seconds, cleared by observe, activation, input or close. Chunk reads never refresh the 30-second input observation deadline; obtain a new observation before input if stale. No screenshot files are saved. The native capture guard is 40 MiB, not a per-call network limit.';
 definition.description += TASK_CONTINUITY_DESCRIPTION + SCREENSHOT_DESCRIPTION;
 definition.outputSchema.properties.screenshot = {type: 'object', additionalProperties: true, required: ['screenshot_id', 'mime_type', 'encoding', 'sha256', 'byte_length', 'delivery'], properties: {
   screenshot_id: {type: 'string'}, mime_type: {type: 'string', enum: ['image/png', 'image/webp']}, encoding: {type: 'string', const: 'base64'}, data: {type: 'string', maxLength: 1398104},
@@ -49,7 +50,7 @@ definition.outputSchema.properties.screenshot = {type: 'object', additionalPrope
 }};
 const fail = code => Object.assign(new Error(code), {code});
 const fields = {
-  list_windows: [], open_session: ['window_id', 'session_title'], get_session: ['session_id'], activate: ['session_id'], observe: ['session_id', 'format', 'delivery'], close_session: ['session_id'],
+  list_windows: [], open_session: ['window_id', 'session_title','conversation_title'], get_session: ['session_id'], activate: ['session_id'], observe: ['session_id', 'format', 'delivery'], close_session: ['session_id'],
   read_screenshot: ['session_id', 'screenshot_id', 'offset', 'length'],
   click: ['session_id', 'observation_id', 'x', 'y', 'button'],
   mouse_move: ['session_id', 'observation_id', 'x', 'y'],
@@ -69,7 +70,7 @@ function validate(args) {
   if (!args || typeof args !== 'object' || Array.isArray(args) || !ACTIONS.includes(args.action)) throw fail('CU_INVALID_ARGUMENT');
   const allowed = fields[args.action];
   if (Object.keys(args).some(k => k !== 'action' && !allowed.includes(k))) throw fail('CU_INVALID_ARGUMENT');
-  for (const k of allowed) if (args[k] === undefined && !['button','window_id','session_title','format','delivery','offset','length'].includes(k) && !(k === 'session_id' && ['get_session', 'close_session'].includes(args.action))) throw fail('CU_INVALID_ARGUMENT');
+  for (const k of allowed) if (args[k] === undefined && !['button','window_id','session_title','conversation_title','format','delivery','offset','length'].includes(k) && !(k === 'session_id' && ['get_session', 'close_session'].includes(args.action))) throw fail('CU_INVALID_ARGUMENT');
   // Require a meaningful caller-supplied task/session label for the native HUD.
   // Do not invent the ChatGPT conversation's actual title if it is unavailable.
   if (args.action === 'open_session' && args.session_title === undefined) throw fail('CU_SESSION_TITLE_REQUIRED');
@@ -77,6 +78,10 @@ function validate(args) {
     typeof args.session_title !== 'string' || !args.session_title.trim() ||
     args.session_title.length > 80 || /[\x00-\x1f\x7f]/.test(args.session_title)
   )) throw fail('CU_INVALID_ARGUMENT');
+  if(args.conversation_title !== undefined && (
+    typeof args.conversation_title !== 'string' || !args.conversation_title.trim() ||
+    args.conversation_title.length > 80 || /[\x00-\x1f\x7f]/.test(args.conversation_title)
+  ))throw fail('CU_INVALID_ARGUMENT');
   if (args.format !== undefined && !['auto', 'png', 'webp'].includes(args.format)) throw fail('CU_INVALID_ARGUMENT');
   if (args.delivery !== undefined && !['auto', 'chunked'].includes(args.delivery)) throw fail('CU_INVALID_ARGUMENT');
   if (args.offset !== undefined && (!Number.isSafeInteger(args.offset) || args.offset < 0 || args.offset > MAX_CAPTURE_BYTES)) throw fail('CU_INVALID_ARGUMENT');
@@ -117,6 +122,9 @@ class NativeConnection {
       if (data.error) {
         const error = fail(/^CU_[A-Z_]+$/.test(data.error) ? data.error : 'CU_NATIVE_ERROR');
         if (typeof data.input_started === 'boolean') error.inputStarted = data.input_started;
+        if (data.mouse_released === true) error.mouseReleased = true;
+        if (data.input_conflict && typeof data.input_conflict === 'object' && !Array.isArray(data.input_conflict))
+          error.inputConflict=data.input_conflict;
         if (data.occlusion && typeof data.occlusion === 'object' && !Array.isArray(data.occlusion))
           error.occlusion = data.occlusion;
         waiter.reject(error);
@@ -167,7 +175,7 @@ class BaseComputerUse {
       stop_hotkey: s.inputEnabled === false ? null : 'Esc', mouse_button_held: !!s.mouseHeld,
       ...(typeof s.inputEnabled === 'boolean' ? {input_enabled: s.inputEnabled} : {}),
       ...(s.inputBlockedReason ? {input_blocked_reason: s.inputBlockedReason} : {}),
-      next_action: s.state === 'ready' ? 'observe' : 'get_session', ...(s.error ? {code: s.error} : {})};
+      next_action: s.state === 'ready' ? (s.needsActivation ? 'activate' : 'observe') : 'get_session', ...(s.error ? {code: s.error} : {})};
   }
   touch(s = this.session) {
     if (!s || this.session !== s) return;
@@ -176,6 +184,13 @@ class BaseComputerUse {
     // agents must explicitly close_session before reporting completion.
     s.idleTimer = setTimeout(() => this.stop('CU_SESSION_IDLE', s), this.idleTimeoutMs);
     s.idleTimer.unref?.();
+  }
+  // Native HUD remains informative between MCP calls. Never displays typed content.
+  async updateTaskHud(sessionId,status) {
+    const s=this.session;
+    if(!s||s.id!==sessionId||s.state!=='ready'||s.native.closed||s.native.pending||this.busy)return false;
+    try {await s.native.request({action:'set_task_status',status});return true;}
+    catch{return false;}
   }
   stop(code = 'CU_SESSION_CLOSED', s = this.session) {
     if (!s || this.session !== s) return;
@@ -211,7 +226,7 @@ class BaseComputerUse {
     }
     const sessionID=crypto.randomUUID();
     const s = {id: sessionID, native: this.connect({mode:this.authorizationMode,window_id:args.window_id,session_id:sessionID}), windowId:args.window_id,
-      sessionTitle: args.session_title?.trim(),
+      sessionTitle: args.session_title?.trim(), conversationTitle: args.conversation_title?.trim(),
       state: this.authorizationMode === 'per_window' ? 'awaiting_consent' : 'initializing', mouseHeld: false, expiresAt: Date.now() + 600000};
     this.session = s;
     this.touch(s);
@@ -231,6 +246,16 @@ class BaseComputerUse {
       // Internal stdio-only handshake. No title in process args, environment or logs.
       // Set the HUD title before the service transitions to ready.
       if (s.sessionTitle) await s.native.request({action:'set_session_title',title:s.sessionTitle});
+      if (s.conversationTitle) await s.native.request({action:'set_conversation_title',title:s.conversationTitle});
+      // Foreground verification precedes the FIRST screenshot, not vice versa.
+      // A held user key/button prevents activation without discarding consent.
+      try {
+        const focus=await s.native.request({action:'activate'});
+        s.needsActivation=focus.foreground!==true;
+      } catch(error) {
+        s.needsActivation=true;
+        s.activationError=error.code||'CU_ACTIVATION_FAILED';
+      }
       clearTimeout(s.consentTimer);
       if (this.session === s && !s.native.closed) {
         s.state = 'ready'; s.windowId = data.window_id || s.windowId;
@@ -291,6 +316,7 @@ class BaseComputerUse {
       if (!this.session || args.session_id !== this.session.id) throw fail('CU_SESSION_CLOSED');
       if (this.session.state !== 'ready') throw fail(this.authorizationMode === 'per_window' ? 'CU_CONSENT_PENDING' : 'CU_SESSION_STARTING');
       if (this.busy) throw fail('CU_BUSY');
+      if (args.action === 'observe' && this.session?.needsActivation) throw fail('CU_WINDOW_NOT_FOREGROUND');
       if (args.action === 'read_screenshot') {
         const chunk = readChunk(this.session.capture, args.screenshot_id, args.offset, args.length);
         this.touch();
@@ -328,7 +354,10 @@ class BaseComputerUse {
       if (args.action === 'drag_window') s.native.mouseHeld = false;
       if (this.session !== s || this.operation !== operation) throw fail('CU_SESSION_CLOSED');
       this.touch(s);
-      if (args.action === 'activate' && data.foreground !== true) throw fail('CU_ACTIVATION_FAILED');
+      if (args.action === 'activate') {
+        if (data.foreground !== true) throw fail('CU_ACTIVATION_FAILED');
+        s.needsActivation=false;
+      }
       if (args.action === 'observe') {
         if (!Number.isInteger(data.width) || !Number.isInteger(data.height) || data.width < 1 || data.height < 1 || data.width > 4096 || data.height > 4096 || data.width * data.height > 8388608 || typeof data.png !== 'string' || data.png.length > Math.ceil(MAX_CAPTURE_BYTES / 3) * 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data.png) || !Array.isArray(data.geometry) || data.geometry.length !== 4) throw fail('CU_INVALID_CAPTURE');
         const png = Buffer.from(data.png, 'base64');
@@ -365,9 +394,16 @@ class BaseComputerUse {
       const atomicBeforeDown = input?.action === 'drag_window' &&
         (error.inputStarted === false || (error.inputStarted === undefined &&
           ['CU_TARGET_OCCLUDED','CU_INVALID_ARGUMENT','CU_COORDINATE_OUTSIDE_DISPLAY','CU_WINDOW_MOVED'].includes(error.code)));
-      if (atomicBeforeDown && activeSession?.native) activeSession.native.mouseHeld = false;
-      if (activeSession && ['mouse_down', 'mouse_drag', 'drag_window', 'mouse_up'].includes(input?.action) &&
-          this.session === activeSession && started && !atomicBeforeDown)
+      // A native-verified left-button release after pointer takeover means the
+      // prior drag may have moved the window, but the session can safely
+      // re-observe and re-plan. Never replay the unverified movement.
+      const releasedTakeover = input?.action === 'drag_window' &&
+        error.code === 'CU_USER_INPUT_ACTIVE' && error.inputStarted === true &&
+        error.mouseReleased === true;
+      if ((atomicBeforeDown || releasedTakeover) && activeSession?.native)
+        activeSession.native.mouseHeld = false;
+      if (activeSession && ['mouse_down','mouse_drag','drag_window','mouse_up'].includes(input?.action) &&
+          this.session === activeSession && started && !atomicBeforeDown && !releasedTakeover)
         this.stop('CU_DRAG_ABORTED', activeSession);
       const code = /^CU_[A-Z_]+$/.test(error.code || '') ? error.code : 'CU_CANCELLED';
       const mayHaveExecuted = started && !atomicBeforeDown;
@@ -381,6 +417,7 @@ class BaseComputerUse {
         execution_state: mayHaveExecuted ? 'unknown' : 'not_started',
         operation_executed: mayHaveExecuted ? null : false,
         ...(error.occlusion ? {occlusion: error.occlusion} : {}),
+        ...(error.inputConflict ? {input_conflict: error.inputConflict} : {}),
         ...(['CU_CONSENT_PENDING','CU_SESSION_STARTING'].includes(code) ? this.status() : {}),
         next_action: sessionActive ? recoveryAction : 'get_session'}), isError: true};
     } finally {

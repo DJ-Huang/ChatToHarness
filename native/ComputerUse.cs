@@ -74,8 +74,14 @@ class ComputerUse {
     static readonly DateTime Deadline = DateTime.UtcNow.AddMinutes(10);
     static volatile bool Closed;
     static bool LeftHeld;
+    static bool LastMouseReleaseConfirmed;
     static DateTime HeldSince;
     static object LastOcclusion;
+    static object LastInputConflict;
+    static void InputConflict(string reason,int value=0) {
+        LastInputConflict=new {reason=reason,delta_px=value};
+        Error("CU_USER_INPUT_ACTIVE");
+    }
     static void SetHudAction(string action) {
         var panel = Stop;
         if (panel != null && !panel.IsDisposed && panel.IsHandleCreated)
@@ -152,15 +158,20 @@ class ComputerUse {
             MoveCursorVisibleDuringDrag(destination,true);
         } finally {
             SetHudAction("mouse_up");
-            ReleaseHeldMouse();
+            if(!ReleaseHeldMouse()) Error("CU_INPUT_FAILED");
         }
         return new {ok=true};
     }
-    static void ReleaseHeldMouse() {
-        if (!LeftHeld) return;
-        // Release without foreground/geometry checks: STOP and errors must always work.
-        SendInput(1, new[] { new INPUT { data = new UNION { mouse = new MOUSEINPUT { dwFlags = 4u } } } }, Marshal.SizeOf(typeof(INPUT)));
-        LeftHeld = false;
+    static bool ReleaseHeldMouse() {
+        if (!LeftHeld) return LastMouseReleaseConfirmed;
+        // Native release is independently verified; without confirmation the
+        // session must terminate, not resume injection after an unknown hold.
+        uint sent=SendInput(1,new[] {new INPUT {data=new UNION {mouse=new MOUSEINPUT {dwFlags=4u}}}},
+            Marshal.SizeOf(typeof(INPUT)));
+        if(sent!=1)return false;
+        LeftHeld=false;
+        LastMouseReleaseConfirmed=true;
+        return true;
     }
     static void Error(string code) { throw new InvalidOperationException(code); }
     static void Write(object data) { Console.WriteLine(Json.Serialize(data)); Console.Out.Flush(); }
@@ -333,12 +344,12 @@ class ComputerUse {
             base.OnFormClosed(e);
         }
         public void FollowRealCursor() {
-            if (GetForegroundWindow() != Target || !IsWindow(Target) || IsIconic(Target)) { Hide(); return; }
-            RECT r;
+            // Glow follows the real OS pointer for the entire active session,
+            // while mouse and keyboard input remain restricted to Target.
+            if (ComputerUse.Closed || !IsWindow(Target)) { Hide(); return; }
             POINT pos;
             var info = new CURSORINFO { Size = Marshal.SizeOf(typeof(CURSORINFO)) };
-            if (!GetWindowRect(Target, out r) || !GetCursorInfo(ref info) || (info.Flags & 1) == 0 ||
-                !GetCursorPos(out pos) || pos.X < r.Left || pos.Y < r.Top || pos.X >= r.Right || pos.Y >= r.Bottom) {
+            if (!GetCursorInfo(ref info) || (info.Flags & 1) == 0 || !GetCursorPos(out pos)) {
                 Hide(); return;
             }
             if (paintedCursor != info.Cursor || glowImage == null) {
@@ -395,13 +406,15 @@ class ComputerUse {
         public bool HotkeyReady;
         public ControlOutline Outline;
         public CursorHighlight CursorHighlight;
+        readonly Label conversationLabel;
         readonly Label sessionLabel;
+        readonly Label targetLabel;
         readonly Label currentLabel;
         readonly Label previousLabel;
         double orbit;
         public StopWindow() {
             Text = "ChatToHarness — Computer Use";
-            Width = 530; Height = 140; TopMost = true;
+            Width = 530; Height = 188; TopMost = true;
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
             BackColor = Color.FromArgb(9,17,31);
@@ -412,33 +425,53 @@ class ComputerUse {
                 BackColor = BackColor, Font = new Font("Segoe UI",10,FontStyle.Bold),
                 Location = new Point(18,13), Size = new Size(365,21),
                 AutoEllipsis = true, Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
-            sessionLabel = new Label {Text = "会话：名称未提供",
+            conversationLabel = new Label {Text = "聊天：客户端未提供真实会话标题",
                 ForeColor=Color.FromArgb(217,232,247), BackColor=BackColor,
-                Font=new Font("Consolas",9),
-                Location=new Point(18,39),Size=new Size(365,19),
+                Font=new Font("Segoe UI",9),
+                Location=new Point(18,37),Size=new Size(361,19),
                 AutoEllipsis=true, Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
-            currentLabel = new Label {Text = "当前：等待下一步操作",
+            sessionLabel = new Label {Text = "任务：等待客户端提供名称",
+                ForeColor=Color.FromArgb(217,232,247), BackColor=BackColor,
+                Font=new Font("Segoe UI",9),
+                Location=new Point(18,60),Size=new Size(361,19),
+                AutoEllipsis=true, Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
+            targetLabel = new Label {Text = TargetCaption(),
+                ForeColor=Color.FromArgb(147,205,239), BackColor=BackColor,
+                Font=new Font("Segoe UI",9),
+                Location=new Point(18,85),Size=new Size(361,19),
+                AutoEllipsis=true, Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
+            currentLabel = new Label {Text = "当前：等待任务规划",
                 ForeColor=Color.White, BackColor=BackColor,
                 Font=new Font("Segoe UI",10,FontStyle.Bold),
-                Location=new Point(18,70),Size=new Size(365,22),
+                Location=new Point(18,116),Size=new Size(361,22),
                 AutoEllipsis=true, Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
             previousLabel = new Label {Text = "上一步：暂无",
                 ForeColor=Color.FromArgb(217,232,247), BackColor=BackColor,
                 Font=new Font("Segoe UI",9),
-                Location=new Point(18,100),Size=new Size(365,20),
+                Location=new Point(18,150),Size=new Size(361,20),
                 AutoEllipsis=true, Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
-            var stopButton = new Button {Text="STOP  ·  Esc", Location=new Point(398,48),
-                Size=new Size(115,44), FlatStyle=FlatStyle.Flat,
+            var stopButton = new Button {Text="STOP  ·  Esc", Location=new Point(390,90),
+                Size=new Size(110,46), FlatStyle=FlatStyle.Flat,
                 Font=new Font("Segoe UI",10,FontStyle.Bold),
                 ForeColor=Color.White, BackColor=Color.FromArgb(232,48,64),
                 Anchor=AnchorStyles.Right|AnchorStyles.Top, TabStop=false};
             stopButton.FlatAppearance.BorderSize=0;
+            stopButton.FlatAppearance.MouseOverBackColor=Color.FromArgb(247,71,87);
+            using (var stopShape=RoundedFrame(new Rectangle(0,0,stopButton.Width,stopButton.Height),11))
+                stopButton.Region=new Region(stopShape);
             stopButton.Click += delegate { Close(); };
-            Controls.Add(title); Controls.Add(sessionLabel); Controls.Add(currentLabel);
+            Controls.Add(title); Controls.Add(conversationLabel); Controls.Add(sessionLabel); Controls.Add(targetLabel); Controls.Add(currentLabel);
             Controls.Add(previousLabel); Controls.Add(stopButton);
             using (var shape=RoundedFrame(new Rectangle(0,0,Width,Height),14))
                 Region=new Region(shape);
             FollowTargetDisplay();
+        }
+        static string TargetCaption() {
+            var title=new StringBuilder(256);
+            if (IsWindow(Target)) GetWindowText(Target,title,title.Capacity);
+            string name=title.ToString().Trim();
+            if (name.Length==0) name="窗口 #"+Target.ToInt64();
+            return "目标："+name+" · PID "+TargetPid;
         }
         static System.Drawing.Drawing2D.GraphicsPath RoundedFrame(Rectangle b,int r) {
             var p=new System.Drawing.Drawing2D.GraphicsPath();
@@ -473,6 +506,8 @@ class ComputerUse {
                     next=new Point(next.X,work.Bottom-Height-10);
             }
             if (Location!=next) Location=next;
+            string target=TargetCaption();
+            if (targetLabel.Text!=target) targetLabel.Text=target;
             // Advance the cyan perimeter orbit once per 40ms UI tick.
             orbit=(orbit+40.0/3500.0)%1.0;
             Invalidate();
@@ -494,8 +529,17 @@ class ComputerUse {
             }
         }
         public void SetActivity(string action) {
-            currentLabel.Text=action=="idle" ? "当前：等待下一步操作" :
+            currentLabel.Text=action=="idle" ? "当前：等待任务规划" :
                 "当前：正在"+ActionLabel(action);
+        }
+        public void SetTaskStatus(string status) {
+            switch (status) {
+                case "planning": currentLabel.Text="当前：正在规划操作步骤"; break;
+                case "awaiting_decision": currentLabel.Text="当前：等待 AI 确认下一动作"; break;
+                case "recovering": currentLabel.Text="当前：恢复中 · 重新观察"; break;
+                case "running": currentLabel.Text="当前：执行已规划步骤"; break;
+                default: Error("CU_INVALID_ARGUMENT"); break;
+            }
         }
         public void CompleteActivity(string action,string error) {
             previousLabel.Text="上一步："+ActionLabel(action)+" · "+
@@ -504,8 +548,12 @@ class ComputerUse {
             SetActivity("idle");
         }
         public void SetSessionTitle(string title) {
-            sessionLabel.Text="会话："+title;
+            sessionLabel.Text="任务："+title;
             sessionLabel.Tag=title;
+        }
+        public void SetConversationTitle(string title) {
+            conversationLabel.Text="聊天："+title;
+            conversationLabel.Tag=title;
         }
         protected override void OnPaint(PaintEventArgs e) {
             base.OnPaint(e);
@@ -586,7 +634,8 @@ class ComputerUse {
     }
     static object ActivateTarget() {
         CheckIdentity();
-        foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 }) if ((GetAsyncKeyState(key) & 0x8000) != 0) Error("CU_USER_INPUT_ACTIVE");
+        foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 })
+            if ((GetAsyncKeyState(key) & 0x8000) != 0) InputConflict("held_key_or_button",key);
         if (IsIconic(Target)) ShowWindowAsync(Target, 9);
         SetForegroundWindow(Target);
         for (int i = 0; i < 10 && (IsIconic(Target) || GetForegroundWindow() != Target); i++) Thread.Sleep(30);
@@ -620,7 +669,7 @@ class ComputerUse {
     static void Inject(INPUT[] inputs, bool allowHeld = false) {
         Check(true);
         // Do not merge automation with a user's held modifiers or mouse buttons.
-        foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 }) if ((key != 1 || !allowHeld) && (GetAsyncKeyState(key) & 0x8000) != 0) Error("CU_USER_INPUT_ACTIVE");
+        foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 }) if ((key != 1 || !allowHeld) && (GetAsyncKeyState(key) & 0x8000) != 0) InputConflict("held_key_or_button",key);
         if (SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT))) != inputs.Length) {
             // Release only the keys introduced by this batch if Windows accepted a prefix.
             var release = new List<INPUT>();
@@ -791,8 +840,37 @@ class ComputerUse {
         return path[path.Count - 1];
     }
 
-    // Human-paced motion of the REAL OS pointer. A monotonic clock (not a
-    // fixed 32-frame cap) sets duration; 60 Hz gives the glow time to follow.
+    // Rebase cursor animation after small external motion, rather than treating
+    // an arbitrary pixel offset as cancellation. Never fight a moving user.
+    // Sustained takeover yields a recoverable error; the task runner observes
+    // the new desktop state before deciding whether it is safe to continue.
+    static bool WaitForQuietPointer(bool dragging, out POINT settled) {
+        if (!GetCursorPos(out settled)) Error("CU_INPUT_FAILED");
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        int stillMilliseconds = 0;
+        POINT previous = settled;
+        while (stillMilliseconds < 320) {
+            Check(true);
+            if (Closed) Error("CU_SESSION_CLOSED");
+            foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 })
+                if ((key != 1 || !dragging) && (GetAsyncKeyState(key) & 0x8000) != 0)
+                    InputConflict("held_key_or_button", key);
+            Thread.Sleep(25);
+            if (!GetCursorPos(out settled)) Error("CU_INPUT_FAILED");
+            if (Math.Abs(settled.X - previous.X) <= 2 && Math.Abs(settled.Y - previous.Y) <= 2)
+                stillMilliseconds += 25;
+            else
+                stillMilliseconds = 0;
+            previous = settled;
+            // Avoid holding a native operation indefinitely while the user
+            // actively moves the pointer; the caller resumes after observation.
+            if (timer.ElapsedMilliseconds >= 1800)
+                return false;
+        }
+        return true;
+    }
+    // Human-paced motion of the actual OS cursor, with replanning after a
+    // transient pointer interruption. No hard 6-pixel failure threshold.
     static void MoveCursorVisible(Point destination) { MoveCursorVisibleDuringDrag(destination, false); }
     static void MoveCursorVisibleDuringDrag(Point destination, bool dragging) {
         POINT origin;
@@ -807,19 +885,28 @@ class ComputerUse {
             Check(true);
             if (Closed) Error("CU_SESSION_CLOSED");
             foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 })
-                if ((key != 1 || !dragging) && (GetAsyncKeyState(key) & 0x8000) != 0) Error("CU_USER_INPUT_ACTIVE");
+                if ((key != 1 || !dragging) && (GetAsyncKeyState(key) & 0x8000) != 0)
+                    InputConflict("held_key_or_button", key);
             POINT current;
             if (!GetCursorPos(out current)) Error("CU_INPUT_FAILED");
-            if (Math.Abs(current.X - lastX) > 6 || Math.Abs(current.Y - lastY) > 6)
-                Error("CU_USER_INPUT_ACTIVE");
-
-            double t = Math.Min(1.0, Math.Max(0.0, clock.Elapsed.TotalMilliseconds / durationMs));
-            double eased = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-            PointF next = CursorRoutePoint(path, eased, sameScreen);
-            int px = (int)Math.Round(next.X), py = (int)Math.Round(next.Y);
+            if (Math.Abs(current.X-lastX) > 2 || Math.Abs(current.Y-lastY) > 2) {
+                POINT settled;
+                if (!WaitForQuietPointer(dragging, out settled))
+                    InputConflict("sustained_pointer_takeover");
+                path = CursorScreenRoute(new Point(settled.X,settled.Y),destination,out sameScreen);
+                distance = CursorRouteLength(path);
+                durationMs = Math.Min(3600.0, Math.Max(240.0, 170.0+distance*1000.0/850.0));
+                lastX=settled.X;lastY=settled.Y;
+                clock.Restart();
+                continue;
+            }
+            double t = Math.Min(1.0, Math.Max(0.0, clock.Elapsed.TotalMilliseconds/durationMs));
+            double eased = t*t*t*(t*(t*6.0-15.0)+10.0);
+            PointF next = CursorRoutePoint(path,eased,sameScreen);
+            int px=(int)Math.Round(next.X),py=(int)Math.Round(next.Y);
             if (!SetCursorPos(px, py)) Error("CU_INPUT_FAILED");
-            lastX = px; lastY = py;
-            if (t >= 1.0) break;
+            lastX=px;lastY=py;
+            if (t>=1.0) break;
             Thread.Sleep(16);
         }
     }
@@ -888,6 +975,22 @@ class ComputerUse {
                     if (line.Length > 20000) Error("CU_INVALID_ARGUMENT");
                     var args = Json.Deserialize<Dictionary<string, object>>(line);
                     string action = (string)args["action"];
+                    if (action == "set_task_status") {
+                        string status=args.ContainsKey("status") ? args["status"] as string : null;
+                        if (status!="planning" && status!="awaiting_decision" && status!="recovering" && status!="running") Error("CU_INVALID_ARGUMENT");
+                        Stop.BeginInvoke(new Action(() => Stop.SetTaskStatus(status)));
+                        Write(new {ok=true});
+                        continue;
+                    }
+                    if (action == "set_conversation_title") {
+                        string name=args.ContainsKey("title") ? args["title"] as string : null;
+                        if (name == null || name.Trim().Length == 0 || name.Length > 80)
+                            Error("CU_INVALID_ARGUMENT");
+                        foreach (char ch in name) if (char.IsControl(ch)) Error("CU_INVALID_ARGUMENT");
+                        Stop.BeginInvoke(new Action(() => Stop.SetConversationTitle(name.Trim())));
+                        Write(new {ok=true});
+                        continue;
+                    }
                     if (action == "set_session_title") {
                         string name = args.ContainsKey("title") ? args["title"] as string : null;
                         if (name == null || name.Trim().Length == 0 || name.Length > 80)
@@ -898,6 +1001,8 @@ class ComputerUse {
                         continue;
                     }
                     LastOcclusion = null;
+                    LastInputConflict = null;
+                    LastMouseReleaseConfirmed = false;
                     AtomicInputStarted = false;
                     SetHudAction(action);
                     try {
@@ -912,7 +1017,9 @@ class ComputerUse {
                     ReleaseHeldMouse();
                     if (e.Message == "CU_TARGET_OCCLUDED" && LastOcclusion != null)
                         Write(new { error=e.Message, occlusion=LastOcclusion, input_started=AtomicInputStarted });
-                    else Write(new { error = e.Message.StartsWith("CU_") ? e.Message : "CU_NATIVE_ERROR", input_started=AtomicInputStarted });
+                    else if (e.Message == "CU_USER_INPUT_ACTIVE" && LastInputConflict != null)
+                        Write(new { error=e.Message, input_conflict=LastInputConflict, input_started=AtomicInputStarted, mouse_released=LastMouseReleaseConfirmed });
+                    else Write(new { error = e.Message.StartsWith("CU_") ? e.Message : "CU_NATIVE_ERROR", input_started=AtomicInputStarted, mouse_released=LastMouseReleaseConfirmed });
                 }
             }
         } finally { ReleaseHeldMouse(); Environment.Exit(0); }

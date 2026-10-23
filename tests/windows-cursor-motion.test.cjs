@@ -21,8 +21,11 @@ test('Windows Computer Use moves the REAL cursor with distance-scaled human timi
     'double eased = t * t * t',
     'if (Closed) Error("CU_SESSION_CLOSED")',
     'CU_USER_INPUT_ACTIVE',
-    'MoveCursorVisible(point)'
-  ]) assert.ok(source.includes(requirement), 'Missing requirement: ' + requirement);
+    'MoveCursorVisible(point)',
+    'WaitForQuietPointer(dragging, out settled)',
+    'clock.Restart()',
+    'InputConflict("sustained_pointer_takeover")'
+  ]) assert.ok(source.replace(/\s+/g,'').includes(requirement.replace(/\s+/g,'')), 'Missing requirement: ' + requirement);
   assert.ok(!source.includes('SetCursorPos(point.X, point.Y)'), 'Cursor must never teleport to target');
   assert.ok(!source.includes('Math.Min(32,'), '32-frame cap hid long-distance movement');
 });

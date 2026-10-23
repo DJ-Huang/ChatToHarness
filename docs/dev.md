@@ -630,3 +630,11 @@ Setup and exact supported calls: [windows-computer-use.md](windows-computer-use.
 - [x] 不允许操控遮挡方、不绕过用户接管和 STOP/Esc、不自动使用未授权 AppleScript/Accessibility/Win32 直接定位；标题栏不可达或执行结果不确定时不得盲目重放。
 - [ ] 这次是操作规范更新，不代表原生执行器已具备自动移动逻辑；Mac/Windows 实际遮挡恢复仍需独立验收。
 - [x] 同步把上游 Draft PR #18 的说明改为中文，保留现有测试与待验收项。
+
+## 2026-10-23 Computer Use 聊天名称来源整改
+
+- [x] 禁止在公开 MCP 工具中把 AI 自填的 `conversation_title` 当作 ChatGPT 真实标题；`session_title` 仅表示任务。
+- [x] 增加可选宿主元数据 `_meta["com.chattoharness/conversationTitle"]` 在 MCP Gateway / Manager / 内置 Computer Use 间转发，并校验内容；没有宿主提供的标题时显示不可获取。
+- [x] 增加针对错误标题隔离、元数据提取以及 macOS/Windows 共享链路的单元测试。
+- [ ] 当前 ChatGPT 未验证会发送此自定义元数据，`openai/session` 只是匿名 ID；真实聊天标题自动填充仍受 ChatGPT 客户端能力限制，不能宣称已通过端到端验收。
+- [ ] 新改动尚未重新构建/安装 DMG；保留上游 PR #18 Draft，关联 Issue #2。

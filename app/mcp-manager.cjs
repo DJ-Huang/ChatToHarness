@@ -388,9 +388,9 @@ class McpManager extends EventEmitter {
     catch(error){history.complete(id,null,error,service?.secretValues||[]);throw error;}
     finally{options.signal?.removeEventListener('abort',cancel);}
   }
-  async dispatch(name,args={}, {signal,onprogress,executionId,planner}={}) {
+  async dispatch(name,args={}, {signal,onprogress,executionId,planner,hostConversationTitle}={}) {
     if(this.content?.has(name)){this.history?.update(executionId,{state:'running',started_at:this.history.now()});return this.running?this.content.call(name,args,{signal,onprogress}):failed('MCP_STOPPED');}
-    if(this.services?.has(name)){this.history?.update(executionId,{state:'running',started_at:this.history.now()});return this.running?this.services.call(name,args,{signal,onprogress,planner}):failed('MCP_STOPPED');}
+    if(this.services?.has(name)){this.history?.update(executionId,{state:'running',started_at:this.history.now()});return this.running?this.services.call(name,args,{signal,onprogress,planner,hostConversationTitle}):failed('MCP_STOPPED');}
     let record,item;
     for(const candidate of this.records.values()){
       const match=candidate.tools.find(value=>value.alias===name);

@@ -41,7 +41,11 @@ class ComputerUseSwitch {
     // Platform-specific imports, never instantiate the opposite OS adapter.
     const source=this.platform==='darwin'?'./macos-computer-use.cjs':'./windows-computer-use.cjs';
     const definition=registeredComputerUse(require(source).definition,this.deviceIdentity);
-    return definition;
+    // A model-authored argument cannot prove the user's actual ChatGPT title.
+    // Only private MCP client metadata may populate the native chat label.
+    return {...definition,inputSchema:{...definition.inputSchema,
+      properties:Object.fromEntries(Object.entries(definition.inputSchema.properties)
+        .filter(([name])=>name!=='conversation_title'))}};
   }
   newController() {
     if(this.platform==='darwin') {
@@ -84,10 +88,17 @@ class ComputerUseSwitch {
     this.controller?.stop('CU_DISABLED');
     this.controller=null;
   }
-  async call(args,{signal,planner}={}) {
+  async call(args,{signal,planner,hostConversationTitle}={}) {
     if(!this.enabled||!this.available)return this.denied();
     const {error,nativeArgs}=deviceBoundArgs(this.deviceIdentity,args);
     if(error)return error;
+    if(nativeArgs.action==='open_session'){
+      // Ignore any unverified model-authored title, even on lost-open retries.
+      delete nativeArgs.conversation_title;
+      if(typeof hostConversationTitle==='string'&&hostConversationTitle.trim()&&
+         hostConversationTitle.length<=80&&!/[\x00-\x1f\x7f]/.test(hostConversationTitle))
+        nativeArgs.conversation_title=hostConversationTitle.trim();
+    }
     const epoch=this.epoch;
     const abort=new AbortController();
     const onAbort=()=>abort.abort();

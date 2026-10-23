@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const {Client} = require('@modelcontextprotocol/sdk/client/index.js');
 const {StreamableHTTPClientTransport} = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 const {ListToolsResultSchema,CallToolResultSchema,ToolListChangedNotificationSchema,McpError,ErrorCode} = require('@modelcontextprotocol/sdk/types.js');
-const {ManagedStdioTransport,toolEnvironment,boundedMessage,observeTransport,boundedFetch,MAX_MESSAGE_BYTES} = require('./mcp-transport.cjs');
+const {ManagedStdioTransport,toolEnvironment,boundedMessage,observeTransport,boundedFetch,MAX_MESSAGE_BYTES,startupDiagnostic} = require('./mcp-transport.cjs');
 const {COMPUTER_USE_GUI_RULE}=require('./computer-use-devices.cjs');
 
 /** @typedef {'deny'|'allow'|'ask'} McpToolPolicy */
@@ -44,6 +44,7 @@ function errorCode(error) {
   if(error?.code===ErrorCode.ConnectionClosed)return 'MCP_DISCONNECTED';
   if(['SECRET_MISSING','ENCRYPTION_UNAVAILABLE','DECRYPTION_FAILED'].includes(error?.code))return 'MCP_SECRET_MISSING';
   if(error?.name==='McpSettingsError')return 'MCP_INVALID_CONFIG';
+  if(['MODULE_NOT_FOUND','ERR_MODULE_NOT_FOUND','ENOENT','EACCES','EPERM'].includes(error?.code))return startupDiagnostic(error).code;
   const text=String(error?.message||'');
   if(/protocol.*(?:version|invalid)|not supported/i.test(text))return 'MCP_PROTOCOL_UNSUPPORTED';
   if(error?.code===401||error?.code===403||/\b(?:401|403)\b|unauthorized/i.test(text))return 'MCP_AUTH_REQUIRED';
@@ -52,8 +53,10 @@ function errorCode(error) {
 function failed(code,started=false) {
   const hints={
     MCP_TOOL_DENIED:['This tool is disabled or unavailable.','Enable the intended tool in the desktop MCP settings.'],
+    MCP_SERVICE_UNAVAILABLE:['The registered MCP service is currently unavailable; this request has not been executed.','Check this service connection in the desktop app. Once restored, retry this unstarted request; query saved tasks before repeating earlier operations.'],
     MCP_APPROVAL_DENIED:['The local confirmation was declined or expired.','Approve a new request in the desktop app if you still want to run it.'],
     MCP_TIMEOUT:['The service exceeded its request deadline.','Inspect the saved task or service state before retrying a mutation.'],
+    MCP_MESSAGE_TOO_LARGE:['The service returned a message exceeding the local 8 MiB limit.','Inspect the original execution state first. For subsequent reads, use source-side pagination, narrower fields or a file artifact. Do not replay a mutation to split its output.'],
     MCP_DISCONNECTED:['The MCP service disconnected.','Wait for reconnection; query existing tasks instead of restarting them.'],
     MCP_STOPPED:['The local gateway is stopped.','Connect the desktop app before calling this tool.'],
     MCP_TOOLS_CHANGED:['This tool definition changed during the call.','Refresh its definition and review its saved permission.'],
@@ -123,11 +126,19 @@ class McpManager extends EventEmitter {
   status() {
     const servers=this.settings.list().map(config=>{
       const record=this.records.get(config.id);
-      return {...config,phase:record?.phase||'stopped',error:record?.error||'',protocolVersion:record?.protocolVersion||'',
+      return {...config,phase:record?.phase||'stopped',error:record?.error||'',startup_error:record?.startupError||null,protocolVersion:record?.protocolVersion||'',
         tools:(record?.tools||[]).map(item=>({...copy(item.tool),exposedName:item.alias,policy:this.policy(record,item),savedPolicy:this.settings.getToolPolicy(config.id,item.tool.name,item.fingerprint),projectGrants:this.projectGrants?.projects(record,item)||[]}))};
     });
     const builtin=this.records.get(BUILTIN);
-    return {servers,allowAllTools:this.settings.getAllowAllTools(),builtin:{phase:builtin?.phase||'stopped',error:builtin?.error||'',toolsCount:builtin?.tools.length||0},
+    const required=servers.filter(config=>config.enabled&&config.trusted).map(config=>config.id);
+    if(this.builtinFactory&&this.desktopSettings?.directories?.length)required.push(BUILTIN);
+    const missing_capabilities=required.filter(id=>!this.available(this.record(id))).map(id=>{
+      const record=this.record(id);
+      return {service_id:id,capability:'tools',phase:record.phase,code:record.error||'MCP_SERVICE_UNAVAILABLE'};
+    });
+    const count=this.visibleTools().length,tools_ready=this.running&&count>0&&missing_capabilities.length===0;
+    const tools_health=!this.running?'stopped':missing_capabilities.length?(count?'degraded':'unavailable'):(count?'ready':'unavailable');
+    return {servers,tools_health,tools_ready,missing_capabilities,allowAllTools:this.settings.getAllowAllTools(),builtin:{phase:builtin?.phase||'stopped',error:builtin?.error||'',startup_error:builtin?.startupError||null,toolsCount:builtin?.tools.length||0},
       approvals:[...this.approvals.values()].map(value=>copy(value.public)),toolsVersion:this.toolsVersion};
   }
   policy(record,item,project) {if(record.id===BUILTIN||this.settings.getAllowAllTools())return 'allow';const policy=this.settings.getToolPolicy(record.id,item.tool.name,item.fingerprint);return policy==='ask'&&this.projectGrants?.matches(record,item,project)?'allow':policy;}
@@ -154,7 +165,7 @@ class McpManager extends EventEmitter {
       offset=Number(match[2]);
     }
     const page=[];let bytes=1024;
-    for(;offset<tools.length&&page.length<32;offset++){
+    for(;offset<tools.length&&page.length<64;offset++){
       const size=Buffer.byteLength(JSON.stringify(tools[offset]));
       if(bytes+size>MAX_MESSAGE_BYTES-1024)break;
       page.push(copy(tools[offset]));bytes+=size;
@@ -223,7 +234,7 @@ class McpManager extends EventEmitter {
     if(record.phase==='ready'){if(!testing||this.settings.get(id).enabled)record.testing=false;return;}
     clearTimeout(record.retryTimer);
     const generation=++record.generation,epoch=this.epoch;
-    record.phase='connecting';record.error='';record.testing=testing&&record.id!==BUILTIN&&!this.settings.get(id).enabled;record.terminalError='';record.controller=new AbortController();this.logConnection(record,'connecting');this.changed();
+    record.phase='connecting';record.error='';record.startupError=null;record.testing=testing&&record.id!==BUILTIN&&!this.settings.get(id).enabled;record.terminalError='';record.controller=new AbortController();this.logConnection(record,'connecting');this.changed();
     record.connecting=this.open(record,generation,epoch).finally(()=>{record.connecting=null;});
     return record.connecting;
   }
@@ -251,7 +262,9 @@ class McpManager extends EventEmitter {
       client=new Client({name:'ChatToHarness',version:appVersion},{capabilities:{}});
       record.client=client;record.transport=transport;
       client.onerror=error=>{
-        if(/MCP_(MESSAGE_TOO_LARGE|PROTOCOL_INVALID)/.test(error.message)){
+        if(transport.startupError){
+          record.startupError=transport.startupError;record.terminalError=transport.startupError.code;
+        }else if(/MCP_(MESSAGE_TOO_LARGE|PROTOCOL_INVALID)/.test(error.message)){
           record.terminalError=errorCode(error);void client.close();
         }else if(config.transport==='streamable-http'&&record.client===client&&!record.stopping&&!record.controller.signal.aborted){
           // The SDK reports a dropped SSE stream through onerror without
@@ -280,15 +293,19 @@ class McpManager extends EventEmitter {
       }
       if(record.capabilities.tools)await this.refreshTools(record,client);else record.tools=[];
       if(epoch!==this.epoch||generation!==record.generation||record.controller.signal.aborted)throw issue('MCP_STOPPED');
-      record.phase='ready';record.error='';record.terminalError='';record.attempts=0;this.logConnection(record,'ready',{count:record.tools.length});this.changed();
+      record.phase='ready';record.error='';record.startupError=null;record.terminalError='';record.attempts=0;this.logConnection(record,'ready',{count:record.tools.length});this.changed();
     }catch(error){
       if(record.client===client){record.stopping=true;await client?.close().catch(()=>{});record.stopping=false;record.client=null;}
-      if(generation===record.generation){record.phase='failed';record.error=record.controller.signal.aborted?'MCP_STOPPED':record.terminalError||errorCode(error);this.logConnection(record,'failed',{code:record.error});this.changed();this.retry(record);}
+      if(generation===record.generation){
+        record.phase='failed';record.error=record.controller.signal.aborted?'MCP_STOPPED':record.terminalError||errorCode(error);
+        if(!record.startupError&&['MCP_MODULE_NOT_FOUND','MCP_FILE_NOT_FOUND','MCP_ACCESS_DENIED','MCP_COMPONENT_INVALID','MCP_START_FAILED'].includes(record.error))record.startupError=startupDiagnostic({code:record.error});
+        this.logConnection(record,'failed',{code:record.error});this.changed();this.retry(record);
+      }
       throw issue(record.terminalError||errorCode(error));
     }finally{clearTimeout(timer);}
   }
   retry(record) {
-    if(this.closed||!this.running||record.testing||record.error==='MCP_STOPPED'||['MCP_AUTH_REQUIRED','MCP_PROTOCOL_UNSUPPORTED','MCP_PROTOCOL_INVALID','MCP_MESSAGE_TOO_LARGE','MCP_SECRET_MISSING','MCP_TRUST_REQUIRED','MCP_INVALID_CONFIG','MCP_TOOL_NAME_CONFLICT','MCP_START_FAILED'].includes(record.error))return;
+    if(this.closed||!this.running||record.testing||record.error==='MCP_STOPPED'||['MCP_AUTH_REQUIRED','MCP_PROTOCOL_UNSUPPORTED','MCP_PROTOCOL_INVALID','MCP_MESSAGE_TOO_LARGE','MCP_SECRET_MISSING','MCP_TRUST_REQUIRED','MCP_INVALID_CONFIG','MCP_TOOL_NAME_CONFLICT','MCP_MODULE_NOT_FOUND','MCP_FILE_NOT_FOUND','MCP_ACCESS_DENIED','MCP_COMPONENT_INVALID'].includes(record.error))return;
     if(record.id!==BUILTIN){try{if(!this.settings.get(record.id).enabled||!this.settings.isTrusted(record.id))return;}catch{return;}}
     record.phase='reconnecting';clearTimeout(record.retryTimer);
     const epoch=this.epoch,delayMs=[1000,3000,10000,30000][Math.min(record.attempts++,3)];
@@ -377,9 +394,29 @@ class McpManager extends EventEmitter {
     let record,item;
     for(const candidate of this.records.values()){
       const match=candidate.tools.find(value=>value.alias===name);
-      if(match&&this.available(candidate)){record=candidate;item=match;break;}
+      if(match){record=candidate;item=match;break;}
     }
-    if(!item||this.policy(record,item)==='deny')return failed('MCP_TOOL_DENIED');
+    if(!item){
+      // The browser may still hold the previous tool catalog after a service
+      // fails before discovery. Saved access identifies that unavailable
+      // service without granting access or fabricating a tool definition.
+      for(const config of this.settings?.list?.()||[])if(config.enabled&&config.trusted){
+        const candidate=this.records.get(config.id);
+        if(candidate?.phase==='ready')continue;
+        const granted=Object.entries(this.settings.listToolPolicies(config.id)).some(([tool,grant])=>grant.policy!=='deny'&&alias(config.id,tool)===name);
+        if(granted||(this.settings.getAllowAllTools()&&name.startsWith(config.id+'__')))return failed('MCP_SERVICE_UNAVAILABLE');
+      }
+      if(this.running&&this.builtinFactory&&this.desktopSettings?.directories?.length&&this.records.get(BUILTIN)?.phase!=='ready'&&!name.includes('__'))return failed('MCP_SERVICE_UNAVAILABLE');
+      return failed('MCP_TOOL_DENIED');
+    }
+    if(this.policy(record,item)==='deny')return failed('MCP_TOOL_DENIED');
+    if(!this.available(record)){
+      // Disabled or untrusted services remain denied. A permitted tool whose
+      // service disconnected is a different, explicitly unstarted failure.
+      if(record.id!==BUILTIN){try{const config=this.settings.get(record.id);if(!config.enabled||!this.settings.isTrusted(record.id))return failed('MCP_TOOL_DENIED');}catch{return failed('MCP_TOOL_DENIED');}}
+      if(!this.running&&record.phase==='stopped')return failed('MCP_STOPPED');
+      return failed('MCP_SERVICE_UNAVAILABLE');
+    }
     if(!args||typeof args!=='object'||Array.isArray(args))return failed('MCP_INVALID_ARGUMENTS');
     if(this.active.size>=128||[...this.active].filter(value=>value.record===record).length>=16)return failed('MCP_SERVER_BUSY');
     const argumentsCopy=copy(args),generation=record.generation,client=record.client,controller=new AbortController();

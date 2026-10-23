@@ -46,6 +46,26 @@ test('an old release event cannot downgrade downloads when a newer stable releas
   assert.equal(result.info.version,'0.4.0');
 });
 
+test('dispatched release updates still require the intended public release and complete assets',async()=>{
+  const options={eventName:'workflow_dispatch',releaseTag:'v0.4.0',load:async()=>[old],attempts:1};
+  await assert.rejects(prepareDeployment(options),/refusing to deploy older/);
+  assert.equal((await prepareDeployment({...options,load:async()=>[current,old]})).info.version,'0.4.0');
+  await assert.rejects(prepareDeployment({...options,releaseTag:'invalid'}),/stable release tag/);
+});
+
+test('all public and cache-busted variants start concurrently and a stale deployment respects the total budget',async()=>{
+  const pending=[];
+  const run=verifySite('0.4.0',{attempts:1,request:async()=>new Promise(resolve=>pending.push(resolve)),report:()=>{}});
+  assert.equal(pending.length,8,'both variants of every locale must start without waiting for another response');
+  for(const resolve of pending)resolve({ok:false,status:503});
+  await assert.rejects(run,/production is inconsistent/);
+  let now=0,requests=0,waits=0;const reports=[];
+  await assert.rejects(verifySite('0.4.0',{clock:()=>now,budgetMs:12000,request:async()=>{requests++;return {ok:false,status:503,headers:new Map([['etag','stale-build']])};},wait:async ms=>{now+=ms;waits++;},report:line=>reports.push(line)}),/dispatch Website on main/);
+  assert.equal(now,12000);assert.equal(waits,3);assert.equal(requests,24);
+  assert.match(reports[0],/stale-build/);
+  await assert.rejects(verifySite('invalid',{request:async()=>assert.fail('invalid versions must not make requests')}),/stable version/);
+});
+
 test('production smoke check catches stale locales, missing assets and stale displayed versions',async t=>{
   const output=fs.mkdtempSync(path.join(os.tmpdir(),'cth-site-deployment-'));
   t.after(()=>fs.rmSync(output,{recursive:true,force:true}));

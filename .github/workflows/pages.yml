@@ -1,4 +1,5 @@
 name: Website
+run-name: Website deploy ${{ inputs.deployment_request || github.run_id }}
 on:
   push:
     branches: [main]
@@ -9,14 +10,43 @@ on:
   release:
     types: [published, edited, released, deleted]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Required published release tag (empty resolves latest stable)
+        type: string
+        default: ''
+      deployment_request:
+        description: Correlation ID for a calling release workflow
+        type: string
+        default: ''
   workflow_call:
 permissions:
   contents: read
 concurrency:
-  group: website-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  group: website-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'release' && format('release-{0}', github.run_id) || 'production' }}
   cancel-in-progress: false
 jobs:
+  dispatch:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+      - name: Deploy release website from main and wait for verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.action != 'deleted' && !github.event.release.prerelease && !github.event.release.draft && github.event.release.tag_name || '' }}
+        run: node scripts/dispatch-site.cjs
   build:
+    if: github.event_name != 'release'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.site.outputs.version }}
@@ -33,6 +63,7 @@ jobs:
         id: site
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CTH_RELEASE_TAG: ${{ inputs.release_tag || '' }}
         run: node scripts/build-site.cjs
       - uses: actions/upload-pages-artifact@v4
         with:
@@ -57,10 +88,9 @@ jobs:
         with:
           node-version: '24.22.0'
       - uses: actions/configure-pages@v5
-      # Keep the production content check mandatory: a release can change the public
-      # stable-download metadata without changing the main commit SHA. If Pages reports
-      # deployment success but serves stale HTML, a new main commit touching this workflow
-      # gives the deployment a fresh build identity; rerunning the same commit is insufficient.
+      # Release/tag callers dispatch this workflow on main. Reusing their event
+      # context can report deployment success while still serving the old artifact:
+      # https://github.com/actions/deploy-pages/issues/383
       - uses: actions/deploy-pages@v4
         id: deployment
       - name: Verify production versions and downloads in all languages

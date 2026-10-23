@@ -46,8 +46,8 @@ test('Mac and Windows share the complete MCP input contract, atomic drag and ses
   }
 });
 test('platform selection cannot be bypassed by overriding supportedPlatform',async()=>{
-  const mac=new MacComputerUse({platform:'win32',supportedPlatform:'win32',connect:()=>{throw Error('wrong OS helper started')}});
-  const win=new WindowsComputerUse({platform:'darwin',supportedPlatform:'darwin',connect:()=>{throw Error('wrong OS helper started')}});
+  const mac=new MacComputerUse({platform:'win32',deviceId:'cu-00000000-0000-4000-8000-000000000000',supportedPlatform:'win32',connect:()=>{throw Error('wrong OS helper started')}});
+  const win=new WindowsComputerUse({platform:'darwin',deviceId:'cu-00000000-0000-4000-8000-000000000000',supportedPlatform:'darwin',connect:()=>{throw Error('wrong OS helper started')}});
   assert.equal((await mac.call({action:'get_session'})).structuredContent.code,'CU_MACOS_REQUIRED');
   assert.equal((await win.call({action:'get_session'})).structuredContent.code,'CU_WINDOWS_REQUIRED');
 });

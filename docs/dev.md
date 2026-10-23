@@ -607,3 +607,13 @@ Setup and exact supported calls: [windows-computer-use.md](windows-computer-use.
 - [x] **Mac 真实 GUI**：npm run test:computer-use-mac:gui Exit 0；临时测试窗口真实点击、Unicode 输入/退格、滚动、鼠标可见轨迹、跨屏拖动、一次外部 pointer-nudge（+34,+19）后的路线恢复、mouse-up 状态和 close_session 均通过；分别测试全局 Esc 成功关闭原生 helper 而不关闭测试窗口。
 - [ ] **未完成验收**：STOP 按钮的真实鼠标点击、不同鼠标/刷新率组合下的持续用户接管、HUD 外观人工视觉检查及安装后 ChatGPT 缓存 Schema 验收仍需独立确认。
 - [ ] **交付**：尚未重新构建/安装正式 macOS DMG；运行中的应用包仍不等于当前源码。Windows 真实鼠标在目标窗口外偶发跳回的回归 Issue 保持开放。
+
+## 2026-10-23 上游同步（DJ-Huang/ChatToHarness）
+
+- **上游**：`https://github.com/DJ-Huang/ChatToHarness.git`；默认分支 `main`，获取时 `upstream/main=dd8a8925c473920e7470964ca27fd3451c9dbba6`。本地 `feat/computer-use` 合并前 HEAD 为 `bec76f60299fd3c618a8a57086d3bb7f95bf77ac`；共同祖先 `eb25b6f66c292b1d9a70013457b32744b47ef6f5`，上游独有 23 提交，开发分支独有 52 提交。
+- [x] 在已有分支执行非破坏性 `git merge --no-commit --no-ff upstream/main`；7 个文件冲突逐项整合。保留分支版本 `0.7.3` 而不降级至上游 `0.6.2`；同时保留 Computer Use 注册/任务规划与上游新诊断、MCP 结果分页及恢复机制。
+- [x] Mac 上执行 `npm test`：531 项，516 pass、15 skip、0 fail；为 Mac 上运行的 Windows 测试夹具配置稳定的测试设备 ID，避免将主机设备身份识别问题误报为功能回归。
+- [x] `npm run test:computer-use-mac`：30 项，28 pass、2 environment skip、0 fail；Mac Swift 原生组件编译通过。
+- [ ] 同步后的 Windows 原生安装包/完整真 GUI 回归仍需在 Windows 主机验证；当前 Mac 上的已安装版不等于新合并的工作区。
+- [ ] 用户反馈的 Windows 鼠标在目标窗口外跳回/抖动仍未关闭；PR 应先保持 Draft，不应假称全部验收完成。
+- **目标 PR**：`DJ-Huang/ChatToHarness:main` ← `watermoon/ChatToHarness:feat/computer-use`。提交前确认远程分支未被他人推进，避免强制推送。

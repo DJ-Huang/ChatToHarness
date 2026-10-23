@@ -10,6 +10,11 @@ const {fail, integer} = require('./project-inspect.cjs');
 const FINAL = new Set(['succeeded', 'failed', 'cancelled', 'timed_out', 'interrupted']);
 const sha = value => crypto.createHash('sha256').update(value).digest('hex');
 const now = () => new Date().toISOString();
+function waitMilliseconds(value, fallback) {
+  if (value === undefined) return fallback;
+  if (!Number.isSafeInteger(value) || value < 0 || value > 10000) throw fail('INVALID_ARGUMENT', 'wait_ms must be an integer from 0 to 10000; it does not change the task runtime limit.');
+  return value;
+}
 class TaskStore {
   constructor({home, nodePath = process.execPath, processHost, engineEntry, configHome, workerSource = __dirname, launch = spawn} = {}) {
     Object.assign(this, {home, nodePath, processHost, engineEntry, configHome, workerSource, launch});
@@ -48,7 +53,8 @@ class TaskStore {
     const taskId = `task_${sha(JSON.stringify([input.project_path, input.idempotency_key]))}`, directory = path.join(this.directory, taskId), fingerprint = sha(JSON.stringify(payload));
     if (fs.existsSync(directory)) {
       const {request} = this.request(taskId, input.project_path);
-      if (request.fingerprint !== fingerprint) throw fail('IDEMPOTENCY_CONFLICT', 'This key already identifies a different command, timeout or artifact list. Inspect the original task; use a new key only for a new intended operation.', {task_id: taskId});
+      if (request.fingerprint !== fingerprint) throw fail('IDEMPOTENCY_CONFLICT', 'This key already identifies a different command, timeout or artifact list. Inspect the original task; use a new key only for a new intended operation.',
+        {task_id: taskId, next_action: 'inspect_original_task', next_tool: 'get_task_result', next_arguments: {project_path: input.project_path, task_id: taskId, wait_ms: 0}});
       return {...this.status(taskId, input.project_path), reused: true};
     }
     const stored = fs.readdirSync(this.directory).filter(name => /^task_[a-f0-9]{64}$/.test(name));
@@ -97,22 +103,100 @@ class TaskStore {
     for (const id of fs.readdirSync(this.directory)) if (/^task_[a-f0-9]{64}$/.test(id)) try { values.push(this.status(id, project)); } catch (error) { if (error.code !== 'TASK_SCOPE_MISMATCH') values.push({task_id: id, state: 'unreadable', error: {code: error.code || 'TASK_RECORD_UNREADABLE'}}); }
     return values.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
+  async waitResult(id, project, {wait_ms = 0, signal} = {}) {
+    const wait = waitMilliseconds(wait_ms, 0), deadline = performance.now() + wait;
+    let state = this.status(id, project);
+    // Cancellation ends only this read. The durable worker has its own explicit
+    // cancel_task path and must not be killed when a chat connection disappears.
+    while (!state.terminal && !signal?.aborted && performance.now() < deadline) {
+      await new Promise(resolve => {
+        const done = () => { clearTimeout(timer); signal?.removeEventListener('abort', done); resolve(); };
+        const timer = setTimeout(done, Math.min(50, Math.max(0, deadline - performance.now())));
+        signal?.addEventListener('abort', done, {once: true});
+        if (signal?.aborted) done();
+      });
+      state = this.status(id, project);
+    }
+    const result = this.result(id, project);
+    return {...result, wait_ms: wait, ...(signal?.aborted ? {wait_interrupted: true} : {}),
+      ...(!result.terminal ? {next_tool: 'get_task_result', next_arguments: {project_path: project, task_id: id, wait_ms: 5000}} :
+        result.has_more ? {next_tool: 'get_task_logs', next_arguments: {project_path: project, task_id: id, cursor: result.log_cursor}} : {})};
+  }
+  result(id, project) {
+    const state=this.status(id,project),{directory}=this.request(id,project),expired=()=>fs.existsSync(path.join(directory,'output.expired'));
+    const unavailable=code=>({...state,stdout:'',stderr:'',output_expired:code==='TASK_LOG_EXPIRED',output_error:{code,message:code==='TASK_LOG_EXPIRED'?'Saved task output expired under diagnostic retention.':'Saved task output could not be read safely.'},has_more:false,output_truncated:false});
+    if(expired())return unavailable('TASK_LOG_EXPIRED');
+    const file=path.join(directory,'output.jsonl');let buffer=Buffer.alloc(0),size=0,start=0;
+    if(fs.existsSync(file)) {
+      let fd;
+      try {
+        fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
+        const stat=fs.fstatSync(fd);if(!stat.isFile()||stat.nlink!==1)return unavailable('UNSAFE_STORAGE');
+        size=stat.size;start=Math.max(0,size-65536);buffer=Buffer.alloc(size-start);
+        const read=fs.readSync(fd,buffer,0,buffer.length,start);buffer=buffer.subarray(0,read);
+      }catch{return unavailable('TASK_LOG_UNREADABLE');}finally{if(fd!==undefined)fs.closeSync(fd);}
+    }
+    let at=0,consumed=0,stdout='',stderr='',omitted=start>0;
+    // When seeking into a tail, discard only the partial first JSONL entry.
+    if(start>0){const first=buffer.indexOf(10);at=first<0?buffer.length:first+1;consumed=at;}
+    for(;;) {
+      const end=buffer.indexOf(10,at);if(end<0)break;
+      let entry;try{entry=JSON.parse(buffer.subarray(at,end).toString('utf8'));}catch{return unavailable('TASK_LOG_UNREADABLE');}
+      if(typeof entry.text==='string'&&(entry.stream==='stdout'||entry.stream==='stderr')) {
+        const previous=entry.stream==='stdout'?stdout:stderr,combined=previous+entry.text;
+        let tail=Buffer.from(combined);if(tail.length>4096){omitted=true;let offset=tail.length-4096;while(offset<tail.length&&(tail[offset]&0xc0)===0x80)offset++;tail=tail.subarray(offset);}
+        if(entry.stream==='stdout')stdout=tail.toString('utf8');else stderr=tail.toString('utf8');
+      }
+      consumed=end+1;at=end+1;
+    }
+    if(expired())return unavailable('TASK_LOG_EXPIRED');
+    const cursor=`${id}:${start+consumed}`,result={...state,stdout,stderr,output_expired:false,output_truncated:omitted||Boolean(state.log_truncated),
+      // If old output was omitted, the log cursor starts at the beginning so it
+      // can be recovered. next_cursor always follows the complete tail entries.
+      log_cursor:omitted?`${id}:0`:cursor,next_cursor:cursor,has_more:omitted||start+consumed<size};
+    while(Buffer.byteLength(JSON.stringify({content:[{type:'text',text:result.summary}],structuredContent:result}))>14*1024&&(result.stdout.length||result.stderr.length)) {
+      result.stdout=result.stdout.slice(Math.ceil(result.stdout.length/2));result.stderr=result.stderr.slice(Math.ceil(result.stderr.length/2));
+      result.output_truncated=true;result.has_more=true;result.log_cursor=`${id}:0`;
+    }
+    return result;
+  }
   logs(id, project, args = {}) {
     const {directory} = this.request(id, project); let offset = 0;
     if (fs.existsSync(path.join(directory,'output.expired'))) throw fail('TASK_LOG_EXPIRED', 'Saved task output has expired under diagnostic retention.');
-    if (args.cursor !== undefined) { const match = new RegExp(`^${id}:(\\d+)$`).exec(args.cursor); if (!match || !Number.isSafeInteger(Number(match[1]))) throw fail('INVALID_CURSOR', 'Use the log cursor returned for this task.'); offset = Number(match[1]); }
+    const invalidCursor = () => fail('INVALID_CURSOR', 'Use an unchanged log cursor returned for this task. For recent output, omit cursor and use tail:true; do not calculate byte offsets.',
+      {task_id: id, next_tool: 'get_task_logs', next_arguments: {project_path: project, task_id: id, tail: true}});
+    if (args.tail !== undefined && typeof args.tail !== 'boolean' || args.tail === true && args.cursor !== undefined) throw fail('INVALID_ARGUMENT', 'Use tail:true without cursor, or supply an unchanged returned cursor.');
+    if (args.cursor !== undefined) { const match = new RegExp(`^${id}:(\\d+)$`).exec(args.cursor); if (!match || !Number.isSafeInteger(Number(match[1]))) throw invalidCursor(); offset = Number(match[1]); }
     const limit = integer(args.limit, 60, 200), file = path.join(directory, 'output.jsonl');
     let bytes = Buffer.alloc(0), size = 0;
     if (fs.existsSync(file)) {
       const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
       try { const stat = fs.fstatSync(fd); if (!stat.isFile() || stat.nlink !== 1) throw fail('UNSAFE_STORAGE', 'The task log is not a private regular file.'); size = stat.size;
-        if (offset > size) throw fail('INVALID_CURSOR', 'The log cursor is beyond the stored output.'); const buffer = Buffer.alloc(Math.min(65536, size - offset)); const read = fs.readSync(fd, buffer, 0, buffer.length, offset); bytes = buffer.subarray(0, read);
+        if (args.tail === true) offset = Math.max(0, size - 65536);
+        if (offset > size) throw invalidCursor();
+        let boundary = true;
+        if (offset > 0) { const previous = Buffer.alloc(1); boundary = fs.readSync(fd, previous, 0, 1, offset - 1) === 1 && previous[0] === 10; }
+        if (!boundary && args.tail !== true) throw invalidCursor();
+        const buffer = Buffer.alloc(Math.min(65536, size - offset)); const read = fs.readSync(fd, buffer, 0, buffer.length, offset); bytes = buffer.subarray(0, read);
+        if (!boundary) { const first = bytes.indexOf(10); if (first < 0) throw fail('TASK_LOG_UNREADABLE', 'A saved log entry exceeds the bounded read size. Inspect the task artifacts; do not restart the command.'); offset += first + 1; bytes = bytes.subarray(first + 1); }
       } finally { fs.closeSync(fd); }
     }
-    const entries = []; let consumed = 0, start = 0;
-    for (;;) { const end = bytes.indexOf(10, start); if (end < 0 || entries.length >= limit) break; entries.push(JSON.parse(bytes.subarray(start, end).toString('utf8'))); consumed = end + 1; start = end + 1; }
+    if (offset > size) throw invalidCursor();
+    const entries = [], positions = []; let consumed = 0, start = 0;
+    for (;;) {
+      const end = bytes.indexOf(10, start); if (end < 0 || args.tail !== true && entries.length >= limit) break;
+      let entry;
+      try { entry = JSON.parse(bytes.subarray(start, end).toString('utf8')); }
+      catch { throw fail('TASK_LOG_UNREADABLE', 'A saved log entry is not valid JSON. Inspect the task state and artifacts; do not restart the command.', {task_id: id}); }
+      entries.push(entry); positions.push(offset + start);
+      if (args.tail === true && entries.length > limit) { entries.shift(); positions.shift(); }
+      consumed = end + 1; start = end + 1;
+    }
+    if (consumed === 0 && bytes.length === 65536) throw fail('TASK_LOG_UNREADABLE', 'A saved log entry exceeds the bounded read size. Inspect the task artifacts; do not restart the command.');
     if (fs.existsSync(path.join(directory,'output.expired'))) throw fail('TASK_LOG_EXPIRED', 'Saved task output has expired under diagnostic retention.');
-    return {summary: `${entries.length} saved log entries.`, task_id: id, entries, has_more: offset + consumed < size, next_cursor: `${id}:${offset + consumed}`, incomplete_tail: bytes.length > 0 && consumed === 0, task: this.status(id, project)};
+    return {summary: `${entries.length} saved log entries.`, task_id: id, entries, has_more: offset + consumed < size, next_cursor: `${id}:${offset + consumed}`,
+      ...(args.tail === true ? {has_earlier: (positions[0] ?? offset) > 0, start_cursor: `${id}:${positions[0] ?? offset}`} : {}),
+      incomplete_tail: bytes.length > 0 && consumed === 0, task: this.status(id, project)};
   }
   cancel(id, project) {
     const {directory} = this.request(id, project), state = this.status(id, project);
@@ -122,4 +206,4 @@ class TaskStore {
     return {...this.status(id, project), summary: 'Cancellation recorded; query task status until the worker reports a terminal state.'};
   }
 }
-module.exports = {TaskStore, FINAL};
+module.exports = {TaskStore, FINAL, waitMilliseconds};

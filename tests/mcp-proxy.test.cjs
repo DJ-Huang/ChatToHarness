@@ -3,11 +3,26 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const {PassThrough}=require('node:stream');
 const path=require('node:path');
+const os=require('node:os');
 const projectA=path.resolve(path.sep,'project-a');
 const projectB=path.resolve(path.sep,'project-b');
 const inProject=(target,root)=>target===root||target.startsWith(root+path.sep);
 const {McpProxy,wireProtocol,toolPaths}=require('../app/mcp-proxy.cjs');
 const {AjvJsonSchemaValidator}=require('@modelcontextprotocol/sdk/validation/ajv');
+test('terminal waits are bounded without changing commands, handles or third-party arguments',async()=>{
+  const f=fixture({enabled:false});
+  try{
+    await f.proxy.client(call('terminal-cap','start_process',{command:'interactive fixture',timeout_ms:120000,context_paths:[]}));
+    assert.equal(f.server[0].params.arguments.timeout_ms,10000);assert.equal(f.server[0].params.arguments.command,'interactive fixture');
+    await f.proxy.server({jsonrpc:'2.0',id:'terminal-cap',result:{content:[{type:'text',text:'Process started with PID 42'}]}});
+    assert.equal(f.client[0].result.structuredContent.effective_wait_ms,10000);
+    assert.equal(f.client[0].result.structuredContent.requested_wait_ms,120000);
+    await f.proxy.client(call('terminal-read','read_process_output',{pid:42,timeout_ms:20000}));
+    assert.equal(f.server[1].params.arguments.pid,42);assert.equal(f.server[1].params.arguments.timeout_ms,10000);
+    await f.proxy.client(call('external','external__run',{timeout_ms:120000}));
+    assert.equal(f.server[2].params.arguments.timeout_ms,120000);
+  }finally{f.proxy.dispose();}
+});
 
 function fixture(options={}) {
   const client=[],server=[],validations=[];
@@ -31,6 +46,23 @@ function fixture(options={}) {
   return {proxy,client,server,validations,contexts};
 }
 const call=(id,name,args)=>({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:args}});
+
+test('out-of-scope log reads suggest saved diagnostics without forwarding or expanding access',async()=>{
+  const f=fixture();
+  try{
+    f.contexts.prepare=async()=>{throw Object.assign(new Error('The explicit project does not contain every target.'),{code:'TARGET_OUTSIDE_PROJECT',details:{path:projectA}});};
+    await f.proxy.client(call('logs','list_directory',{project_path:projectA,path:path.join(projectB,'Library','Logs')}));
+    const result=f.client.at(-1).result.structuredContent;
+    assert.equal(result.code,'TARGET_OUTSIDE_PROJECT');assert.equal(result.operation_executed,false);
+    assert.equal(result.next_tool,'get_harness_status');assert.deepEqual(result.next_arguments,{});
+    assert.match(result.instructions,/get_execution_summary/);assert.match(result.instructions,/Do not broaden/);
+    assert.equal(f.server.length,0);
+    await f.proxy.client(call('other','read_file',{project_path:projectA,path:path.join(projectB,'data.txt')}));
+    assert.equal(f.client.at(-1).result.structuredContent.next_action,'choose_authorized_target');
+    assert.equal(f.client.at(-1).result.structuredContent.next_tool,undefined);
+    assert.equal(f.server.length,0);
+  }finally{f.proxy.dispose();}
+});
 
 test('first write is blocked, context is delivered, explicit retry strips adapter fields',async()=>{
   const f=fixture();
@@ -68,6 +100,37 @@ test('initialize and paginated discovery preserve protocol metadata and extend o
   await f.proxy.client({jsonrpc:'2.0',id:2,method:'tools/list',params:{cursor:'next'}});
   await f.proxy.server({jsonrpc:'2.0',id:2,result:{tools:[]}});
   assert.equal(f.client[2].result.tools[0].name,'get_project_context');
+});
+
+test('compact builtin descriptions preserve schemas, format semantics and permission annotations without chunked-write advice',t=>{
+  const f=fixture();t.after(()=>f.proxy.dispose());
+  const cases={
+    write_file:[/apply_project_edit/,/UTF-8/,/Excel/,/sheet-name/,/DOCX/,/write_pdf/],
+    write_pdf:[/Markdown/,/HTML\/CSS/,/SVG/,/different outputPath/,/0-based/,/sourcePdfPath/,/page-break-before/],
+    list_directory:[/depth defaults to 2/,/use 1/,/Root entries are complete/,/100/,/hidden-count/],
+    read_multiple_files:[/one call/,/Individual read errors/,/PNG/,/WebP/],
+    edit_block:[/old_string\/new_string/,/exact whitespace/,/expected_replacements/,/default 1/,/DOCX/,/XML/,/header\/footer/,/A1:C10/,/2D-array/,/apply_project_edit/],
+    read_process_output:[/offset=0 reads NEW/,/positive offsets.*0-based/,/negative offsets/,/timeout_ms/,/fileReadLineLimit/,/still running/,/get_task_result/],
+    get_more_search_results:[/sessionId/,/0-based/,/negative offset/,/ignores length/,/defaults to 100/,/search_project/],
+  };
+  for(const [name,semantics]of Object.entries(cases)){
+    const inputSchema={type:'object',properties:{path:{type:'string'},content:{type:'string'},mode:{enum:['rewrite','append']},options:{type:'object'}},required:['path'],additionalProperties:false};
+    const original={name,description:'Legacy instructions: split writes into 25-30 lines and make separate calls.',inputSchema,annotations:{title:'Kept title',vendor:'keep'}};
+    const tool=f.proxy.decorateTool(original);
+    for(const expression of semantics)assert.match(tool.description,expression,name);
+    assert.doesNotMatch(tool.description,/25.?30|CHUNKED WRITES|make separate calls/i,name);
+    assert.deepEqual(tool.inputSchema.required,inputSchema.required,name);
+    for(const [key,value]of Object.entries(inputSchema.properties))assert.deepEqual(tool.inputSchema.properties[key],value,name+' '+key);
+    assert.equal(tool.inputSchema.additionalProperties,false,name);
+    assert.equal(tool.annotations.title,'Kept title');assert.equal(tool.annotations.vendor,'keep');
+    const mutating=['write_file','write_pdf','edit_block'].includes(name);
+    assert.equal(tool.annotations.readOnlyHint,!mutating,name);assert.equal(tool.annotations.destructiveHint,mutating,name);
+    assert.equal(tool.annotations.openWorldHint,false,name);
+    assert.equal(tool.annotations.idempotentHint,!mutating&&name!=='read_process_output',name);
+    assert.equal(original.description,'Legacy instructions: split writes into 25-30 lines and make separate calls.');
+  }
+  const external={name:'vendor__write_file',description:'External service contract.',inputSchema:{type:'object'},annotations:{readOnlyHint:false}};
+  assert.deepEqual(f.proxy.decorateTool(external),external,'unrecognized third-party descriptions are unchanged');
 });
 
 test('terminal response delivers original output alongside project guidance in both result formats',async t=>{
@@ -163,6 +226,95 @@ test('shell targets are declared without parsing command; continuations retain o
   assert.equal(f.client.at(-1).result.structuredContent.code,'context_origin_unknown');
 });
 
+test('terminal scope defaults only from an explicit project and never replaces explicit arguments',async t=>{
+  const f=fixture();t.after(()=>f.proxy.dispose());
+  const original={command:'opaque shell',project_path:projectA,project_context_tokens:['a']};
+  await f.proxy.client(call('default','start_process',original));
+  assert.deepEqual(f.validations.at(-1).paths,[projectA]);
+  assert.deepEqual(f.server.at(-1).params.arguments,{command:'opaque shell'},'guidance scope does not change shell arguments or cwd');
+  assert.ok(!Object.hasOwn(original,'context_paths'),'normalization does not mutate caller arguments');
+  const child=path.join(projectA,'child');
+  await f.proxy.client(call('explicit','start_process',{...original,context_paths:[child]}));
+  assert.deepEqual(f.validations.at(-1).paths,[child]);
+  await f.proxy.client(call('diagnostic','start_process',{...original,context_paths:[]}));
+  assert.deepEqual(f.validations.at(-1).paths,[]);
+  const forwarded=f.server.length;
+  for(const [index,value]of [null,undefined,'invalid',[null],[''],['bad\0path']].entries()){
+    await f.proxy.client(call('invalid'+index,'start_process',{...original,context_paths:value}));
+    assert.equal(f.client.at(-1).result.structuredContent.code,'invalid_context_paths');
+  }
+  for(const [index,value]of [undefined,'','relative',42,'/bad\0project'].entries()){
+    await f.proxy.client(call('project'+index,'start_process',{command:'opaque shell',project_path:value}));
+    const result=f.client.at(-1).result;
+    assert.equal(result.structuredContent.code,'context_paths_required');
+    assert.equal(result.structuredContent.recovery_kind,'needs_arguments');
+    assert.equal(result.structuredContent.next_tool,'start_process');
+    assert.deepEqual(JSON.parse(result.content[0].text),result.structuredContent);
+  }
+  assert.equal(f.server.length,forwarded);
+  const schema=f.proxy.decorateTool({name:'start_process',inputSchema:{required:['command']}}).inputSchema;
+  assert.match(schema.properties.context_paths.description,/defaults to \[project_path\]/);
+  assert.deepEqual(schema.required,['command']);
+  const validate=new AjvJsonSchemaValidator().getValidator(schema);
+  assert.equal(validate({command:'fixture'}).valid,false);
+  assert.equal(validate({command:'fixture',project_path:projectA}).valid,true);
+  assert.equal(validate({command:'fixture',context_paths:[]}).valid,true);
+  const disabled=fixture({enabled:false});t.after(()=>disabled.proxy.dispose());
+  await disabled.proxy.client(call('disabled','start_process',{command:'fixture'}));
+  assert.equal(disabled.server.length,1);
+  assert.equal(disabled.proxy.decorateTool({name:'start_process',inputSchema:{}}).inputSchema.allOf,undefined);
+});
+
+test('returned terminal guidance can be read and retried directly, including a later rule refresh',async t=>{
+  const fs=require('node:fs');
+  const {ProjectContexts}=require('../app/project-context.cjs');
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'cth-terminal-retry-')));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const guidance=path.join(root,'AGENTS.md');fs.writeFileSync(guidance,'Original project instructions.');
+  const contexts=new ProjectContexts({defaultDirectory:root,allowedDirectories:[root]});
+  const client=[],server=[],proxy=new McpProxy({contexts,defaultDirectory:root,sendClient:async value=>client.push(value),sendServer:async value=>server.push(value)});
+  t.after(()=>proxy.dispose());
+  const input={command:'opaque shell',project_path:root};
+  await proxy.client(call('initial','start_process',input));
+  const first=client.at(-1).result;
+  assert.deepEqual(JSON.parse(first.content[0].text),first.structuredContent);
+  const data=first.structuredContent;
+  assert.equal(data.code,'PROJECT_CONTEXT_REFRESH_REQUIRED');
+  assert.equal(data.next_tool,'start_process');
+  assert.equal(data.next_action,'read_contexts_then_retry');
+  assert.equal(data.execution_state,'not_started');assert.equal(data.operation_executed,false);
+  assert.equal(data.contexts[0].agents[0].content,'Original project instructions.');
+  assert.deepEqual(data.retry_patch.project_context_tokens,[data.contexts[0].project_context_token]);
+  assert.equal(server.length,0);
+  await proxy.client(call('retry','start_process',{...input,...data.retry_patch}));
+  assert.equal(server.length,1,'explicit retry forwards exactly once without another context call');
+  assert.deepEqual(server[0].params.arguments,{command:'opaque shell'});
+  fs.writeFileSync(guidance,'Changed project instructions that must be delivered again.');
+  await proxy.client(call('changed','start_process',{...input,...data.retry_patch}));
+  const changed=client.at(-1).result.structuredContent;
+  assert.equal(changed.code,'PROJECT_CONTEXT_REFRESH_REQUIRED');
+  assert.equal(changed.contexts[0].agents[0].content,'Changed project instructions that must be delivered again.');
+  assert.notDeepEqual(changed.retry_patch,data.retry_patch);
+  assert.equal(server.length,1);
+  await proxy.client(call('refreshed','start_process',{...input,...changed.retry_patch}));
+  assert.equal(server.length,2);
+  await proxy.client(call('unauthorized','start_process',{...input,project_path:path.dirname(root)}));
+  assert.equal(client.at(-1).result.structuredContent.code,'PATH_NOT_ALLOWED');
+  assert.equal(server.length,2,'default guidance scope cannot expand authorized folders');
+});
+
+test('incomplete guidance still requests loading and never supplies a partial retry patch',async t=>{
+  const f=fixture();t.after(()=>f.proxy.dispose());
+  f.contexts.prepare=async()=>({needsDelivery:true,contexts:[{project_context_token:'partial'}]});
+  await f.proxy.client(call('partial','start_process',{command:'opaque shell',project_path:projectA}));
+  const result=f.client.at(-1).result;
+  assert.equal(result.structuredContent.next_tool,'get_project_context');
+  assert.equal(result.structuredContent.next_action,'load_project_context_then_retry');
+  assert.equal(result.structuredContent.retry_patch,undefined);
+  assert.deepEqual(JSON.parse(result.content[0].text),result.structuredContent);
+  assert.equal(f.server.length,0);
+});
+
 test('search continuation validates the original target scope',async()=>{
   const f=fixture();
   await f.proxy.client(call('s','start_search',{path:projectA,pattern:'hello',project_context_tokens:['a']}));
@@ -211,7 +363,10 @@ test('disabled gating keeps Desktop Commander behavior and strips fields',async(
 });
 
 test('all tools omit optional widget rendering hints while preserving unrelated metadata and schemas',()=>{
-  const f=fixture();
+  // Desktop Commander advertises resources even when a plain text read should
+  // not ask ChatGPT to launch its file viewer.
+
+  const f=fixture();f.proxy.upstreamCapabilities={resources:{}};
   for (const name of ['get_config','read_file']) {
     const schema={type:'object',properties:{path:{type:'string'}},required:['path']};
     const original={name,inputSchema:schema,annotations:{readOnlyHint:true},_meta:{'ui/resourceUri':'ui://preview','openai/outputTemplate':'ui://preview','openai/widgetAccessible':true,ui:{resourceUri:'ui://preview',visibility:['model']},'vendor/keep':'preserved'}};

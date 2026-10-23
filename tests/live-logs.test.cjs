@@ -75,6 +75,34 @@ test('old/invalid records cannot expose sensitive keys, and errors have a separa
   assert.equal(result.entries[1].category, 'connection');
 });
 
+test('command failures expose their exit code without copying task output into live logs',t=>{
+  const dir=home(t),feed=new LiveLogs(dir);
+  append(dir,row('execution',{service:'Harness',tool:'start_task',state:'failed',error_code:'TASK_EXIT_NONZERO',exit_code:23}));
+  const entry=feed.read().entries[0];
+  assert.equal(entry.exit_code,23);assert.equal(entry.severity,'error');assert.match(entry.message,/TASK_EXIT_NONZERO.*exit_code=23/);
+});
+
+test('only known built-in pre-execution recovery is informational and transport failures remain errors',t=>{
+  const dir=home(t),feed=new LiveLogs(dir);
+  const base={request_id:'exec_fixture',tool:'start_process',service:'builtin',state:'failed',error_code:'PROJECT_CONTEXT_REFRESH_REQUIRED'};
+  append(dir,row('execution',base));
+  append(dir,row('execution',{...base,execution_state:'not_started',delivery:'local_write_succeeded'}));
+  append(dir,row('execution',{...base,error_code:'context_paths_required'}));
+  for(const patch of [
+    {error_code:'PATH_NOT_ALLOWED'},{error_code:'invalid_context_paths'},
+    {execution_state:'unknown'},{service:'external',recovery_kind:'needs_context'},
+    {delivery:'local_write_failed'},{state:'succeeded',error_code:'',delivery:'local_write_failed'},
+  ])append(dir,row('execution',{...base,...patch}));
+  const entries=feed.read().entries;
+  assert.equal(entries[0].recovery_kind,'needs_context','legacy errors infer their pre-execution meaning');
+  assert.equal(entries[0].severity,'info');
+  assert.equal(entries[1].severity,'info');assert.equal(entries[1].delivery,'local_write_succeeded');
+  assert.equal(entries[1].request_id,base.request_id);
+  assert.equal(entries[2].recovery_kind,'needs_arguments');
+  for(const entry of entries.slice(3)){assert.equal(entry.severity,'error');assert.equal(entry.recovery_kind,undefined);}
+  assert.equal(entries.length,9,'raw event feed retains both execution and transport updates');
+});
+
 test('max bytes, count and file safety bound reads even with large or redirected logs', t => {
   const dir = home(t), feed = new LiveLogs(dir);
   for (let i = 0; i < 700; ++i) append(dir, row('mcp-call', {tool: 'tool_'+i}));
@@ -124,4 +152,26 @@ test('incremental pages never skip events across a rotated log', t => {
   assert.equal(collected.filter(s=>s.includes('old_')).length,37);
   assert.equal(collected.filter(s=>s.includes('new_')).length,41);
   assert.equal(new Set(collected).size,78);
+});
+
+test('unknown delivery is normal while executing; terminal unknown and actual write failures remain errors',t=>{
+  const dir=home(t),feed=new LiveLogs(dir);
+  for(const state of ['received','waiting_approval','submitted','running','cancelling'])append(dir,row('execution',{state,delivery:'unknown',tool:'read_file',error_code:undefined}));
+  append(dir,row('execution',{state:'succeeded',delivery:'unknown',tool:'read_file'}));
+  append(dir,row('execution',{state:'unknown',delivery:'local_write_succeeded',tool:'read_file'}));
+  append(dir,row('execution',{state:'running',delivery:'local_write_failed',tool:'read_file'}));
+  const entries=feed.read().entries;
+  for(const entry of entries.slice(0,5)){assert.equal(entry.severity,'info');assert.ok(!entry.message.includes('[omitted]'));}
+  for(const entry of entries.slice(5))assert.equal(entry.severity,'error');
+});
+
+test('legacy omitted optional execution fields are absent, and undefined fields are not serialized',t=>{
+  const {safeFields}=require('../app/diagnostic-budget.cjs');
+  assert.deepEqual(safeFields({error_code:undefined,execution_state:undefined,nested:{optional:undefined},state:'received'}),{nested:{},state:'received'});
+  const dir=home(t),feed=new LiveLogs(dir);
+  append(dir,row('execution',{state:'running',delivery:'unknown',error_code:'[omitted]',execution_state:'[omitted]',tool:'read_file',service:'Harness'}));
+  const entry=feed.read().entries[0];
+  assert.equal(entry.message,'Harness · read_file · running');
+  assert.equal(entry.error_code,'');
+  assert.equal(entry.severity,'info');
 });

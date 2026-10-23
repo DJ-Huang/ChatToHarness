@@ -28,11 +28,58 @@ test('execution progresses in place; restart preserves completed records and mar
   const pending=history.begin('mutation',{});history.close();const restarted=new ExecutionHistory(home);t.after(()=>restarted.close());
   assert.equal(restarted.get(id).state,'succeeded');assert.equal(restarted.get(id).delivery,'local_write_failed');assert.equal(restarted.get(id).remote_ack,'unknown');assert.equal(restarted.get(pending).state,'unknown');assert.equal(restarted.rows().length,2);
 });
+
+test('recoverable pre-execution records retain failure state and present legacy history consistently',t=>{
+  const {history}=fixture(t);
+  const make=(code,options={})=>{
+    const id=history.begin('start_process',{},options.service||'builtin');
+    history.complete(id,{isError:true,structuredContent:{code,execution_state:options.execution_state||'not_started',retry_patch:{project_context_tokens:['must-not-be-stored']}}});
+    return id;
+  };
+  const missing=make('context_paths_required'),guidance=make('PROJECT_CONTEXT_REFRESH_REQUIRED');
+  assert.equal(history.get(missing).state,'failed');
+  assert.equal(history.get(missing).execution_state,'not_started');
+  assert.equal(history.get(missing).recovery_kind,'needs_arguments');
+  assert.equal(history.get(guidance).recovery_kind,'needs_context');
+  assert.ok(!JSON.stringify(history.rows()).includes('must-not-be-stored'));
+  assert.equal(history.list({tab:'errors'}).total,0);
+  const legacy=history.begin('start_process',{},'builtin');
+  const row={...history.get(legacy),state:'failed',error_code:'PROJECT_CONTEXT_REFRESH_REQUIRED'};
+  fs.writeFileSync(history.file(legacy),JSON.stringify(row));
+  assert.equal(history.detail(legacy).recovery_kind,'needs_context');
+  assert.equal(history.list().records.find(r=>r.request_id===legacy).execution_state,'not_started');
+  assert.equal(history.export([legacy])[0].recovery_kind,'needs_context');
+  assert.equal(JSON.parse(fs.readFileSync(history.file(legacy))).execution_state,undefined,'old records need no rewrite');
+  const denied=make('PATH_NOT_ALLOWED'),invalid=make('invalid_context_paths');
+  const unknown=make('PROJECT_CONTEXT_REFRESH_REQUIRED',{execution_state:'unknown'});
+  const external=make('PROJECT_CONTEXT_REFRESH_REQUIRED',{service:'external'});
+  for(const id of [denied,invalid,unknown,external])assert.equal(history.get(id).recovery_kind,undefined);
+  history.update(guidance,{delivery:'local_write_failed'});
+  assert.equal(history.get(guidance).recovery_kind,undefined);
+  assert.equal(history.list({tab:'errors'}).total,5);
+});
 test('asynchronous submission links worker updates, cancellation and restart without claiming command success',t=>{
   const {history,home}=fixture(t);const task='task_'+'a'.repeat(64),dir=path.join(home,'tasks',task);fs.mkdirSync(dir,{recursive:true});
   const id=history.begin('start_task',{});history.complete(id,{structuredContent:{task_id:task,state:'queued'}});assert.equal(history.get(id).state,'submitted');assert.equal(history.get(id).finished_at,undefined);
   fs.writeFileSync(path.join(dir,'state.json'),JSON.stringify({state:'running',updated_at:history.now(),started_at:history.now()}));history.maintain();assert.equal(history.get(id).state,'running');
   fs.writeFileSync(path.join(dir,'state.json'),JSON.stringify({state:'succeeded',finished_at:history.now()}));history.maintain();assert.equal(history.get(id).state,'succeeded');assert.equal(history.get(id).task_id,task);
+});
+
+test('task synchronization preserves rejected idempotency requests and reports accepted command exits',t=>{
+  const {history,home}=fixture(t),task='task_'+'3'.repeat(64),dir=path.join(home,'tasks',task);fs.mkdirSync(dir,{recursive:true});
+  const accepted=history.begin('start_task',{});
+  history.complete(accepted,{structuredContent:{task_id:task,state:'queued',execution_state:'not_started'}});
+  fs.writeFileSync(path.join(dir,'state.json'),JSON.stringify({state:'failed',execution_state:'completed',operation_executed:true,exit_code:23,finished_at:history.now()}));
+  const rejected=history.begin('start_task',{});
+  history.complete(rejected,{isError:true,structuredContent:{task_id:task,code:'IDEMPOTENCY_CONFLICT',message:'Inspect original task.',execution_state:'not_started',operation_executed:false}});
+  const original=history.get(rejected);assert.equal(original.task_accepted,false);
+  history.maintain();assert.deepEqual(history.get(rejected),original);
+  assert.equal(history.get(accepted).error_code,'TASK_EXIT_NONZERO');assert.match(history.get(accepted).error_summary,/23/);
+  const legacy=history.begin('start_task',{}),legacyRow={...original,request_id:legacy};delete legacyRow.task_accepted;
+  fs.writeFileSync(history.file(legacy),JSON.stringify(legacyRow));
+  history.close();const restored=new ExecutionHistory(home);t.after(()=>restored.close());restored.maintain();
+  assert.equal(restored.get(rejected).error_code,'IDEMPOTENCY_CONFLICT');assert.equal(restored.get(rejected).execution_state,'not_started');
+  assert.equal(restored.get(legacy).error_code,'IDEMPOTENCY_CONFLICT');assert.equal(restored.get(legacy).task_finished,undefined);
 });
 test('safe summaries, bounded errors and opt-in diagnostic expiry use an injected clock',t=>{
   const {history,advance}=fixture(t);const args={command:'echo hidden',env:{KEY:'secret'},content:'file body',api_key:'credential',path:'/a'};
@@ -128,4 +175,49 @@ test('legacy failed task without a finished_at is still terminal',t=>{
  assert.equal(history.get(id).state,'failed');
  assert.equal(history.get(id).task_finished,true);
  assert.equal(history.get(id).error_code,'TASK_START_FAILED');
+});
+
+test('task maintenance replaces submission execution flags with actual worker state and exit code',t=>{
+  const {history,home}=fixture(t),task='task_'+'7'.repeat(64),dir=path.join(home,'tasks',task);
+  fs.mkdirSync(dir,{recursive:true});
+  const id=history.begin('start_task',{});
+  history.complete(id,{structuredContent:{task_id:task,execution_state:'not_started',operation_executed:false}});
+  fs.writeFileSync(path.join(dir,'state.json'),JSON.stringify({state:'running',updated_at:history.now(),started_at:history.now(),execution_state:'running',operation_executed:true}));
+  history.maintain();
+  assert.equal(history.get(id).execution_state,'running');
+  assert.equal(history.get(id).operation_executed,true);
+  fs.writeFileSync(path.join(dir,'state.json'),JSON.stringify({state:'failed',updated_at:history.now(),finished_at:history.now(),execution_state:'completed',operation_executed:true,exit_code:17}));
+  history.maintain();
+  assert.equal(history.get(id).state,'failed');
+  assert.equal(history.get(id).execution_state,'completed');
+  assert.equal(history.get(id).operation_executed,true);
+  assert.equal(history.get(id).exit_code,17);
+});
+
+test('ordinary built-in file calls retain bounded explicit scopes without inferring commands or third-party scope',t=>{
+  const {history}=fixture(t);
+  const read=history.begin('read_file',{path:'/project/readme.md'});
+  assert.deepEqual(history.get(read).scope_paths,['/project/readme.md']);
+  const many=history.begin('read_multiple_files',{paths:['/project/a','/other/b','/project/a']},'builtin');
+  assert.deepEqual(history.get(many).scope_paths,['/project/a','/other/b']);
+  const move=history.begin('move_file',{source:'/project/a',destination:'/other/b'},'builtin');
+  assert.deepEqual(history.get(move).scope_paths,['/project/a','/other/b']);
+  const edit=history.begin('edit_block',{file_path:'/project/a',options:{outputPath:'/project/b',sourcePdf:'/other/source.pdf'}},'builtin');
+  assert.deepEqual(history.get(edit).scope_paths,['/project/a','/project/b','/other/source.pdf']);
+  for(const [tool,args,service]of [
+    ['read_file',{project_path:'/project',path:'/project/a'},'builtin'],
+    ['read_file',{path:'/project/a'},'external'],
+    ['read_file',{path:'https://example.com/a'},'builtin'],
+    ['read_file',{path:'/project/a',isUrl:true},'builtin'],
+    ['read_file',{path:'relative/a'},'builtin'],
+    ['read_file',{path:'/project/'+ 'x'.repeat(600)},'builtin'],
+    ['read_multiple_files',{paths:['/project/a','relative/b']},'builtin'],
+    ['read_multiple_files',{paths:Array.from({length:129},(_,index)=>'/project/'+index)},'builtin'],
+    ['edit_block',{file_path:'/project/a',content:'[{"sourcePdfPath":"/other/source.pdf"}]'},'builtin'],
+    ['start_process',{path:'/project',command:'cat /project/a',context_paths:['/project']},'builtin'],
+    ['unknown_tool',{path:'/project/a'},'Harness'],
+  ])assert.equal(history.get(history.begin(tool,args,service)).scope_paths,undefined,tool+' must not infer an incomplete scope');
+  const bounded=history.begin('read_multiple_files',{paths:Array.from({length:128},(_,index)=>'/p/'+index)},'builtin');
+  assert.equal(history.get(bounded).scope_paths.length,128);
+  assert.ok(Buffer.byteLength(JSON.stringify(history.get(bounded)))<24576);
 });

@@ -107,6 +107,17 @@ test('launcher returns application errors without replay and reports an incompat
   await assert.rejects(busy.launch(),/从菜单选择.*退出 ChatToHarness.*一次/);assert.equal(clock,500);assert.equal(attempts,3);
 });
 
+test('menu restarts work after long development sessions and clean the owned tree before each launch',async()=>{
+  let clock=0;const order=[];const exits=[76,76,0];
+  const launcher=new DevelopmentLauncher({binary:'/electron',now:()=>clock,pause:async()=>{throw new Error('menu restarts need no contention delay');},
+    stop:async()=>{order.push('cleanup');},spawnChild:()=>{
+      order.push('launch');const child=fakeChild();
+      queueMicrotask(()=>{clock+=60000;child.finish(exits.shift());});return child;
+    }});
+  assert.equal(await launcher.launch(),0);
+  assert.deepEqual(order,['launch','cleanup','launch','cleanup','launch','cleanup']);
+});
+
 test('shutdown first allows normal application cleanup, cancels replacement retries and remains idempotent',async()=>{
   const child=fakeChild();const order=[];let timerCancelled=false;
   child.kill=signal=>{order.push(signal);queueMicrotask(()=>{order.push('application cleanup');child.finish(0);});return true;};

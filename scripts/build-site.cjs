@@ -76,7 +76,7 @@ if(require.main===module)(async()=>{
   const fixture=process.argv.indexOf('--fixture');
   const load=fixture>=0?async()=>JSON.parse(fs.readFileSync(process.argv[fixture+1],'utf8')):publishedReleases;
   const event=process.env.GITHUB_EVENT_PATH?JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')):{};
-  const {releases,info}=await prepareDeployment({load,event,eventName:process.env.GITHUB_EVENT_NAME,ref:process.env.GITHUB_REF});
+  const {releases,info}=await prepareDeployment({load,event,eventName:process.env.GITHUB_EVENT_NAME,ref:process.env.GITHUB_REF,releaseTag:process.env.CTH_RELEASE_TAG||''});
   build(releases);
   if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`version=${info.version}\n`);
   console.log('Website built:',info.version);

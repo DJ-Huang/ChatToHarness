@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {safeFields, sanitize} = require('./diagnostic-budget.cjs');
+const {recoveryKind} = require('./tool-recovery.cjs');
 
 const MAX_BYTES = 128 * 1024;
 const MAX_LINES = 200;
@@ -30,10 +31,18 @@ function format(line, source, offset) {
   try { data = JSON.parse(line); } catch { return null; }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const safe = safeFields(data);
+  // Older releases serialized absent execution metadata as [omitted]. This is
+  // not an error code or state, and must not obscure the real transition.
+  if (safe.event === 'execution') for (const key of ['state', 'phase', 'error_code', 'errorCode', 'code', 'error', 'delivery', 'execution_state', 'recovery_kind']) {
+    if (safe[key] === '[omitted]') delete safe[key];
+  }
   const event = sanitize(safe.event || 'event', 120);
   const state = String(safe.state || safe.phase || '');
   const code = String(safe.error_code || safe.errorCode || safe.code || safe.error || '');
-  const severity = /(?:fail|error|timeout|denied|disconnect|interrupted|unknown)/i.test([event, state, code].join(' ')) ? 'error' : 'info';
+  const recovery = event === 'execution' ? recoveryKind(safe) : undefined;
+  const active = ['received', 'waiting_approval', 'submitted', 'running', 'cancelling'].includes(state);
+  const delivery = safe.delivery === 'unknown' && active ? '' : safe.delivery;
+  const severity = recovery ? 'info' : /(?:fail|error|timeout|denied|disconnect|interrupted|unknown)/i.test([event, state, code, delivery].join(' ')) ? 'error' : 'info';
   const category = event === 'execution' || /^mcp-(?:call|tool|catalog|session|list)/.test(event) ? 'tool'
     : /(?:connection|connect|runtime|tunnel|gateway|start|stop)/i.test(event) ? 'connection' : 'system';
   const extra = {...safe};
@@ -42,6 +51,7 @@ function format(line, source, offset) {
   if (event === 'execution') {
     message = [extra.service, extra.tool, extra.state].filter(Boolean).join(' · ');
     if (extra.error_code) message += ' · ' + extra.error_code;
+    if (Number.isInteger(extra.exit_code)) message += ' · exit_code=' + extra.exit_code;
     if (extra.delivery && extra.delivery !== 'unknown') message += ' · ' + extra.delivery;
   } else {
     const detail = Object.keys(extra).length ? sanitize(JSON.stringify(extra), 900) : '';
@@ -52,6 +62,10 @@ function format(line, source, offset) {
     at: typeof safe.time === 'string' ? sanitize(safe.time, 40) : '',
     event, category, severity,
     message: sanitize(message, 1100),
+    ...(event==='runtime'?{state}:{}),
+    ...(event==='runtime-retry'?{attempt:safe.attempt,delay_ms:safe.delay_ms,reason:safe.reason}:{}),
+    ...(event === 'execution' ? {request_id: safe.request_id, service: safe.service, tool: safe.tool,
+      state, error_code: code, delivery: safe.delivery, recovery_kind: recovery, ...(Number.isInteger(safe.exit_code)?{exit_code:safe.exit_code}:{})} : {}),
   };
 }
 function take(source, offset, {tail = false, limit = MAX_LINES} = {}) {
@@ -131,4 +145,18 @@ class LiveLogs {
     }
   }
 }
-module.exports = {LiveLogs, MAX_BYTES, MAX_LINES};
+// Connection diagnostics are application-wide metadata, never project tool
+// history. Do not expose arbitrary JSONL fields, raw messages, paths or URLs.
+function connectionDiagnostics(home,{since,limit=10}={}) {
+  const events=[],states=new Set(['unconfigured','stopped','authorizing','checking','starting','ready','reconnecting','failed']);
+  for(const name of SOURCES){
+    const source=openLog(home,name);if(!source)continue;
+    try{for(const entry of take(source,0,{tail:true}).entries){
+      if(!Number.isFinite(Date.parse(entry.at))||since&&Date.parse(entry.at)<Date.parse(since))continue;
+      if(entry.event==='runtime'&&states.has(entry.state))events.push({at:entry.at,state:entry.state});
+      if(entry.event==='runtime-retry'&&Number.isSafeInteger(entry.attempt)&&entry.attempt>0&&Number.isSafeInteger(entry.delay_ms)&&entry.delay_ms>=0&&entry.delay_ms<=30000&&['network','process'].includes(entry.reason))events.push({at:entry.at,state:'retry_scheduled',attempt:entry.attempt,delay_ms:entry.delay_ms,reason:entry.reason});
+    }}finally{fs.closeSync(source.fd);}
+  }
+  return {scope:'application_connection',bounded:true,history_may_be_incomplete:true,events:events.slice(-Math.max(1,Math.min(20,limit)))};
+}
+module.exports = {LiveLogs, MAX_BYTES, MAX_LINES, connectionDiagnostics};

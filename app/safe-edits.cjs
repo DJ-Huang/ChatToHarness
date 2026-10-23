@@ -6,6 +6,7 @@ const {atomicJson, readJson, privateDirectory, syncDirectory} = require('./durab
 const {fail} = require('./project-inspect.cjs');
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const MAX_EDIT_BYTES = 1024 * 1024;
+const VERIFICATION_TEXT_BYTES = 4096;
 function current(file) {
   let fd;
   try {
@@ -27,6 +28,45 @@ function replaceChecked(file, bytes, expected, mode, beforeCommit = () => {}) {
     syncDirectory(path.dirname(file));
   } finally { if (fd !== undefined) fs.closeSync(fd); try { fs.unlinkSync(temporary); } catch {} }
 }
+function verificationFor(file, expected) {
+  const checked_at = new Date().toISOString();
+  try {
+    // Reopen the committed path. Never echo the input or assume a historical
+    // idempotency result still describes the bytes currently on disk.
+    const observed = current(file), bytes = observed.bytes || Buffer.alloc(0);
+    let end = Math.min(bytes.length, VERIFICATION_TEXT_BYTES);
+    while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--;
+    return {status: observed.sha256 === expected ? 'matched' : 'changed', expected_sha256: expected,
+      sha256: observed.sha256, bytes: bytes.length, text: bytes.subarray(0, end).toString('utf8'),
+      complete: end === bytes.length, truncated: end < bytes.length, checked_at};
+  } catch (error) {
+    return {status: 'unavailable', expected_sha256: expected, sha256: null, bytes: null, complete: false, truncated: false,
+      checked_at, error: {code: error.code || 'EDIT_READBACK_FAILED', message: 'The current file could not be safely reopened for verification.'}};
+  }
+}
+function verifiedResult(result, verification, {reused = false} = {}) {
+  const next = {...result, verification, current_sha256: verification.sha256};
+  if (reused) {
+    next.reused = true;
+    if (verification.status === 'changed') next.summary = 'This operation was recorded earlier. The current file has changed; no write was repeated.';
+    else if (verification.status === 'unavailable') next.summary = 'This operation was recorded earlier. Its current file could not be verified; no write was repeated.';
+    else {
+      next.summary = 'This operation was recorded earlier. Its expected file bytes were verified again; no write was repeated.';
+      if (result.state === 'applied_but_unverified') Object.assign(next, {state: 'applied', operation_executed: true, execution_state: 'completed', recovered: true});
+    }
+  } else if (verification.status === 'matched') next.summary += ' The resulting file bytes were reopened and verified.';
+  else {
+    next.state = 'applied_but_unverified';
+    next.summary = verification.status === 'changed' ? 'The operation completed, but the reopened file differs from the expected result.' : 'The write completed, but its resulting file bytes could not be verified.';
+  }
+  return next;
+}
+function requireVerified(result) {
+  if (result.verification.status === 'matched') return result;
+  const changed = result.verification.status === 'changed';
+  throw fail(`EDIT_VERIFICATION_${changed ? 'FAILED' : 'UNAVAILABLE'}`,
+    changed ? 'The file was reopened after the operation but does not match its expected checksum. Inspect the observed content; this operation will not be replayed.' : 'The resulting file could not be safely reopened. Inspect the file or retry this exact operation identity to verify it without replaying the write.', result);
+}
 class SafeEdits {
   constructor(home) { this.directory = path.join(home, 'edits'); }
   existing(input) {
@@ -46,25 +86,27 @@ class SafeEdits {
       const request = readJson(path.join(directory, 'request.json'));
       if (request.fingerprint !== fingerprint) throw fail('IDEMPOTENCY_CONFLICT', 'This key already identifies another edit.', {undo_id: id});
       let result; try { result = readJson(path.join(directory, 'result.json')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      const observed = current(file_path).sha256;
-      if (result) return {...result, reused: true, current_sha256: observed};
-      if (observed === after) { result = {...request.result, recovered: true}; atomicJson(path.join(directory, 'result.json'), result); return result; }
-      throw fail('EDIT_INTERRUPTED', 'An earlier edit with this key has no confirmed result. Inspect the file and saved backup; this request will not replay it.', {undo_id: id, operation_executed: null, execution_state: 'unknown', current_sha256: observed});
+      const verification = verificationFor(file_path, after);
+      if (result) return verifiedResult(result, verification, {reused: true});
+      if (verification.status === 'matched') { result = verifiedResult({...request.result, recovered: true}, verification); atomicJson(path.join(directory, 'result.json'), result); return result; }
+      throw fail('EDIT_INTERRUPTED', 'An earlier edit with this key has no confirmed result. Inspect the file and saved backup; this request will not replay it.', {undo_id: id, operation_executed: null, execution_state: 'unknown', current_sha256: verification.sha256, verification});
     }
     const before = current(file_path);
     if (before.sha256 !== expected_sha256) throw fail('EDIT_CONFLICT', 'The file no longer matches the content you read.', {expected_sha256, current_sha256: before.sha256});
     if (fs.readdirSync(this.directory).length >= 1024) throw fail('EDIT_STORE_FULL', 'Archive old edit history before creating further undo records.');
     fs.mkdirSync(directory, {mode: 0o700});
-    const result = {summary: `Saved ${path.basename(file_path)} with an undo record.`, state: 'applied', undo_id: id, project_path, path: file_path, before_sha256: before.sha256, after_sha256: after, operation_executed: true, execution_state: 'completed', completed_at: new Date().toISOString()};
+    let result = {summary: `Saved ${path.basename(file_path)} with an undo record.`, state: 'applied', undo_id: id, project_path, path: file_path, before_sha256: before.sha256, after_sha256: after, operation_executed: true, execution_state: 'completed', completed_at: new Date().toISOString()};
     const request = {schema: 1, fingerprint, file_path, project_path, mode: before.mode, before_sha256: before.sha256, after_sha256: after, result};
     if (before.bytes !== null) { const fd = fs.openSync(path.join(directory, 'before.bin'), 'wx', 0o600); fs.writeFileSync(fd, before.bytes); fs.fsyncSync(fd); fs.closeSync(fd); }
     atomicJson(path.join(directory, 'request.json'), request); syncDirectory(this.directory);
     let commitAttempted = false;
     try {
       replaceChecked(file_path, bytes, expected_sha256, before.mode, () => { commitAttempted = true; });
-      atomicJson(path.join(directory, 'result.json'), result); return {...result, reused: false};
+      result = verifiedResult(result, verificationFor(file_path, after));
+      atomicJson(path.join(directory, 'result.json'), result); requireVerified(result); return {...result, reused: false};
     } catch (error) {
-      if (commitAttempted) throw fail('EDIT_RESULT_UNCONFIRMED', 'The edit may have been written but its result could not be recorded. Inspect the file or retry this exact key to recover its result.', {undo_id: id, operation_executed: null, execution_state: 'unknown'});
+      if (/^EDIT_VERIFICATION_(FAILED|UNAVAILABLE)$/.test(error.code || '')) throw error;
+      if (commitAttempted) throw fail('EDIT_RESULT_UNCONFIRMED', 'The edit may have been written but its result could not be recorded. Inspect the file or retry this exact key to recover its result.', {undo_id: id, operation_executed: null, execution_state: 'unknown', ...(result.verification ? {verification: result.verification} : {})});
       throw error;
     }
   }
@@ -95,4 +137,4 @@ class SafeEdits {
     }
   }
 }
-module.exports = {SafeEdits, current, replaceChecked};
+module.exports = {SafeEdits, current, replaceChecked, VERIFICATION_TEXT_BYTES};

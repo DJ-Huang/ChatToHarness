@@ -1,6 +1,6 @@
 {
   "name": "chat-to-harness",
-  "version": "0.7.3",
+  "version": "0.6.2",
   "private": true,
   "description": "Connect AI chat to your local harness.",
   "author": "ChatToHarness contributors",

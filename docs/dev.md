@@ -617,3 +617,9 @@ Setup and exact supported calls: [windows-computer-use.md](windows-computer-use.
 - [ ] 同步后的 Windows 原生安装包/完整真 GUI 回归仍需在 Windows 主机验证；当前 Mac 上的已安装版不等于新合并的工作区。
 - [ ] 用户反馈的 Windows 鼠标在目标窗口外跳回/抖动仍未关闭；PR 应先保持 Draft，不应假称全部验收完成。
 - **目标 PR**：`DJ-Huang/ChatToHarness:main` ← `watermoon/ChatToHarness:feat/computer-use`。提交前确认远程分支未被他人推进，避免强制推送。
+
+## 2026-10-23 版本号对齐上游（PR #18）
+
+- [x] 按用户要求，以 `DJ-Huang/ChatToHarness:main` 当前应用版本 `0.6.2` 为准，将 `package.json`、根目录 `package-lock.json` 的应用根版本统一从 `0.7.3` 调整为 `0.6.2`。此前合并记录中“保留开发分支 0.7.3”的说明仅是合并当时的历史状态，本条为后续覆盖决策。
+- [x] 第三方依赖（如 `iconv-lite@0.7.3`）、既有旧版本安装验收报告与 `release-notes/v0.7.3.md` 均属于依赖数据或历史事实，不能作为当前应用版本直接替换。
+- [ ] 本次版本声明同步不等于生成或安装 `0.6.2` 安装包；新安装包仍需单独构建验证。目标仍是上游 Draft PR [#18](https://github.com/DJ-Huang/ChatToHarness/pull/18)。

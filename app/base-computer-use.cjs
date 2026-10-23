@@ -18,7 +18,7 @@ const definition = {
   inputSchema: {type: 'object', additionalProperties: false, required: ['action'], properties: {
     action: {type: 'string', enum: ACTIONS}, session_id: {type: 'string'}, observation_id: {type: 'string'}, window_id: {type: 'string', pattern: '^[1-9][0-9]{0,18}$'},
     session_title: {type: 'string', minLength: 1, maxLength: 80, description: 'Required for open_session. Actual task label; do not pass it off as the ChatGPT conversation title.'},
-    conversation_title: {type:'string',minLength:1,maxLength:80,description:'Optional: EXACT current ChatGPT/Codex conversation title provided by the host. Omit if not available; never guess or use the task label.'},
+    conversation_title: {type:'string',minLength:1,maxLength:80,description:'Optional: EXACT current ChatGPT/Codex conversation title from host metadata or explicitly supplied by the user. Pass it when known, including on a reused open_session; omit if unknown. Never guess or substitute the task label.'},
     format: {type: 'string', enum: ['auto', 'png', 'webp']},  delivery: {type: 'string', enum: ['auto', 'chunked']}, screenshot_id: {type: 'string'},
     offset: {type: 'integer', minimum: 0, maximum: MAX_CAPTURE_BYTES}, length: {type: 'integer', minimum: 1, maximum: MAX_CHUNK_BYTES},
     x: {type: 'integer', minimum: 0}, y: {type: 'integer', minimum: 0},
@@ -173,6 +173,7 @@ class BaseComputerUse {
     return {session_id: s.id, state: s.state, authorization_mode: this.authorizationMode, ...(s.windowId ? {window_id: s.windowId} : {}), expires_at: new Date(s.expiresAt).toISOString(),
       expires_in_ms: Math.max(0, s.expiresAt - Date.now()),
       stop_hotkey: s.inputEnabled === false ? null : 'Esc', mouse_button_held: !!s.mouseHeld,
+      ...(s.pointerDiagnostics?{pointer_diagnostics:s.pointerDiagnostics}:{}),
       ...(typeof s.inputEnabled === 'boolean' ? {input_enabled: s.inputEnabled} : {}),
       ...(s.inputBlockedReason ? {input_blocked_reason: s.inputBlockedReason} : {}),
       next_action: s.state === 'ready' ? (s.needsActivation ? 'activate' : 'observe') : 'get_session', ...(s.error ? {code: s.error} : {})};
@@ -218,11 +219,34 @@ class BaseComputerUse {
     try { const value = await native.ready; if (!Array.isArray(value.windows) || value.windows.length > 256) throw fail('CU_PROTOCOL_ERROR'); return this.result({authorization_mode:this.authorizationMode,windows:value.windows}); }
     finally { clearTimeout(timer); signal?.removeEventListener('abort',stop); native.stop(); }
   }
-  open(args) {
+  async open(args) {
     if (this.session) {
-      if (args.window_id && args.window_id !== this.session.windowId) throw fail('CU_SESSION_TARGET_MISMATCH');
+      const s=this.session;
+      if (args.window_id && args.window_id !== s.windowId) throw fail('CU_SESSION_TARGET_MISMATCH');
+      const updates=[['session_title','sessionTitle','set_session_title'],
+        ['conversation_title','conversationTitle','set_conversation_title']]
+        .filter(([argument,field])=>args[argument]!==undefined && args[argument].trim()!==s[field]);
+      if(updates.length) {
+        // A lost-open retry must not silently discard a subsequently supplied
+        // real chat title. Metadata uses the original authorized helper only.
+        if(s.state!=='ready'||this.busy||s.native.pending||this.taskRunner.active||this.agentRunner.active)
+          throw fail('CU_BUSY');
+        const operation={};this.operation=operation;this.busy=true;
+        const timer=setTimeout(()=>this.stop('CU_TIMEOUT',s),this.timeoutMs);
+        try {
+          for(const [argument,field,action] of updates) {
+            const title=args[argument].trim();
+            await s.native.request({action,title});
+            if(this.session!==s||s.native.closed)throw fail('CU_SESSION_CLOSED');
+            s[field]=title;
+          }
+        } finally {
+          clearTimeout(timer);
+          if(this.operation===operation) {this.operation=null;this.busy=false;}
+        }
+      }
       this.touch();
-      return this.result({...this.status(), reused: true});
+      return this.result({...this.status(), reused: true,...(updates.length?{metadata_updated:true}:{})});
     }
     const sessionID=crypto.randomUUID();
     const s = {id: sessionID, native: this.connect({mode:this.authorizationMode,window_id:args.window_id,session_id:sessionID}), windowId:args.window_id,
@@ -260,6 +284,7 @@ class BaseComputerUse {
       if (this.session === s && !s.native.closed) {
         s.state = 'ready'; s.windowId = data.window_id || s.windowId;
         if (typeof data.input_enabled === 'boolean') s.inputEnabled = data.input_enabled;
+        if(data.pointer_diagnostics && typeof data.pointer_diagnostics==='object')s.pointerDiagnostics=data.pointer_diagnostics;
         if (typeof data.input_blocked_reason === 'string') s.inputBlockedReason = data.input_blocked_reason;
         if (data.input_enabled === false &&
           /^(CU_SCREEN_RECORDING_REQUIRED|CU_ACCESSIBILITY_REQUIRED)$/.test(data.input_blocked_reason || ''))
@@ -299,7 +324,7 @@ class BaseComputerUse {
         const id = this.session?.id || this.lastSession?.session_id || null;
         this.stop(); return this.result({session_id: id, state: 'closed', closed: true});
       }
-      if (args.action === 'open_session') return this.open(args);
+      if (args.action === 'open_session') return await this.open(args);
       if (args.action === 'start_task'){
         if(this.taskRunner.active)throw fail('CU_TASK_RUNNING');
         return this.result(this.agentRunner.start({...args,...(typeof planner==='function'?{planner}:samplingServer?{planner:createSamplingPlanner(()=>samplingServer)}:{})}));

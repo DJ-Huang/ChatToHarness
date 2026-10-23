@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "platform": "win32-x64",
+  "installed_root": "D:\\Program Files\\ChatToHarness",
+  "build_source_sha256": "1df5c87fc987e4a51a08b5e9b307983b0450b34d3dc64b73e2503376c5d36bf6",
+  "installed_hashes_match_package": true,
+  "live_connector": {"ready": true, "available_tools": 46, "gateway": "app-owned", "final_closed": true},
+  "installed_component_mcp_tests": {
+    "route": "SDK -> repository gateway/manager -> installed stdio adapter/native helper",
+    "exact_native_chat_title": "继续修复 Computer Use 问题",
+    "reused_session_title_update": true,
+    "outside_origin_moves": 6,
+    "maximum_sampled_backtrack_px": 0,
+    "pointer_log_records": 839,
+    "pointer_log_move_steps": 421,
+    "private_titles_absent_from_logs": true,
+    "atomic_drag_expected_and_measured_delta": [36, 32],
+    "occlusion_recovery_and_fail_closed": true,
+    "transient_replan_and_slow_takeover": true,
+    "stop_button": true,
+    "task_schema_full_round_trip_and_auto_close": true,
+    "global_and_per_window_recovery": true,
+    "unicode_real_input": true,
+    "focus_and_minimize_recovery": true,
+    "large_screenshot": {"bytes": 8463654, "chunks": 33, "hash_and_decode_verified": true},
+    "all_cleanup_closed": true
+  },
+  "installed_ui_test": {
+    "passed": true,
+    "method": "Electron Playwright, isolated profile and synthetic tunnel",
+    "report": ".cache/acceptance/installed-ui-20261023/ui-report.json"
+  },
+  "installed_native_test": {
+    "passed_after_fixture_correction": true,
+    "stop_and_escape": true,
+    "initial_failure": "TargetParameterCountException: test reflection omitted Inject allowHeld parameter",
+    "initial_log": ".cache/acceptance/computer-use/installed-native-initial-failure-20261023.log",
+    "final_log": ".cache/acceptance/computer-use/installed-native-20261023.log"
+  },
+  "evidence_directory": ".cache/acceptance/computer-use",
+  "limitations": [
+    "原始间歇鼠标跳回本轮未复现，根因及修复仍未确认。",
+    "本聊天客户端工具参数缓存仍缺少 conversation_title；安装版原生标题实测通过不等于宿主自动注入通过。",
+    "当前仅一块显示器；跨屏及 macOS 原生验收未覆盖。",
+    "主界面远程隧道使用测试替身；生产连接另由真实 connector ready 和 close_session 验证。",
+    "此前全量单元测试仍保留 9 项失败记录，不被本轮安装验收覆盖。"
+  ]
+}

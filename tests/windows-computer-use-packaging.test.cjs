@@ -13,6 +13,8 @@ test('packaged computer-use config relocates bundled Node and entry without auto
   assert.throws(() => configuration(directory), /missing/);
   fs.mkdirSync(path.join(root, 'node'), {recursive: true}); fs.writeFileSync(path.join(root, 'node/node.exe'), 'fixture');
   fs.mkdirSync(path.join(directory, 'app'), {recursive: true}); fs.writeFileSync(path.join(directory, 'app/windows-computer-use-stdio.cjs'), 'fixture');
+  assert.throws(() => configuration(directory), /missing/, 'A native helper is required in addition to Node and the entry point');
+  fs.writeFileSync(path.join(directory,'ChatToHarness.ComputerUse.exe'),'native fixture');
   const config = configuration(directory).mcpServers['windows-computer'];
   assert.equal(config.command, path.join(root, 'node/node.exe'));
   assert.deepEqual(config.args, [path.join(directory, 'app/windows-computer-use-stdio.cjs')]);

@@ -132,6 +132,18 @@ Authorization is to the selected application window, not its current document or
 
 The stop control stays visible and topmost; clicks covered by it are rejected. Screenshots and text travel through the MCP client and may be retained there. This service does not persist screenshots, input text or window titles. Existing execution history stores argument summaries and statuses, not full image/input payloads; local approval dialogs display supplied arguments. No automatic replay occurs after cancellation, timeout or disconnect. Once input may have begun, errors report execution state `unknown` rather than promising nothing happened. Cancellation cannot undo input already delivered.
 
+### Windows 指针回跳诊断日志
+
+授权会话生效期间，原生组件将本地 JSONL 日志写入 `%APPDATA%\ChatToHarness\logs\computer-use-pointer\`：
+
+- `pointer-events.jsonl`：当前日志；`pointer-events.previous.jsonl`：上一份轮转日志。每份最多 4 MiB，总计最多 8 MiB；同一用户的多个 helper 共用轮转边界。
+- 每条记录包含 UTC 时间、单调时钟、原生 PID、内部会话 ID、动作序号和动作名称；会话开始记录原生构建 MVID、目标 HWND/PID、显示器矩形。
+- `move_step` 记录写入前、计划和 Windows 立即实测的坐标、进度及耗时；`pointer_mismatch` 记录下一轮读数与前次位置不一致；`move_replan` 记录重算起点和次数。差异原因一律先记为 `unknown`，不能据此声称用户在操作。
+- `pointer_frame` 约每 40 毫秒独立记录系统指针、目标边界、窗口外状态、前台状态、DPI 上下文及辉光边界。可用于区分真实指针回退、读数变化和辉光残影；采样无法证明两帧之间完全没有短暂异常。
+- 仅持久化上述诊断元数据，不记录按键内容、输入文本、窗口/聊天/任务标题或截图。后台线程执行磁盘写入，队列最多 1024 条；溢出数量写入 `dropped_before`。I/O 失败不改变输入、释放或 STOP 行为；崩溃/强制终止可能丢失尚未落盘的尾部。
+
+新版服务的 `get_session.pointer_diagnostics` 返回日志路径和容量；旧版宿主配合日志版原生组件时可直接使用上述固定路径。遇到异常时记下大致发生时间，保留当前和上一份日志即可继续调查。不要仅凭一次测试未复现就宣布回跳问题已修复。
+
 ## Verification
 
 ```powershell

@@ -46,6 +46,8 @@ class ComputerUse {
     [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr window, int id);
     [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+    [DllImport("user32.dll")] static extern IntPtr GetThreadDpiAwarenessContext();
+    [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr window);
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
     [StructLayout(LayoutKind.Sequential)] struct CURSORINFO { public int Size; public int Flags; public IntPtr Cursor; public POINT Position; }
     [StructLayout(LayoutKind.Sequential)] struct ICONINFO { [MarshalAs(UnmanagedType.Bool)] public bool IsIcon; public uint HotspotX, HotspotY; public IntPtr Mask, Color; }
@@ -75,11 +77,107 @@ class ComputerUse {
     static volatile bool Closed;
     static bool LeftHeld;
     static bool LastMouseReleaseConfirmed;
+    static PointerDiagnostics Diagnostics;
+    static string DiagnosticSession="";
+    static volatile string DiagnosticAction="idle";
+    static long DiagnosticOperation;
+    internal sealed class PointerDiagnostics : IDisposable {
+        internal readonly string CurrentFile,PreviousFile;
+        internal volatile bool Enabled;
+        readonly Queue<object> pending=new Queue<object>();
+        readonly AutoResetEvent wake=new AutoResetEvent(false);
+        readonly Thread worker;
+        readonly string directory;
+        readonly long limit;
+        readonly int processId=Process.GetCurrentProcess().Id;
+        bool stopping;
+        long dropped;
+        internal PointerDiagnostics(string folder,long fileLimit) {
+            directory=folder;limit=fileLimit;
+            CurrentFile=Path.Combine(folder,"pointer-events.jsonl");
+            PreviousFile=Path.Combine(folder,"pointer-events.previous.jsonl");
+            worker=new Thread(WriteLoop) {IsBackground=true,Name="Computer Use pointer diagnostics"};worker.Start();
+        }
+        internal void Record(string kind,object data) {
+            lock(pending) {
+                if(stopping)return;
+                if(pending.Count>=1024) {dropped++;return;}
+                pending.Enqueue(new {schema=1,utc=DateTime.UtcNow.ToString("o"),ticks=Stopwatch.GetTimestamp(),
+                    pid=processId,session_id=DiagnosticSession,operation=Interlocked.Read(ref DiagnosticOperation),
+                    action=DiagnosticAction,event_name=kind,data=data});
+            }
+            wake.Set();
+        }
+        void WriteLoop() {
+            // One worker handles disk I/O. The GUI/input threads never wait for
+            // filesystem writes, rotation, or another helper's diagnostic mutex.
+            try {
+                Directory.CreateDirectory(directory);
+                string mutexName;
+                using(var sha=System.Security.Cryptography.SHA256.Create())
+                    mutexName="Local\\ChatToHarness.PointerLog."+BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(Path.GetFullPath(directory).ToUpperInvariant()))).Replace("-","");
+                using(var mutex=new Mutex(false,mutexName)) {
+                    var serializer=new JavaScriptSerializer();Enabled=true;
+                    while(true) {
+                        object item=null;long lost=0;
+                        lock(pending) {
+                            if(pending.Count>0) {item=pending.Dequeue();lost=dropped;dropped=0;}
+                            else if(stopping)break;
+                        }
+                        if(item==null){wake.WaitOne(200);continue;}
+                        string line=serializer.Serialize(new {dropped_before=lost,record=item})+"\n";
+                        if(Encoding.UTF8.GetByteCount(line)>16384)continue;
+                        bool held=false;
+                        try {
+                            try {held=mutex.WaitOne(100);}catch(AbandonedMutexException){held=true;}
+                            if(!held) {lock(pending)dropped+=lost+1;continue;}
+                            long size=File.Exists(CurrentFile)?new FileInfo(CurrentFile).Length:0;
+                            if(size+Encoding.UTF8.GetByteCount(line)>limit) {
+                                if(File.Exists(PreviousFile))File.Delete(PreviousFile);
+                                if(File.Exists(CurrentFile))File.Move(CurrentFile,PreviousFile);
+                            }
+                            File.AppendAllText(CurrentFile,line,new UTF8Encoding(false));
+                        } finally {if(held)mutex.ReleaseMutex();}
+                    }
+                }
+            } catch {Enabled=false;} // Diagnostics must never interrupt control or STOP.
+        }
+        public void Dispose() {
+            lock(pending)stopping=true;
+            wake.Set();
+            if(Thread.CurrentThread!=worker)worker.Join(1000);
+        }
+    }
+    static void TracePointer(string kind,object data) {
+        try {if(Diagnostics!=null)Diagnostics.Record(kind,data);}catch { /* No logging failure may affect input. */ }
+    }
+    static object PointerSnapshot() {
+        try {return ReadPointerSnapshot();}catch {return new {capture_failed=true};}
+    }
+    static object ReadPointerSnapshot() {
+        POINT point;RECT rect;var info=new CURSORINFO {Size=Marshal.SizeOf(typeof(CURSORINFO))};
+        bool pointer=GetCursorPos(out point),bounds=GetWindowRect(Target,out rect),cursor=GetCursorInfo(ref info);
+        return new {pointer_valid=pointer,x=point.X,y=point.Y,target_bounds_valid=bounds,
+            target_bounds=new int[]{rect.Left,rect.Top,rect.Right,rect.Bottom},
+            outside_target=pointer&&bounds&&(point.X<rect.Left||point.X>=rect.Right||point.Y<rect.Top||point.Y>=rect.Bottom),
+            foreground_target=GetForegroundWindow()==Target,held=LeftHeld,
+            cursor_visible=cursor&&(info.Flags&1)!=0,cursor_handle=info.Cursor.ToInt64().ToString(),
+            thread_dpi_context=GetThreadDpiAwarenessContext().ToInt64(),target_dpi=GetDpiForWindow(Target)};
+    }
+    static void TraceSnapshot(string kind) {
+        try {TracePointer(kind,PointerSnapshot());}catch { }
+    }
+    static string DiagnosticCode(string code) {
+        if(code==null||!code.StartsWith("CU_"))return "CU_NATIVE_ERROR";
+        foreach(char ch in code)if(ch!='_'&&(ch<'A'||ch>'Z'))return "CU_NATIVE_ERROR";
+        return code;
+    }
     static DateTime HeldSince;
     static object LastOcclusion;
     static object LastInputConflict;
     static void InputConflict(string reason,int value=0) {
         LastInputConflict=new {reason=reason,delta_px=value};
+        TracePointer("input_conflict",new {reason=reason});
         Error("CU_USER_INPUT_ACTIVE");
     }
     static void SetHudAction(string action) {
@@ -164,13 +262,15 @@ class ComputerUse {
     }
     static bool ReleaseHeldMouse() {
         if (!LeftHeld) return LastMouseReleaseConfirmed;
+        TraceSnapshot("mouse_release_begin");
         // Native release is independently verified; without confirmation the
         // session must terminate, not resume injection after an unknown hold.
         uint sent=SendInput(1,new[] {new INPUT {data=new UNION {mouse=new MOUSEINPUT {dwFlags=4u}}}},
             Marshal.SizeOf(typeof(INPUT)));
-        if(sent!=1)return false;
+        if(sent!=1){TracePointer("mouse_release_failed",new {sent=sent});return false;}
         LeftHeld=false;
         LastMouseReleaseConfirmed=true;
+        TraceSnapshot("mouse_release_confirmed");
         return true;
     }
     static void Error(string code) { throw new InvalidOperationException(code); }
@@ -590,6 +690,8 @@ class ComputerUse {
         protected override void OnFormClosed(FormClosedEventArgs e) {
             ComputerUse.Closed=true;
             ComputerUse.ReleaseHeldMouse();
+            TraceSnapshot("session_closed");
+            if(Diagnostics!=null)Diagnostics.Dispose();
             if(Outline!=null) {Outline.Close();Outline.Dispose();Outline=null;}
             if(CursorHighlight!=null) {CursorHighlight.Close();CursorHighlight.Dispose();CursorHighlight=null;}
             UnregisterHotKey(Handle,1);
@@ -840,37 +942,32 @@ class ComputerUse {
         return path[path.Count - 1];
     }
 
-    // Rebase cursor animation after small external motion, rather than treating
-    // an arbitrary pixel offset as cancellation. Never fight a moving user.
-    // Sustained takeover yields a recoverable error; the task runner observes
-    // the new desktop state before deciding whether it is safe to continue.
-    static bool WaitForQuietPointer(bool dragging, out POINT settled) {
-        if (!GetCursorPos(out settled)) Error("CU_INPUT_FAILED");
-        var timer = System.Diagnostics.Stopwatch.StartNew();
-        int stillMilliseconds = 0;
-        POINT previous = settled;
-        while (stillMilliseconds < 320) {
-            Check(true);
-            if (Closed) Error("CU_SESSION_CLOSED");
-            foreach (int key in new int[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 1, 2 })
-                if ((key != 1 || !dragging) && (GetAsyncKeyState(key) & 0x8000) != 0)
-                    InputConflict("held_key_or_button", key);
-            Thread.Sleep(25);
-            if (!GetCursorPos(out settled)) Error("CU_INPUT_FAILED");
-            if (Math.Abs(settled.X - previous.X) <= 2 && Math.Abs(settled.Y - previous.Y) <= 2)
-                stillMilliseconds += 25;
-            else
-                stillMilliseconds = 0;
-            previous = settled;
-            // Avoid holding a native operation indefinitely while the user
-            // actively moves the pointer; the caller resumes after observation.
-            if (timer.ElapsedMilliseconds >= 1800)
-                return false;
+    internal sealed class PointerQuietWindow {
+        Point previous;
+        long lastMovement;
+        internal PointerQuietWindow(Point initial,long now) {previous=initial;lastMovement=now;}
+        internal bool Observe(Point current,long now) {
+            if(current!=previous) {previous=current;lastMovement=now;}
+            return now-lastMovement>=320;
         }
-        return true;
     }
-    // Human-paced motion of the actual OS cursor, with replanning after a
-    // transient pointer interruption. No hard 6-pixel failure threshold.
+    static bool WaitForQuietPointer(bool dragging,out POINT settled) {
+        if(!GetCursorPos(out settled))Error("CU_INPUT_FAILED");
+        var timer=Stopwatch.StartNew();
+        var quiet=new PointerQuietWindow(new Point(settled.X,settled.Y),0);
+        while(true) {
+            Check(true);
+            if(Closed)Error("CU_SESSION_CLOSED");
+            foreach(int key in new int[]{0x10,0x11,0x12,0x5B,0x5C,1,2})
+                if((key!=1||!dragging)&&(GetAsyncKeyState(key)&0x8000)!=0)InputConflict("held_key_or_button",key);
+            Thread.Sleep(25);
+            if(!GetCursorPos(out settled))Error("CU_INPUT_FAILED");
+            if(timer.ElapsedMilliseconds>=1800)return false;
+            if(quiet.Observe(new Point(settled.X,settled.Y),timer.ElapsedMilliseconds))return true;
+        }
+    }
+    // Human-paced motion, retaining the existing recovery policy while
+    // collecting evidence for the intermittent outside-window reset.
     static void MoveCursorVisible(Point destination) { MoveCursorVisibleDuringDrag(destination, false); }
     static void MoveCursorVisibleDuringDrag(Point destination, bool dragging) {
         POINT origin;
@@ -881,6 +978,9 @@ class ComputerUse {
         double durationMs = Math.Min(3600.0, Math.Max(240.0, 170.0 + distance * 1000.0 / 850.0));
         int lastX = origin.X, lastY = origin.Y;
         var clock = System.Diagnostics.Stopwatch.StartNew();
+        int frame=0,replans=0;
+        TracePointer("move_begin",new {origin_x=origin.X,origin_y=origin.Y,destination_x=destination.X,destination_y=destination.Y,
+            dragging=dragging,duration_ms=durationMs,backend="SetCursorPos",path=path.ToArray(),state=PointerSnapshot()});
         while (true) {
             Check(true);
             if (Closed) Error("CU_SESSION_CLOSED");
@@ -889,32 +989,39 @@ class ComputerUse {
                     InputConflict("held_key_or_button", key);
             POINT current;
             if (!GetCursorPos(out current)) Error("CU_INPUT_FAILED");
-            if (Math.Abs(current.X-lastX) > 2 || Math.Abs(current.Y-lastY) > 2) {
+            if (current.X!=lastX || current.Y!=lastY) {
+                TracePointer("pointer_mismatch",new {frame=frame,replans=replans,elapsed_ms=clock.ElapsedMilliseconds,
+                    expected_x=lastX,expected_y=lastY,actual_x=current.X,actual_y=current.Y,cause="unknown",state=PointerSnapshot()});
                 POINT settled;
-                if (!WaitForQuietPointer(dragging, out settled))
-                    InputConflict("sustained_pointer_takeover");
-                path = CursorScreenRoute(new Point(settled.X,settled.Y),destination,out sameScreen);
-                distance = CursorRouteLength(path);
-                durationMs = Math.Min(3600.0, Math.Max(240.0, 170.0+distance*1000.0/850.0));
-                lastX=settled.X;lastY=settled.Y;
-                clock.Restart();
-                continue;
+                if(!WaitForQuietPointer(dragging,out settled))InputConflict("sustained_pointer_takeover");
+                path=CursorScreenRoute(new Point(settled.X,settled.Y),destination,out sameScreen);
+                distance=CursorRouteLength(path);
+                durationMs=Math.Min(3600.0,Math.Max(240.0,170.0+distance*1000.0/850.0));
+                lastX=settled.X;lastY=settled.Y;replans++;
+                TracePointer("move_replan",new {replans=replans,origin_x=settled.X,origin_y=settled.Y,
+                    destination_x=destination.X,destination_y=destination.Y,duration_ms=durationMs});
+                clock.Restart();continue;
             }
             double t = Math.Min(1.0, Math.Max(0.0, clock.Elapsed.TotalMilliseconds/durationMs));
             double eased = t*t*t*(t*(t*6.0-15.0)+10.0);
             PointF next = CursorRoutePoint(path,eased,sameScreen);
             int px=(int)Math.Round(next.X),py=(int)Math.Round(next.Y);
-            if (!SetCursorPos(px, py)) Error("CU_INPUT_FAILED");
-            lastX=px;lastY=py;
+            bool positioned=SetCursorPos(px,py);
+            if(!positioned){TracePointer("move_write_failed",new {frame=frame,planned_x=px,planned_y=py});Error("CU_INPUT_FAILED");}
+            POINT accepted;if(!GetCursorPos(out accepted))Error("CU_INPUT_FAILED");
+            TracePointer("move_step",new {frame=frame++,replans=replans,elapsed_ms=clock.ElapsedMilliseconds,progress=t,
+                before_x=current.X,before_y=current.Y,planned_x=px,planned_y=py,actual_x=accepted.X,actual_y=accepted.Y});
+            lastX=accepted.X;lastY=accepted.Y;
             if (t>=1.0) break;
             Thread.Sleep(16);
         }
+        TracePointer("move_end",new {frames=frame,replans=replans,state=PointerSnapshot()});
     }
     static object Execute(Dictionary<string, object> args) {
         string action = (string)args["action"];
         if (action == "mouse_up") {
             if (!LeftHeld) Error("CU_MOUSE_NOT_HELD");
-            ReleaseHeldMouse();
+            if(!ReleaseHeldMouse()) Error("CU_INPUT_FAILED");
             return new { ok = true };
         }
         if (LeftHeld && action != "mouse_drag" && action != "observe") Error("CU_MOUSE_BUTTON_HELD");
@@ -1004,15 +1111,20 @@ class ComputerUse {
                     LastInputConflict = null;
                     LastMouseReleaseConfirmed = false;
                     AtomicInputStarted = false;
+                    Interlocked.Increment(ref DiagnosticOperation);
+                    DiagnosticAction=new List<string>{"activate","observe","click","scroll","mouse_move","mouse_down","mouse_drag","drag_window","mouse_up","type_text","key_press"}.Contains(action)?action:"invalid_action";
+                    TraceSnapshot("action_begin");
                     SetHudAction(action);
                     try {
                         Write(Execute(args));
+                        TraceSnapshot("action_complete");
                         Stop.BeginInvoke(new Action(() => Stop.CompleteActivity(action,null)));
                     } catch (Exception e) {
+                        TracePointer("action_failed",new {code=DiagnosticCode(e.Message),input_started=AtomicInputStarted,mouse_released=LastMouseReleaseConfirmed});
                         SetHudAction("idle");
                         Stop.BeginInvoke(new Action(() => Stop.CompleteActivity(action,e.Message)));
                         throw;
-                    }
+                    } finally {DiagnosticAction="idle";}
                 } catch (Exception e) {
                     ReleaseHeldMouse();
                     if (e.Message == "CU_TARGET_OCCLUDED" && LastOcclusion != null)
@@ -1022,7 +1134,7 @@ class ComputerUse {
                     else Write(new { error = e.Message.StartsWith("CU_") ? e.Message : "CU_NATIVE_ERROR", input_started=AtomicInputStarted, mouse_released=LastMouseReleaseConfirmed });
                 }
             }
-        } finally { ReleaseHeldMouse(); Environment.Exit(0); }
+        } finally { ReleaseHeldMouse();TraceSnapshot("owner_stream_closed");if(Diagnostics!=null)Diagnostics.Dispose();Environment.Exit(0); }
     }
     [STAThread] static void Main(string[] args) {
         Console.InputEncoding = new UTF8Encoding(false); Console.OutputEncoding = new UTF8Encoding(false);
@@ -1048,6 +1160,11 @@ class ComputerUse {
             GetWindowThreadProcessId(Target, out TargetPid);
             TargetStarted = Process.GetProcessById((int)TargetPid).StartTime.ToUniversalTime().Ticks;
             Check(false);
+            Guid diagnosticId;
+            if(args.Length==4&&Guid.TryParse(args[3],out diagnosticId))DiagnosticSession=diagnosticId.ToString();
+            Diagnostics=new PointerDiagnostics(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"ChatToHarness","logs","computer-use-pointer"),4*1024*1024);
+            TracePointer("session_open",new {window_id=Target.ToInt64().ToString(),target_pid=TargetPid,
+                build_mvid=typeof(ComputerUse).Module.ModuleVersionId.ToString(),stop_hotkey="Esc",display_bounds=Array.ConvertAll(Screen.AllScreens,s=>new int[]{s.Bounds.X,s.Bounds.Y,s.Bounds.Width,s.Bounds.Height})});
             Stop = new StopWindow(); var handle = Stop.Handle;
             Stop.Outline = new ControlOutline(); Stop.Outline.FollowTarget();
             Stop.CursorHighlight = new CursorHighlight();
@@ -1060,8 +1177,11 @@ class ComputerUse {
                 Stop.FollowTargetDisplay();
                 if (Stop.Outline != null) Stop.Outline.FollowTarget();
                 if (Stop.CursorHighlight != null) Stop.CursorHighlight.FollowRealCursor();
+                TracePointer("pointer_frame",new {state=PointerSnapshot(),glow_visible=Stop.CursorHighlight!=null&&Stop.CursorHighlight.Visible,
+                    glow_bounds=Stop.CursorHighlight==null?null:new int[]{Stop.CursorHighlight.Left,Stop.CursorHighlight.Top,Stop.CursorHighlight.Width,Stop.CursorHighlight.Height}});
             }; timer.Start();
-            Write(new { ready = true, window_id=Target.ToInt64().ToString() });
+            Write(new { ready = true, window_id=Target.ToInt64().ToString(),pointer_diagnostics=new {
+                current_file=Diagnostics.CurrentFile,previous_file=Diagnostics.PreviousFile,max_file_bytes=4*1024*1024,delivery="local_async"} });
             var thread = new Thread(ReadCommands) { IsBackground = true }; thread.Start();
             Application.Run(Stop);
         } catch (Exception e) { Write(new { error = e.Message.StartsWith("CU_") ? e.Message : "CU_NATIVE_ERROR" }); }

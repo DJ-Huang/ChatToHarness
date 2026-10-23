@@ -53,15 +53,18 @@ test('HUD is top centered in the target monitor, translucent, with visible borde
  assert.match(hud,/CABasicAnimation\(keyPath: "lineDashPhase"\)/);
  assert.match(hud,/travel\.repeatCount = \.infinity/);
  assert.match(hud,/movingHighlight\.shadowOpacity = 0\.85/);
- assert.match(code,/panel\.frame\.width - 133/);
+ const stopFrame=code.match(/button\.frame = NSRect\(x: panel\.frame\.width - (\d+), y: \d+, width: (\d+), height: \d+\)/);
+ assert.ok(stopFrame,'STOP must have a defined frame');
+ assert.ok(Number(stopFrame[1])-Number(stopFrame[2])>=20,'STOP must leave space for the outer animated border');
  assert.match(code,/max\(110, panel\.frame\.width - 164\)/);
  assert.match(code,/autoresizingMask = \[\.width\]/);
  assert.match(code,/max\(280, visible\.width - 20\)/);
  assert.match(code,/NSButton\(title: "STOP  ·  Esc"/);
  assert.match(code,/@objc private func stopPressed\(\) \{ stopNow\(\) \}/);
  assert.match(code,/installLocalEsc\(\)/);
- assert.match(code,/Conversation: title unavailable/);
- assert.match(code,/会话：名称未提供/);
+ assert.match(code,/Chat: host title unavailable/);
+ assert.match(code,/聊天：客户端未提供真实会话标题/);
+ assert.match(code,/任务：名称未提供/);
  assert.match(code,/sessionField\?\.toolTip|session\.toolTip = sessionID/);
  assert.match(code,/previousField\?\.stringValue/);
  assert.match(code,/activityField\?\.stringValue/);
@@ -88,7 +91,8 @@ test('Mac session-id transfer leaves Windows native CLI unchanged',()=>{
 
 test('HUD preserves last operation status and shows current action separately without displaying typed content',()=>{
  const code=fs.readFileSync(path.join(__dirname,'../native/MacComputerUse.swift'),'utf8');
- assert.match(code,/let height: CGFloat = 140/);
+ const height=code.match(/let height: CGFloat = (\d+)/);
+ assert.ok(height&&Number(height[1])>=180,'HUD must fit separate chat, task, target and operation rows');
  assert.match(code,/let previous = NSTextField\(labelWithString:/);
  assert.match(code,/completeHUD\(action, error: result\["error"\] as\? String\)/);
  assert.match(code,/let result = await executeAction\(args\)/);

@@ -16,6 +16,10 @@ const root = path.resolve(__dirname, '..');
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-mcp-recovery-'));
 const output = path.join(root, '.cache/acceptance/computer-use');
 const perWindow = process.argv.includes('--per-window');
+const conversationArgument=process.argv.slice(2).find(x=>x.startsWith('--conversation-title='));
+const conversationTitle=conversationArgument?.slice('--conversation-title='.length);
+if(conversationArgument && (!conversationTitle?.trim()||conversationTitle.length>80||/[\x00-\x1f\x7f]/.test(conversationTitle)))
+  throw new Error('conversation-title must be an exact known title of 1–80 safe characters');
 const report = {realMcp: false, recoveredLostOpen: false, nativeScreenshot: false, nativeUnicodeInput: false, closeWithoutId: false};
 let fixture, lines, client, manager;
 async function main() {
@@ -30,6 +34,9 @@ async function main() {
   function read() { return new Promise((resolve,reject) => { const timer = setTimeout(() => reject(Error('Fixture timeout')), 12000); pending.push({resolve: v => {clearTimeout(timer); resolve(v);},reject: e => {clearTimeout(timer);reject(e);}}); }); }
   function command(args) { const result = read(); fixture.stdin.write(JSON.stringify(args) + '\n'); return result; }
   await read();
+  if(process.argv.includes('--atomic-drag')&&!process.argv.includes('--title-only')&&!process.argv.includes('--pointer-motion-only')) {
+    report.cursorBaseline=await command({action:'probe_cursor_glow',helper_pid:0});
+  }
   const entryArgument=process.argv.slice(2).find(x=>!x.startsWith('--'));
   const entry = entryArgument ? path.resolve(entryArgument) : path.join(root,'app/windows-computer-use-stdio.cjs');
   const settings=new McpSettings(path.join(directory,'settings'));
@@ -61,7 +68,7 @@ async function main() {
   if(perWindow)assert.equal(listed.structuredContent.code,'CU_WINDOW_LIST_NOT_AUTHORIZED');
   else {assert.ok(listed.structuredContent.windows.some(w=>w.window_id===targetInfo.window_id));report.defaultAllWindows=true;}
   const opened = await call({action: 'open_session',window_id:targetInfo.window_id,
-    session_title:'Computer Use atomic drag fixture'});
+    session_title:'Computer Use atomic drag fixture',...(conversationTitle?{conversation_title:conversationTitle}:{})});
   assert.ok(opened.structuredContent.session_id); assert.equal(opened.structuredContent.state,perWindow?'awaiting_consent':'initializing');
   const recovered = await call({action: 'get_session'}); const id = recovered.structuredContent.session_id;
   assert.equal(id,opened.structuredContent.session_id);
@@ -87,7 +94,80 @@ async function main() {
       'HUD must visibly name the authorized window');
     assert.ok(hud.hud_labels.some(label=>label.startsWith('聊天：')),
       'HUD must not invent a ChatGPT conversation title');
+    if(conversationTitle) {
+      assert.ok(hud.hud_labels.includes('聊天：'+conversationTitle),'HUD must display the exact user/host-supplied chat title');
+      report.exactConversationTitle=true;
+    }
     report.nativeHud=hud; report.nativeHudTitle=true;
+    if(process.argv.includes('--pointer-motion-only')) {
+      // No test-side cursor positioning or disturbance: only real authorized
+      // native mouse_move calls, observed independently by a read-only timer.
+      report.pointerMotion=[];
+      for(const point of [{x:120,y:160},{x:480,y:240},{x:150,y:200},{x:480,y:160},{x:120,y:240},{x:450,y:200}]) {
+        const outside=await command({action:'position_away_from_pointer'});
+        assert.equal(outside.pointer_outside,true,'Every motion must begin outside the authorized target');
+        assert.equal(outside.foreground,true);
+        const shot=await call({action:'observe',session_id:id,format:'png'});
+        assert.equal(shot.isError,undefined);
+        const bounds=shot.structuredContent.window_bounds;
+        const traceStart=await command({action:'begin_pointer_trace'});
+        const move=await call({action:'mouse_move',session_id:id,
+          observation_id:shot.structuredContent.observation_id,...point});
+        await new Promise(resolve=>setTimeout(resolve,240));
+        const trace=await command({action:'end_pointer_trace'});
+        const end={x:bounds.x+point.x,y:bounds.y+point.y};
+        const dx=end.x-traceStart.x,dy=end.y-traceStart.y,length=Math.hypot(dx,dy);
+        let maximum=0,backtrack=0;
+        for(const sample of trace.samples) {
+          const progress=length ? ((sample.x-traceStart.x)*dx+(sample.y-traceStart.y)*dy)/length : 0;
+          maximum=Math.max(maximum,progress);backtrack=Math.max(backtrack,maximum-progress);
+        }
+        const last=trace.samples.at(-1);
+        report.pointerMotion.push({start:traceStart,end,started_outside:true,result:move.structuredContent,
+          max_backtrack_px:backtrack,samples:trace.samples});
+        assert.equal(move.isError,undefined,JSON.stringify(move.structuredContent));
+        assert.ok(backtrack<=3,'Unattended mouse motion reversed by '+backtrack+' pixels');
+        assert.equal(last.x,end.x,'Pointer did not stay at the actual destination');
+        assert.equal(last.y,end.y,'Pointer did not stay at the actual destination');
+      }
+      report.unattendedMonotonicMotion=true;
+      assert.equal((await call({action:'close_session'})).structuredContent.closed,true);
+      report.closeWithoutId=true;
+      if(process.argv.includes('--verify-pointer-logs')) {
+        const paths=status.pointer_diagnostics;
+        assert.ok(paths?.current_file,'Native helper must report its diagnostic log path');
+        await new Promise(resolve=>setTimeout(resolve,200));
+        const entries=[paths.previous_file,paths.current_file].filter(p=>fs.existsSync(p))
+          .flatMap(p=>fs.readFileSync(p,'utf8').split('\n').filter(Boolean).map(line=>JSON.parse(line)))
+          .map(entry=>entry.record).filter(record=>record.session_id===id);
+        assert.ok(entries.some(e=>e.event_name==='move_step'),'Actual native coordinate writes must be logged');
+        assert.ok(entries.some(e=>e.event_name==='move_begin'&&e.data.state.outside_target),'Outside-window origin must be logged');
+        assert.ok(entries.some(e=>e.event_name==='pointer_frame'&&Array.isArray(e.data.glow_bounds)),'Independent pointer/glow frames must be logged');
+        const serialized=JSON.stringify(entries);
+        assert.equal(serialized.includes('Computer Use atomic drag fixture'),false);
+        if(conversationTitle)assert.equal(serialized.includes(conversationTitle),false);
+        report.pointerLogsVerified={current_file:paths.current_file,records:entries.length,
+          move_steps:entries.filter(e=>e.event_name==='move_step').length,private_titles_absent:true};
+      }
+      return;
+    }
+    if(process.argv.includes('--title-only')) {
+      assert.ok(conversationTitle,'Title-only acceptance requires an explicitly supplied known conversation title');
+      const updated=await call({action:'open_session',session_title:'验证当前聊天标题',conversation_title:conversationTitle});
+      assert.equal(updated.structuredContent.session_id,id);
+      assert.equal(updated.structuredContent.metadata_updated,true);
+      const refreshed=await command({action:'hud_report'});
+      assert.ok(refreshed.hud_labels.includes('聊天：'+conversationTitle));
+      assert.ok(refreshed.hud_labels.includes('任务：验证当前聊天标题'));
+      report.reusedSessionTitleUpdated=true;
+      assert.equal((await call({action:'close_session'})).structuredContent.closed,true);
+      report.closeWithoutId=true;
+      return;
+    }
+    const glowProbe=await command({action:'probe_cursor_glow',helper_pid:hud.helper_pid});
+    report.cursorGlowProbe=glowProbe;
+    assert.ok(glowProbe.samples.every(s=>s.pointer_stable),'Idle session must not reset the physical cursor');
+    assert.ok(glowProbe.samples.every(s=>s.glow_aligned),'Glow must follow the cursor inside and outside the target on every display');
     // Test the shared task-continuation contract against a disposable GUI window.
     // Keep the original session, never retry unknown side effects without observing,
     // and let STOP/Esc/session termination end the recovery loop.
@@ -162,6 +242,15 @@ async function main() {
     assert.equal(nudgeAfter.structuredContent.window_bounds.y,
       nudgeBefore.structuredContent.window_bounds.y+dy);
     report.transientPointerReplan=true;
+    await command({action:'nudge_slow'});
+    const slowTakeover=await call({action:'mouse_move',session_id:id,
+      observation_id:nudgeAfter.structuredContent.observation_id,x:300,y:100});
+    await command({action:'stop_slow'});
+    assert.equal(slowTakeover.structuredContent.code,'CU_USER_INPUT_ACTIVE',JSON.stringify(slowTakeover.structuredContent));
+    assert.equal(slowTakeover.structuredContent.input_conflict?.reason,'sustained_pointer_takeover');
+    assert.equal((await call({action:'get_session'})).structuredContent.state,'ready');
+    assert.equal((await call({action:'observe',session_id:id,format:'png'})).isError,undefined);
+    report.slowPointerTakeoverYields=true;
     await command({action:'overlay_off'});
     const all=await command({action:'overlay_all'});
     assert.equal(all.covered,true);
@@ -233,8 +322,9 @@ async function main() {
     // Complete public schema round-trip through real MCP Gateway: not only
     // start_task, but get_task, submit_task_decision, and terminal auto-close.
     const taskOpen=await call({action:'open_session',window_id:targetInfo.window_id,
-      session_title:'Computer Use public task schema acceptance'});
+      session_title:'Computer Use public task schema acceptance',...(conversationTitle?{conversation_title:conversationTitle}:{})});
     const taskSession=taskOpen.structuredContent.session_id;
+    if(perWindow)await command({action:'authorize',server_pid:manager.record('windows-computer').transport.child.pid});
     let taskSessionState;
     for(let i=0;i<50;i++){
       taskSessionState=(await call({action:'get_session',session_id:taskSession})).structuredContent;
@@ -371,6 +461,13 @@ async function main() {
   }
 }
 main().catch(error => {report.error=error.stack || error.message; process.exitCode=1;}).finally(async () => {
+  if(report.realMcp && client) {
+    try {
+      const closed=await client.callTool({name:'windows-computer__computer_use',arguments:{action:'close_session'}});
+      report.cleanupClosed=closed.structuredContent?.closed===true;
+      assert.equal(report.cleanupClosed,true,'Test must explicitly confirm native session closure');
+    } catch(error) {report.cleanupError=error.message;process.exitCode=1;}
+  }
   await client?.close().catch(()=>{}); await manager?.close().catch(()=>{});
   if (fixture && fixture.exitCode === null && fixture.signalCode === null) {
     const exited = new Promise(resolve => {fixture.once('exit',resolve);setTimeout(resolve,2500).unref();});
@@ -378,7 +475,7 @@ main().catch(error => {report.error=error.stack || error.message; process.exitCo
   }
   lines?.close();
   fs.mkdirSync(output,{recursive:true});
-  const reportFile=process.argv.includes('--atomic-drag')?'windows-atomic-drag-result.json':
+  const reportFile=process.argv.includes('--pointer-motion-only')?'windows-pointer-motion-result.json':process.argv.includes('--title-only')?'windows-conversation-title-result.json':process.argv.includes('--atomic-drag')?'windows-atomic-drag-result.json':
     perWindow?'per-window-recovery-result.json':'session-recovery-result.json';
   fs.writeFileSync(path.join(output,reportFile),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify(report));

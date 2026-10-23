@@ -7,14 +7,12 @@ const {BaseComputerUse,baseDefinition,TASK_CONTINUITY_DESCRIPTION,SCREENSHOT_DES
 // Schema, screenshot delivery, session IDs and freshness rules are shared.
 const definition = JSON.parse(JSON.stringify(baseDefinition));
 definition.title = 'macOS computer use';
-definition.inputSchema.properties.session_title = {type:'string',maxLength:80,
-  description:'Optional exact visible conversation title supplied by the caller only when reliably known. Omit if not available; never guess.'};
 definition.description = [
   'macOS Computer Use. Local macOS Screen Recording and Accessibility permissions are required in addition to MCP tool permission.',
   'A scoped native window is selected at session start; per_window always opens a local consent picker.',
   'Before allowing control, a global local Esc listener and an always-visible STOP panel must be established or the session fails closed.',
   'Window identity and foreground state are checked before input; mouse_move and mouse_down use window screenshot coordinates and consume a fresh observation. For window movement prefer atomic drag_window with a fresh observation, title-bar x/y (avoid traffic lights), and screen_x/screen_y in Quartz desktop points; this performs visible cursor move/down/drag/up inside one call and releases on failure. Observations expose window_bounds and displays for computing exact targets. An occlusion error includes metadata about the window at the pointer, without its title; re-observe and select another safe title-bar point, never blindly replay uncertain input. Legacy mouse_drag requires a held left button and fresh observation; mouse_up releases without an observation. For mouse_down and mouse_up, button may be omitted or set to left; right is not a drag button.',
-  'open_session accepts optional session_title ONLY if the calling ChatGPT/Codex client actually knows the visible conversation title; never invent or infer it. Omit when unknown; HUD then displays an explicit unavailable label rather than a UUID.',
+  'open_session requires session_title describing the authorized task. conversation_title is separate and optional: supply the exact current ChatGPT/Codex conversation title when known from host metadata or explicitly provided by the user; otherwise omit it and the HUD displays an explicit unavailable label. A reused open_session updates supplied titles on the original session when idle.',
   'HUD persists the previous operation result and shows the action currently executing. It never displays typed text or screenshot contents.',
   'Coordinates use the native screenshot pixel grid, and the helper converts to desktop points.',
   'CTRL+A/C/V/Z/Y are mapped to macOS Command shortcuts. A supported target may affect files and network; folder permissions are not an input sandbox.',

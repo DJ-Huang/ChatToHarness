@@ -1,5 +1,55 @@
 # Development record — Windows computer use
 
+## 2026-10-23 用户更新后的安装版整体验收
+
+- 安装目录的 app.asar、独立适配器及 native helper 与交付包哈希一致；真实 connector 返回该构建指纹、ready、46 tools。结束时生产 connector 确认 `closed:true`。
+- SDK 经仓库真实 Gateway/Manager 调用安装目录 stdio/native：原生 HUD 精确显示用户提供的聊天标题；会话复用名称更新、六段从窗口外开始的真实移动通过，独立采样最大倒退 0px，日志 839 条/421 次 move_step，无任务或聊天标题。不能据此认定间歇抖动已修复。
+- 安装版真实拖动位移预期/实测均为 (+36,+32)；遮挡恢复与拒绝、瞬态重新规划、慢速接管让渡、HUD 避挡、STOP、通用任务 ID 完整往返与自动关闭通过。全局/逐窗口授权两组中文输入、失焦保护、最小化恢复、截图分块通过（8463654 字节、33 块，重组摘要与解码均核验）。各组 cleanupClosed 均为 true。
+- 安装版 Electron Playwright 主界面验收通过，使用隔离配置与模拟隧道；语言、导航、凭据持久化、重启、MCP 管理、审批、日志与清理通过。它不是远程真实隧道端到端验收。
+- 原生夹具首次因反射调用漏传 Inject 的 allowHeld 参数失败；保留原日志，仅修正测试传入 false 后重跑，PNG、Unicode、按键、点击、滚动、几何/焦点保护、生产授权、辉光、STOP/Esc 全部通过。未改变安装程序。
+- **仍开放**：原鼠标跳回根因、本聊天客户端缓存缺少 conversation_title 参数、跨屏/macOS 原生体验；此前全量 9 项失败不被本轮覆盖。证据见 [安装版验收记录](evidence/computer-use-installed-2026-10-23.json)，原始日志位于 `.cache/acceptance/computer-use/installed-*-20261023.*`，界面报告位于 `.cache/acceptance/installed-ui-20261023/`。
+
+## 2026-10-23 日志修复构建安装包及整体回归准备
+
+- [x] 用户要求生成安装包后自行更新，再进行整体测试。使用独立目录 `dist/computer-use-logs-20261023/` 构建，不替换运行中的应用、不执行安装或卸载，不改版本号、不推送。
+- [x] `node scripts/build.cjs --dist` 生成 `ChatToHarness-0.7.3-windows-x64-setup.exe`，大小 **213400736 字节**，SHA-256 **46255d972fe3cd14f6258a24969949425f74d8a55cececae7cde5117ecf56a3f**。应用源码指纹 `1df5c87fc987e4a51a08b5e9b307983b0450b34d3dc64b73e2503376c5d36bf6`，Git 检查点 `7db29d4e2d72333d97b6b1afb501116b46b5dadc`，包含当前未提交修复。
+- [x] 打包资源逐项 SHA-256 核对通过；`app.asar` 包含真实聊天标题字段、原会话名称更新和日志路径状态；原生组件含日志实现。构建程序完成 NSIS 及 blockmap 生成；没有把打包成功等同于安装验收。
+- [x] 全量测试中修正三项过时断言：Windows 打包夹具缺少必需 native helper、Mac HUD 仍引用旧尺寸/标签。另两项运行时测试的 HOME 预期未覆盖 Windows USERPROFILE 回退，改正后该组 **8 通过 / 0 失败 / 1 跳过**。这些修改仅影响测试，不改变安装包中的应用源码。
+- **已保存结果**：首次并行全量测试 402 通过、12 失败、14 跳过；修正首批过时断言后的串行全量为 412 通过、10 失败、14 跳过，其中 8 项 EPERM 符号链接权限失败，2 项为随后已修正的 HOME 预期。最终复核结果以 `.cache/acceptance/computer-use/full-suite-final-20261023.log` 和输出目录 `verification.json` 为准；未将环境失败改成跳过或报告为通过。
+- **最终全量**：436 项，**413 通过、9 失败、14 跳过**；8 项为 Windows 符号链接 EPERM 权限限制，另 1 项为任务取消夹具等待终态超时。任务取消项随后单独复测通过，仍保留全量中的失败记录，不据此称全量通过。安装包及测试摘要：[交付凭据](evidence/computer-use-installer-2026-10-23.json)。
+- [ ] **待用户更新后的实机整体验收**：确认实际安装版构建指纹及工具 Schema 刷新，检查连接、窗口授权、真实聊天标题、鼠标从窗口外进入的轨迹和日志、文本/键盘、拖动、输入中断、STOP/Esc、任务 ID 完整链路与会话关闭；跨屏和 macOS 原生验收仍需各自硬件。鼠标回跳根因保持开放。
+
+## 2026-10-23 无人操作、窗口外指针回跳：增加诊断日志（Issue #2）
+
+- **用户澄清**：没有人在移动鼠标；异常是鼠标从目标窗口外朝目标移动一小段后返回原处。本轮不再把该反馈归因于用户接管。用户随后要求先添加日志，供下次复发调查；回跳根因保持开放。
+- **范围**：Windows 原生本地有界 JSONL 日志；保留既有输入后端与恢复策略。本轮试验性的 SendInput/所有权采样方案没有纳入最终日志改动；全局钩子方案被自动审批拒绝且未应用。用户要求停止 REA 后不再使用该工具。
+- [x] 原生日志记录动作/会话关联、构建 MVID、显示器、计划坐标、立即实测坐标、下一帧差异、重算次数、窗口外状态、DPI、辉光位置和鼠标释放结果。差异原因记为 `unknown`；不记录文本、按键内容、标题或截图。
+- [x] 独立写线程、有界队列、同用户多 helper 写入互斥、每份 4 MiB 的当前/上一份轮转日志；磁盘不可用时不影响输入和 STOP。日志位于 `%APPDATA%\ChatToHarness\logs\computer-use-pointer\`；服务状态可返回路径。
+- [x] **聚焦回归**：90 项，86 通过、0 失败、4 项 macOS 专属跳过。包括真实 C# 编译、并发写入、轮转大小、磁盘不可用、路径元数据和原有输入/任务生命周期。沙箱目录的首次轮转测试失败，同一测试在真实 Windows 文件系统通过；未将沙箱失败报告为通过。
+- [x] **真实桌面日志验收**：六段移动均从目标窗口外开始，没有注入偏移；均完成、独立轨迹采样最大倒退 0 像素、`cleanupClosed=true`。本会话落盘 **982 条记录 / 464 条 move_step**，日志未包含测试任务/聊天名称。日志捕获 **8 次 pointer_mismatch / 8 次 move_replan**，立即写入与读取一致，但部分下一轮读数不同；不能从该现象推定人类输入或认定根因。原始日志保留在本机目录。
+- [x] **部署**：用户明确选择“1（现在启用日志）”后，于北京时间 2026-10-23 16:01 仅替换安装目录原生 helper 和 `bundle.json` 对应校验值。组件 SHA-256 为 `97316318f4721eb568d69cc75accbc2bfdf14f4c3509600d5f8a97af31305055`；原生会话为空，四个应用 PID `[7724,14156,20816,31364]` 前后完全一致，主 `app.asar` 校验值未变，无应用重启。旧文件及凭据备份于 `.cache/hotfix-backups/pointer-logging-20261023-080137-993/`；下次会话自动记录。首次原子替换因 PowerShell 空路径参数失败且未改文件，改为明确备份路径后成功；安装后再次独立核对组件与清单一致。旧聊天标题构建的整体安装仍未执行。证据见 [日志及部署记录](evidence/computer-use-pointer-logging-2026-10-23.json)。
+
+## 2026-10-23 当前聊天真实标题传递修正（Issue #2）
+
+- **用户确认的真实聊天名称**：“继续修复 Computer Use 问题”。此前验收只传入测试任务标签，HUD 的“任务”显示通过不代表“聊天”标题通过；该覆盖缺口已明确纠正。产品代码不硬编码这一个标题。
+- [x] `conversation_title` 接受宿主元数据或用户明确提供的确切标题，保持与 `session_title` 任务描述独立；未知时不猜测。
+- [x] 修复 `open_session` 复用原会话时静默丢弃新标题的问题。仅在原生会话空闲时串行更新私有 HUD 元数据；输入/任务执行中返回 `CU_BUSY`；不重开窗口授权、不消耗截图观察、不重放 GUI 输入、不把名称写入一般状态结果。
+- [x] 六个聚焦回归文件：**87 项，83 通过、0 失败、4 项 macOS 专属跳过**。新增真实标题补充、保留已有标题、原生输入互斥和错误目标拒绝测试。首次新增测试使用非数字窗口 ID 导致预期错误，改用有效窗口 ID 后通过。
+- [x] 真实 Windows MCP SDK → Gateway → native：`--atomic-drag --title-only --conversation-title=继续修复 Computer Use 问题` 退出 0，原生标签逐字匹配 `聊天：继续修复 Computer Use 问题`，会话复用更新任务名通过，`cleanupClosed=true`。报告 `.cache/acceptance/computer-use/windows-conversation-title-result.json`。这是显式传入标题的真实验收，不宣称自动读取 Codex 侧栏名称。
+- **当前安装版差异**：本轮开始时运行的是 `D:\\Program Files\\ChatToHarness` 中 0.7.3 / commit `a9ba8eac27eb404c71ff948b8e6592bdd26eb22a` 构建；当前连接工具 Schema 不含 `conversation_title`，仍有旧版 session_title 描述。源码修复本身不会更新该运行进程或外部客户端缓存。
+
+## 2026-10-23 指针接管、释放结果和标题契约后续修复（Issue #2）
+
+- **范围**：当前 `feat/computer-use` 分支；修改 Windows 原生代码、双平台工具描述和验收夹具。未改版本号、未替换安装版、未推送；不使用工作树。
+- [x] **慢速用户接管**：旧逻辑把每 25 毫秒不超过 2 像素的持续移动累计为静止，可能恢复合成输入争抢鼠标。现在任何坐标变化都重置静止窗口，连续静止 320 毫秒才重算路径，持续运动在本地有界等待后返回可恢复冲突。动作路径基于 Windows 实际接受的指针坐标比较下一次采样，避免坐标量化导致错误重算。
+- [x] **释放失败**：分步 `mouse_up` 检查 `ReleaseHeldMouse()` 返回值；释放失败返回 `CU_INPUT_FAILED`，不再错误报告成功。此失败分支尚未通过真实 SendInput 故障注入验收。
+- [x] **双平台标题**：删除 Windows/macOS 对共享 `session_title` Schema 的过时覆盖；任务名称必填，真实聊天标题仅使用可选 `conversation_title`。修正 macOS 描述中要求省略任务名称的矛盾提示。
+- [x] **回归**：七个聚焦测试文件共 **86 项：82 通过、0 失败、4 项 Mac 专属跳过**；包含真实编译 C# 的静止窗口逻辑测试（慢速持续运动、1 像素来回运动、短暂偏移后恢复）。Windows 原生 helper 编译通过。沙箱内任务检查点测试超时；同一测试集在沙箱外通过，不能将前者算作通过。
+- [x] **真实 Windows 桌面**：MCP SDK → Gateway → native 隔离窗口；窗口内及窗口外 12 个样本的系统指针稳定、辉光对齐；真实拖动 `(36,32)`、遮挡恢复、短暂指针重规划、HUD 避挡、STOP、任务 ID 全链路和自动关闭已通过。逐窗口模式的慢速接管测试（每 25 毫秒移动 1 像素）确认返回 `CU_USER_INPUT_ACTIVE`，原会话继续有效并可重新观察。
+- **诊断限制**：早期样本在未开启 Computer Use 的对照组也观察到指针返回原位，无法将用户原始跳回反馈全部归因于辉光。最后稳定样本来自单显示器；跨屏人工混合轨迹、安装版及 macOS 原生验收仍未完成，原始反馈不标记为全面解决。
+- **验收脚本**：增加独立系统指针/辉光坐标采样、未开启服务的对照组、慢速接管测试和失败后显式关闭检查；修正逐窗口模式 STOP 后第二次开会话缺失的本地授权步骤。完整最新结果见 `.cache/acceptance/computer-use/windows-atomic-drag-result.json`。
+- **最终逐窗口验收**：`node scripts/test-computer-use-mcp.cjs --atomic-drag --per-window` 退出 0；慢速接管、拖动、遮挡、STOP、第二次授权、任务全链路及自动关闭全部通过，`cleanupClosed=true`。包含源码 SHA-256 的摘要：[验收证据](evidence/computer-use-pointer-per-window-2026-10-23.json)。
+
 ## Generic GUI Agent ID and session-name contracts — 2026-10-23
 
 - **Issue / branch:** ChatToHarness #1 / `feat/computer-use`; Windows repository `D:\\proj\\github\\ChatToHarness`. No macHarness, real pointer input, version bump, installation or push.

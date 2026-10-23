@@ -309,6 +309,56 @@ test('verified chat title remains separate from actual task label and stays priv
   await service.call({action:'close_session'});
 });
 
+test('reused open updates a user-supplied chat title without reopening or consuming observation',async()=>{
+  const {service,commands}=fixture({captureTitle:true});
+  const id=await open(service);
+  const observation=await observe(service,id);
+  const before=commands.length;
+  const title='继续修复 Computer Use 问题';
+  const updated=await service.call({action:'open_session',session_title:'验证聊天标题',conversation_title:title});
+  assert.equal(updated.structuredContent.session_id,id);
+  assert.equal(updated.structuredContent.metadata_updated,true);
+  assert.deepEqual(commands.slice(before),[
+    {action:'set_session_title',title:'验证聊天标题'},
+    {action:'set_conversation_title',title}
+  ]);
+  assert.equal(service.session.observation.id,observation);
+  const count=commands.length;
+  await service.call({action:'open_session',session_title:'验证聊天标题'});
+  assert.equal(commands.length,count,'Omitted title must neither clear nor resend metadata');
+  assert.equal(service.session.conversationTitle,title);
+  assert.equal(JSON.stringify(updated).includes(title),false);
+  await service.call({action:'close_session'});
+});
+
+test('title updates serialize with native input and cannot change a different target',async()=>{
+  const {service,native,commands}=fixture();
+  const id=await open(service);
+  const observation=await observe(service,id);
+  let finish;
+  native.request=()=>new Promise(resolve=>{finish=resolve;});
+  const active=service.call({action:'key_press',session_id:id,observation_id:observation,key:'TAB'});
+  const rejected=await service.call({action:'open_session',session_title:'Computer Use 测试会话',conversation_title:'继续修复 Computer Use 问题'});
+  assert.equal(rejected.structuredContent.code,'CU_BUSY');
+  assert.equal(service.busy,true);
+  assert.equal(service.session.conversationTitle,undefined);
+  assert.equal((await service.call({action:'open_session',window_id:'456',session_title:'验证标题'})).structuredContent.code,'CU_SESSION_TARGET_MISMATCH');
+  finish({ok:true});await active;
+  assert.equal(commands.some(c=>c.action==='set_conversation_title'),false);
+  await service.call({action:'close_session'});
+});
+
+test('session status exposes native pointer diagnostic paths without revealing chat or task names',async()=>{
+  const {service,native}=fixture();
+  native.ready=Promise.resolve({ready:true,pointer_diagnostics:{current_file:'C:\\logs\\pointer-events.jsonl',previous_file:'C:\\logs\\pointer-events.previous.jsonl',max_file_bytes:4194304,delivery:'local_async'}});
+  const id=await open(service);
+  const state=(await service.call({action:'get_session',session_id:id})).structuredContent;
+  assert.equal(state.pointer_diagnostics.current_file,'C:\\logs\\pointer-events.jsonl');
+  assert.equal(state.pointer_diagnostics.max_file_bytes,4194304);
+  assert.equal(JSON.stringify(state).includes('测试会话'),false);
+  await service.call({action:'close_session'});
+});
+
 test('Windows mouse actions preserve screen coordinates, transitions and fresh observations', async () => {
   const {service, commands} = fixture(); const id = await open(service);
   for (const action of ['mouse_move', 'mouse_down', 'mouse_drag', 'mouse_up'])

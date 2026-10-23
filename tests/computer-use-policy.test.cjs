@@ -6,6 +6,18 @@ const path=require('node:path');
 const {resolveComputerUseDevice,registeredComputerUse,COMPUTER_USE_GUI_RULE}=require('../app/computer-use-devices.cjs');
 const {McpManager}=require('../app/mcp-manager.cjs');
 
+test('both platform tools preserve the required task title and separate optional conversation title',()=>{
+  const {baseDefinition,validate}=require('../app/base-computer-use.cjs');
+  for(const platform of ['windows','macos']) {
+    const {definition}=require('../app/'+platform+'-computer-use.cjs');
+    assert.deepEqual(definition.inputSchema.properties.session_title,baseDefinition.inputSchema.properties.session_title);
+    assert.deepEqual(definition.inputSchema.properties.conversation_title,baseDefinition.inputSchema.properties.conversation_title);
+    assert.doesNotMatch(definition.description,/optional session_title|Omit when unknown/);
+    assert.throws(()=>validate({action:'open_session'}),/CU_SESSION_TITLE_REQUIRED/);
+    assert.doesNotThrow(()=>validate({action:'open_session',session_title:'验证测试窗口'}));
+  }
+});
+
 const mac={id:'cu-10000000-0000-4000-8000-000000000001',name:'unity.local',platform:'darwin'};
 const win={id:'cu-20000000-0000-4000-8000-000000000002',name:'rocket',platform:'win32'};
 const laptop={id:'cu-30000000-0000-4000-8000-000000000003',name:'MacBook',platform:'darwin'};

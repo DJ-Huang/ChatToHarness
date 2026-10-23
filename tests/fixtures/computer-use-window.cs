@@ -29,6 +29,8 @@ class ComputerUseWindowFixture {
     [DllImport("user32.dll")] static extern void mouse_event(uint flags,uint x,uint y,uint data,UIntPtr extra);
     [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point point);
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h,uint flags);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll",EntryPoint="GetWindowLongW")] static extern int GetWindowLong(IntPtr h,int index);
     delegate bool EnumProc(IntPtr h, IntPtr state);
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc callback, IntPtr state);
     [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr h, EnumProc callback, IntPtr state);
@@ -183,7 +185,7 @@ class ComputerUseWindowFixture {
                     ushort[] codes=new ushort[]{27,27};
                     var batch=Array.CreateInstance(inputType,codes.Length);
                     for(int i=0;i<codes.Length;i++)batch.SetValue(key.Invoke(null,new object[]{codes[i],(ushort)0,i==0?0u:2u}),i);
-                    Native.GetMethod("Inject",BindingFlags.Static|BindingFlags.NonPublic).Invoke(null,new object[]{batch});
+                    Native.GetMethod("Inject",BindingFlags.Static|BindingFlags.NonPublic).Invoke(null,new object[]{batch,false});
                 } else {
                     IntPtr stop=FindWindow(child.Id,"ChatToHarness — Computer Use"); var stopButton=Child(stop,"BUTTON"); if(stopButton==IntPtr.Zero)throw new Exception("Production STOP control missing");
                     SendMessage(stopButton,0xF5,IntPtr.Zero,IntPtr.Zero);
@@ -240,7 +242,11 @@ class ComputerUseWindowFixture {
             var distractor=new Form {Text="ChatToHarness disposable focus distractor",Width=400,Height=200,StartPosition=FormStartPosition.Manual,Left=100,Top=150};
             var distractorInput=new RichTextBox {Dock=DockStyle.Fill}; distractor.Controls.Add(distractorInput);
             FixtureCover cover=null;
-            form.FormClosed+=delegate {if (cover != null) cover.Dispose();distractor.Dispose();};
+            System.Windows.Forms.Timer slowPointer=null;
+            System.Windows.Forms.Timer pointerTrace=null;
+            var pointerSamples=new List<object>();
+            var traceClock=new Stopwatch();
+            form.FormClosed+=delegate {if(pointerTrace!=null)pointerTrace.Dispose();if (slowPointer != null) slowPointer.Dispose();if (cover != null) cover.Dispose();distractor.Dispose();};
             var input=new RichTextBox {Left=30,Top=30,Width=500,Height=100};
             form.Controls.Add(input); form.Show(); FocusFixture(form);
             Console.WriteLine("{\"ready\":true}"); Console.Out.Flush();
@@ -250,7 +256,105 @@ class ComputerUseWindowFixture {
                     form.Invoke(new System.Action(delegate() {
                         try {
                             string action=(string)command["action"];
+                            if(action=="position_away_from_pointer") {
+                                // Move only this disposable fixture, never the
+                                // pointer or any user-owned application window.
+                                Point pointer=Cursor.Position;
+                                Rectangle area=Screen.FromPoint(pointer).WorkingArea;
+                                var choices=new[]{new Point(area.Left+20,area.Top+220),
+                                    new Point(area.Right-form.Width-20,area.Top+220),
+                                    new Point(area.Left+20,area.Bottom-form.Height-20),
+                                    new Point(area.Right-form.Width-20,area.Bottom-form.Height-20)};
+                                Point selected=choices[0];double best=-1;
+                                foreach(var choice in choices) {
+                                    if(new Rectangle(choice,form.Size).Contains(pointer))continue;
+                                    double dx=choice.X+form.Width/2-pointer.X,dy=choice.Y+form.Height/2-pointer.Y;
+                                    double distance=dx*dx+dy*dy;
+                                    if(distance>best){best=distance;selected=choice;}
+                                }
+                                if(best<0)throw new Exception("Display cannot place fixture outside cursor");
+                                form.Location=selected;Pump();
+                                Rect moved;GetWindowRect(form.Handle,out moved);
+                                Console.WriteLine(json.Serialize(new {ok=true,pointer_outside=!new Rectangle(moved.Left,moved.Top,moved.Right-moved.Left,moved.Bottom-moved.Top).Contains(Cursor.Position),
+                                    foreground=GetForegroundWindow()==form.Handle}));Console.Out.Flush();return;
+                            }
+                            if(action=="begin_pointer_trace"||action=="end_pointer_trace") {
+                                if(pointerTrace!=null) {pointerTrace.Stop();pointerTrace.Dispose();pointerTrace=null;}
+                                Point tracePoint=Cursor.Position;
+                                if(action=="begin_pointer_trace") {
+                                    pointerSamples.Clear();traceClock.Restart();
+                                    pointerSamples.Add(new {ms=0L,x=tracePoint.X,y=tracePoint.Y});
+                                    pointerTrace=new System.Windows.Forms.Timer {Interval=10};
+                                    pointerTrace.Tick+=delegate {
+                                        Point sample=Cursor.Position;
+                                        if(pointerSamples.Count<2000)pointerSamples.Add(new {ms=traceClock.ElapsedMilliseconds,x=sample.X,y=sample.Y});
+                                    };pointerTrace.Start();
+                                    Console.WriteLine(json.Serialize(new {ok=true,x=tracePoint.X,y=tracePoint.Y}));
+                                } else {
+                                    pointerSamples.Add(new {ms=traceClock.ElapsedMilliseconds,x=tracePoint.X,y=tracePoint.Y});
+                                    Console.WriteLine(json.Serialize(new {ok=true,samples=pointerSamples}));
+                                }
+                                Console.Out.Flush();return;
+                            }
+                            if(action=="probe_cursor_glow") {
+                                int helperPid=Convert.ToInt32(command["helper_pid"]);
+                                var samples=new List<object>();
+                                var points=new List<Point> {form.PointToScreen(new Point(15,form.ClientSize.Height-20))};
+                                foreach(var screen in Screen.AllScreens) {
+                                    var area=screen.Bounds;
+                                    points.Add(new Point(area.Left+70,area.Top+70));
+                                    points.Add(new Point(area.Right-70,area.Bottom-70));
+                                }
+                                foreach(var probePoint in points) {
+                                    if(!SetCursorPos(probePoint.X,probePoint.Y))throw new Exception("Cannot position probe cursor");
+                                    Point immediate=Cursor.Position;
+                                    Pump();
+                                    for(int frame=0;frame<4;frame++) {
+                                        var cursor=new CursorInfo {Size=Marshal.SizeOf(typeof(CursorInfo))};
+                                        if(!GetCursorInfo(ref cursor))throw new Exception("Cannot sample cursor");
+                                        IntPtr layer=IntPtr.Zero;Rect bounds=new Rect();
+                                        EnumWindows(delegate(IntPtr h,IntPtr unused) {
+                                            uint pid;GetWindowThreadProcessId(h,out pid);Rect r;
+                                            if(pid==(uint)helperPid && IsWindowVisible(h) &&
+                                               (GetWindowLong(h,-20)&0x80000)!=0 && GetWindowRect(h,out r) &&
+                                               r.Right-r.Left<200 && r.Bottom-r.Top<200) {layer=h;bounds=r;}
+                                            return true;
+                                        },IntPtr.Zero);
+                                        IconInfo icon;
+                                        if(!GetIconInfo(cursor.Cursor,out icon))throw new Exception("Cannot read probe hotspot");
+                                        try {
+                                            bool pointerStable=cursor.Position==probePoint;
+                                            bool glowAligned=layer!=IntPtr.Zero &&
+                                                bounds.Left==cursor.Position.X-(int)icon.HotspotX-14 &&
+                                                bounds.Top==cursor.Position.Y-(int)icon.HotspotY-14;
+                                            samples.Add(new {x=probePoint.X,y=probePoint.Y,immediate_x=immediate.X,immediate_y=immediate.Y,pointer_stable=pointerStable,
+                                                glow_aligned=glowAligned,cursor_x=cursor.Position.X,cursor_y=cursor.Position.Y,
+                                                glow_x=bounds.Left,glow_y=bounds.Top});
+                                        } finally {
+                                            if(icon.Mask!=IntPtr.Zero)DeleteObject(icon.Mask);
+                                            if(icon.Color!=IntPtr.Zero)DeleteObject(icon.Color);
+                                        }
+                                        Pump();
+                                    }
+                                }
+                                Console.WriteLine(json.Serialize(new {ok=true,display_count=Screen.AllScreens.Length,samples=samples}));
+                                Console.Out.Flush();return;
+                            }
                             if(action=="authorize")AuthorizeFixture(Convert.ToInt32(command["server_pid"]),form);
+                            if(action=="nudge_slow" || action=="stop_slow") {
+                                if(slowPointer!=null) {slowPointer.Stop();slowPointer.Dispose();slowPointer=null;}
+                                if(action=="nudge_slow") {
+                                    int ticks=0;
+                                    slowPointer=new System.Windows.Forms.Timer {Interval=25};
+                                    slowPointer.Tick+=delegate {
+                                        if(++ticks>=120) {slowPointer.Stop();return;}
+                                        Point current=Cursor.Position;
+                                        Cursor.Position=new Point(current.X+1,current.Y);
+                                    };
+                                    slowPointer.Start();
+                                }
+                                Console.WriteLine("{\"ok\":true}");Console.Out.Flush();return;
+                            }
                             if(action=="nudge_once") {
                                 // Test-only transient external pointer disturbance.
                                 // Never sent to an application other than this fixture.
@@ -303,6 +407,8 @@ class ComputerUseWindowFixture {
                                 },IntPtr.Zero);
                                 Rect hudBounds=new Rect();
                                 if(hud!=IntPtr.Zero)GetWindowRect(hud,out hudBounds);
+                                uint hudPid=0;
+                                if(hud!=IntPtr.Zero)GetWindowThreadProcessId(hud,out hudPid);
                                 var labels=new List<string>();
                                 if(hud!=IntPtr.Zero)EnumChildWindows(hud,delegate(IntPtr h,IntPtr unused) {
                                     var text=new StringBuilder(512);
@@ -321,7 +427,7 @@ class ComputerUseWindowFixture {
                                     SendMessage(button,0xF5,IntPtr.Zero,IntPtr.Zero);
                                     Console.WriteLine("{\"ok\":true}");Console.Out.Flush();return;
                                 }
-                                Console.WriteLine(json.Serialize(new {ok=true,hud_found=hud!=IntPtr.Zero,
+                                Console.WriteLine(json.Serialize(new {ok=true,hud_found=hud!=IntPtr.Zero,helper_pid=hudPid,
                                     hud_bounds=new int[]{hudBounds.Left,hudBounds.Top,hudBounds.Right,hudBounds.Bottom},
                                     hud_labels=labels}));Console.Out.Flush();return;
                             }

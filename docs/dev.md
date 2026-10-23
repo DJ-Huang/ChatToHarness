@@ -623,3 +623,10 @@ Setup and exact supported calls: [windows-computer-use.md](windows-computer-use.
 - [x] 按用户要求，以 `DJ-Huang/ChatToHarness:main` 当前应用版本 `0.6.2` 为准，将 `package.json`、根目录 `package-lock.json` 的应用根版本统一从 `0.7.3` 调整为 `0.6.2`。此前合并记录中“保留开发分支 0.7.3”的说明仅是合并当时的历史状态，本条为后续覆盖决策。
 - [x] 第三方依赖（如 `iconv-lite@0.7.3`）、既有旧版本安装验收报告与 `release-notes/v0.7.3.md` 均属于依赖数据或历史事实，不能作为当前应用版本直接替换。
 - [ ] 本次版本声明同步不等于生成或安装 `0.6.2` 安装包；新安装包仍需单独构建验证。目标仍是上游 Draft PR [#18](https://github.com/DJ-Huang/ChatToHarness/pull/18)。
+
+## 2026-10-23 Computer Use 被遮挡窗口的可见移动恢复规则（上游 Draft PR #18）
+
+- [x] 针对 iTerm2 新建 Tab 验收中 `activate` 完成但点击被 `CU_TARGET_OCCLUDED` 拦截的场景，在 `docs/computer-use-policy.md` 补充跨平台策略：复查会话、目标身份、遮挡和安全落点；若控件仍不可达且授权目标的标题栏有可见安全落点，可使用真实 Computer Use 鼠标临时移动同一目标窗口，核验后继续原任务。
+- [x] 不允许操控遮挡方、不绕过用户接管和 STOP/Esc、不自动使用未授权 AppleScript/Accessibility/Win32 直接定位；标题栏不可达或执行结果不确定时不得盲目重放。
+- [ ] 这次是操作规范更新，不代表原生执行器已具备自动移动逻辑；Mac/Windows 实际遮挡恢复仍需独立验收。
+- [x] 同步把上游 Draft PR #18 的说明改为中文，保留现有测试与待验收项。

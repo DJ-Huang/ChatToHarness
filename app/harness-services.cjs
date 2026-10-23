@@ -70,7 +70,7 @@ class HarnessServices {
       if (!args || typeof args !== 'object' || Array.isArray(args)) throw fail('INVALID_ARGUMENT', 'Tool arguments must be an object.');
       options.signal?.throwIfAborted();
       if (name === 'get_harness_status') return response(this.status(args));
-      if (name === 'computer_use' && this.computerUse?.definition()) return await this.computerUse.call(args, options);
+      if (name === 'computer_use' && this.computerUse?.definition()) return await this.computerUse.call(require('./computer-use-compat.cjs').withLegacySessionTitle(args), options);
       if (!this.directories.length) throw fail('PATH_NOT_ALLOWED', 'Choose a project folder in the desktop app before using project tools.');
       if (EDIT_TOOLS.some(tool => tool.name === name)) return response(await this.edit(name,args,options));
       if (TASK_TOOLS.some(tool => tool.name === name)) return response(await this.task(name,args,options));

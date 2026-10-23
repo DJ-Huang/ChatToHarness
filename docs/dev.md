@@ -638,3 +638,11 @@ Setup and exact supported calls: [windows-computer-use.md](windows-computer-use.
 - [x] 增加针对错误标题隔离、元数据提取以及 macOS/Windows 共享链路的单元测试。
 - [ ] 当前 ChatGPT 未验证会发送此自定义元数据，`openai/session` 只是匿名 ID；真实聊天标题自动填充仍受 ChatGPT 客户端能力限制，不能宣称已通过端到端验收。
 - [ ] 新改动尚未重新构建/安装 DMG；保留上游 PR #18 Draft，关联 Issue #2。
+
+## 2026-10-24 Computer Use 旧版 MCP schema 会话标题兼容（Issue #2）
+
+- [x] 复现：当前连接器公开的 `computer_use` schema 缺少 `session_title`，而 native `open_session` 要求该字段，导致 `CU_SESSION_TITLE_REQUIRED`；已安装的 `app.asar` 实际已有新字段，确认是连接器侧 stale schema。
+- [x] `app/harness-services.cjs` 在调用 native 前通过 `computer-use-compat.cjs` 给旧 schema 的 `open_session` 补入明确标记的任务标题；不会伪造 ChatGPT 会话名称，也不会改写显式传入的标题或绕过 STOP/Esc 等保护。
+- [x] 回归测试 `node --test tests/computer-use-policy.test.cjs tests/macos-computer-use.test.cjs tests/computer-use-compat.test.cjs`：36/36 通过。
+- [x] Mac 构建：`CTH_DIST_SUBDIR=title-schema-fix node scripts/build.cjs` 成功，生成 `dist/title-schema-fix/mac-arm64/ChatToHarness.app`，签名校验通过。
+- [ ] 更新本机安装后，以旧 schema 再次调用 `open_session` 验证真实 Computer Use，并完成 iTerm2 移到第 2 屏中央；若发现 stale schema 持续存在，另行追踪 ChatGPT 端工具缓存刷新机制。

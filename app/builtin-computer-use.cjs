@@ -47,12 +47,12 @@ class ComputerUseSwitch {
     if(this.platform==='darwin') {
       if(this.createMac)return this.createMac();
       const {MacComputerUse}=require('./macos-computer-use.cjs');
-      return new MacComputerUse({platform:'darwin',helperPath:this.helper,authorizationMode:'all_windows',onPermissionDenied:code=>this.noticePermission(code)});
+      return new MacComputerUse({platform:'darwin',helperPath:this.helper,deviceId:this.deviceIdentity.id,authorizationMode:'all_windows',onPermissionDenied:code=>this.noticePermission(code)});
     }
     if(this.platform==='win32') {
       if(this.createWindows)return this.createWindows();
       const {WindowsComputerUse}=require('./windows-computer-use.cjs');
-      return new WindowsComputerUse({platform:'win32',helperPath:this.helper,authorizationMode:'all_windows',onPermissionDenied:code=>this.noticePermission(code)});
+      return new WindowsComputerUse({platform:'win32',helperPath:this.helper,deviceId:this.deviceIdentity.id,authorizationMode:'all_windows',onPermissionDenied:code=>this.noticePermission(code)});
     }
     throw new Error('CU_PLATFORM_UNSUPPORTED');
   }
@@ -84,7 +84,7 @@ class ComputerUseSwitch {
     this.controller?.stop('CU_DISABLED');
     this.controller=null;
   }
-  async call(args,{signal}={}) {
+  async call(args,{signal,planner}={}) {
     if(!this.enabled||!this.available)return this.denied();
     const {error,nativeArgs}=deviceBoundArgs(this.deviceIdentity,args);
     if(error)return error;
@@ -97,7 +97,8 @@ class ComputerUseSwitch {
     this.active.add(abort);
     try {
       if(!this.controller)this.controller=this.newController();
-      const result=await this.controller.call(nativeArgs,{signal:abort.signal});
+      // Planner belongs to THIS start request, not a mutable global controller property.
+      const result=await this.controller.call(nativeArgs,{signal:abort.signal,...(typeof planner==='function'?{planner}:{})});
       if(epoch===this.epoch && this.enabled) {
         const code=permissionCode(result);
         if(code) { this.noticePermission(code); return result; }

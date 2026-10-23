@@ -60,10 +60,10 @@ test('Two harnesses advertise distinct devices, route without UUID input and rej
   assert.notEqual(macTool.title,winTool.title);
   for(const [i,cu] of switches.entries()){
     assert.equal(cu.definition()._meta['com.chattoharness/device'].id,devices[i].id);
-    assert.equal((await cu.call({action:'open_session',target_device_id:devices[1-i].id})).structuredContent.code,'CU_TARGET_DEVICE_MISMATCH');
+    assert.equal((await cu.call({action:'open_session',session_title:'Computer Use 测试会话',target_device_id:devices[1-i].id})).structuredContent.code,'CU_TARGET_DEVICE_MISMATCH');
   }
   assert.deepEqual(starts,{darwin:0,win32:0});
-  const open=await switches[0].call({action:'open_session'});
+  const open=await switches[0].call({action:'open_session',session_title:'Computer Use 测试会话'});
   assert.equal(open.structuredContent.ok,true);
   assert.deepEqual(starts,{darwin:1,win32:0});
   const release=await switches[0].call({action:'mouse_up',session_id:'session-123'});
@@ -71,7 +71,7 @@ test('Two harnesses advertise distinct devices, route without UUID input and rej
   const closed=await switches[0].call({action:'close_session',session_id:'session-123'});
   assert.equal(closed.structuredContent.ok,true);
   assert.deepEqual(inputs.map(e=>e.input),[
-    {action:'open_session'}, {action:'mouse_up',session_id:'session-123'},{action:'close_session',session_id:'session-123'}
+    {action:'open_session',session_title:'Computer Use 测试会话'}, {action:'mouse_up',session_id:'session-123'},{action:'close_session',session_id:'session-123'}
   ]);
   const winCall=await switches[1].call({action:'list_windows'});
   assert.equal(winCall.structuredContent.ok,true);

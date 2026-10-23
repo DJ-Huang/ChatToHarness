@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 const {Server} = require('@modelcontextprotocol/sdk/server/index.js');
 const {ListToolsRequestSchema,CallToolRequestSchema,McpError,ErrorCode} = require('@modelcontextprotocol/sdk/types.js');
 const {LineTransport} = require('./mcp-transport.cjs');
+const {createSamplingPlanner}=require('./computer-use-sampling-planner.cjs');
 
 // No TCP listener or public configuration endpoint. Each app run owns a fresh
 // Unix socket / Windows named pipe, authenticated before any MCP bytes parse.
@@ -108,7 +109,10 @@ class McpGateway {
         }catch{throw new McpError(ErrorCode.InvalidParams,'MCP_CURSOR_EXPIRED');}
       });
       server.setRequestHandler(CallToolRequestSchema,(request,extra)=>this.manager.call(request.params.name,request.params.arguments||{},
-        {executionId:executionIds.get(extra.requestId),signal:extra.signal,onprogress:progress=>{
+        {executionId:executionIds.get(extra.requestId),signal:extra.signal,
+         planner: request.params.name==='computer_use' && request.params.arguments?.action==='start_task'
+           ? createSamplingPlanner(()=>server) : undefined,
+         onprogress:progress=>{
           const token=request.params._meta?.progressToken;
           if(token!==undefined)void server.notification({method:'notifications/progress',params:{...progress,progressToken:token}}).catch(()=>{});
         }}));

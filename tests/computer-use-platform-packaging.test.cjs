@@ -79,6 +79,7 @@ test('staged platform resource manifests contain BaseComputerUse but not opposit
     assert.ok(names.includes('computer-use/app/computer-use-images.cjs'));
     assert.ok(names.includes('computer-use/app/computer-use-task-runner.cjs'));
     assert.ok(names.includes('computer-use/app/computer-use-agent-runner.cjs'));
+    assert.ok(names.includes('computer-use/app/computer-use-task-ids.cjs'));
     assert.ok(names.includes('computer-use/app/computer-use-sampling-planner.cjs'));
     assert.ok(names.includes('computer-use/app/computer-use-planner-images.cjs'));
     assert.ok(names.includes('computer-use/app/durable-files.cjs'));

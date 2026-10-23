@@ -12,7 +12,7 @@ test('session shown in Mac native HUD is exactly the MCP open_session ID',async(
  const fake={closed:false,ready:Promise.resolve({window_id:'123',input_enabled:true}),
    stop(){this.closed=true},request(){return Promise.resolve({ok:true})}};
  const service=new MacComputerUse({platform:'darwin',connect:args=>{options.push(args);return fake;}});
- const opened=await service.call({action:'open_session',window_id:'123'});
+ const opened=await service.call({action:'open_session',session_title:'Computer Use 测试会话',window_id:'123'});
  const session=opened.structuredContent.session_id;
  assert.match(session,/^[a-f0-9-]{36}$/);
  assert.equal(options[0].session_id,session);
@@ -28,7 +28,7 @@ test('macOS native helper CLI accepts the real session ID as optional arg withou
  assert.match(file,/UUID\(uuidString: id\) == nil/);
  assert.match(file,/MacComputerUse\(ownerPID: parent, sessionID: sessionID\)/);
  const js=fs.readFileSync(path.join(__dirname,'../app/base-computer-use.cjs'),'utf8');
- assert.match(js,/process\.platform === 'darwin' && session_id && operation !== 'list_windows'/);
+ assert.match(js,/if \(session_id && operation !== 'list_windows'\)/);
  assert.match(js,/this\.connect\(\{mode:this\.authorizationMode,window_id:args\.window_id,session_id:sessionID\}\)/);
 });
 test('HUD is top centered in the target monitor, translucent, with visible border and STOP',()=>{

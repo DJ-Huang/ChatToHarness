@@ -4,6 +4,9 @@ const {spawn} = require('node:child_process');
 const {createInterface} = require('node:readline');
 const {ComputerUseTaskRunner} = require('./computer-use-task-runner.cjs');
 const {ComputerUseAgentRunner} = require('./computer-use-agent-runner.cjs');
+const {NEW_RE:TASK_ID}=require('./computer-use-task-ids.cjs');
+const {localComputerIdentity,computerUseHome}=require('./computer-use-devices.cjs');
+const {createSamplingPlanner}=require('./computer-use-sampling-planner.cjs');
 const {compressCapture, snapshot, readChunk, MAX_CAPTURE_BYTES, MAX_CHUNK_BYTES} = require('./computer-use-images.cjs');
 const ACTIONS = ['list_windows', 'open_session', 'get_session', 'activate', 'observe', 'read_screenshot', 'click', 'mouse_move', 'mouse_down', 'mouse_drag', 'drag_window', 'mouse_up', 'type_text', 'key_press', 'scroll', 'close_session', 'start_move_task', 'get_move_task', 'cancel_move_task',
   'start_task','get_task','cancel_task','submit_task_decision'];
@@ -14,21 +17,22 @@ const definition = {
   description: 'Computer Use requires native OS permissions, per-window authorization and fresh observations before every input',
   inputSchema: {type: 'object', additionalProperties: false, required: ['action'], properties: {
     action: {type: 'string', enum: ACTIONS}, session_id: {type: 'string'}, observation_id: {type: 'string'}, window_id: {type: 'string', pattern: '^[1-9][0-9]{0,18}$'},
-    format: {type: 'string', enum: ['auto', 'png', 'webp']}, delivery: {type: 'string', enum: ['auto', 'chunked']}, screenshot_id: {type: 'string'},
+    session_title: {type: 'string', minLength: 1, maxLength: 80, description: 'Required for open_session. Human-readable description of the current authorized task (never a fabricated conversation title).'},
+    format: {type: 'string', enum: ['auto', 'png', 'webp']},  delivery: {type: 'string', enum: ['auto', 'chunked']}, screenshot_id: {type: 'string'},
     offset: {type: 'integer', minimum: 0, maximum: MAX_CAPTURE_BYTES}, length: {type: 'integer', minimum: 1, maximum: MAX_CHUNK_BYTES},
     x: {type: 'integer', minimum: 0}, y: {type: 'integer', minimum: 0},
     button: {type: 'string', enum: ['left', 'right']}, screen_x: {type: 'integer', minimum: -32768, maximum: 32767}, screen_y: {type: 'integer', minimum: -32768, maximum: 32767}, text: {type: 'string', maxLength: 1000},
     key: {type: 'string', enum: KEYS}, delta: {type: 'integer', minimum: -10, maximum: 10},
     target_x: {type: 'integer', minimum: -32768, maximum: 32767},
     target_y: {type: 'integer', minimum: -32768, maximum: 32767},
-    task_id: {type:'string', pattern:'^cu_task_[a-f0-9]{64}$'},
+    task_id: {type:'string', pattern:TASK_ID.source},
     idempotency_key: {type:'string',minLength:1,maxLength:128},
     goal: {type:'string',minLength:1,maxLength:2000},
     decision_id: {type:'string',minLength:1,maxLength:100},
     decision_json: {type:'string',minLength:1,maxLength:4096}
   }},
   outputSchema: {type: 'object', additionalProperties: true, properties: {
-    session_id: {type: ['string', 'null']}, state: {type: 'string', enum: ['none', 'initializing', 'awaiting_consent', 'ready', 'closed', 'queued', 'running', 'planning', 'awaiting_decision', 'recovering', 'succeeded', 'cancelled', 'session_terminated', 'interrupted']},
+    session_id: {type: ['string', 'null']}, session_title:{type:'string'}, state: {type: 'string', enum: ['none', 'initializing', 'awaiting_consent', 'ready', 'closed', 'queued', 'running', 'planning', 'awaiting_decision', 'recovering', 'succeeded', 'cancelled', 'session_terminated', 'interrupted']},
     authorization_mode: {type: 'string', enum: ['all_windows', 'per_window']},
     observation_id: {type: 'string'}, next_action: {type: 'string'}, code: {type: 'string'},
     task_state: {type: 'string', enum: ['recovering','session_terminated']},
@@ -36,7 +40,7 @@ const definition = {
   }},
   annotations: {readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true}
 };
-const TASK_CONTINUITY_DESCRIPTION = ' For Windows and macOS, a recoverable Computer Use operation error does not end the user task. Keep diagnosing, re-observing and safely resuming while the original session is valid until the task is verified, the user explicitly stops (including STOP/Esc), or the session terminates. Never impose a fixed task recovery-attempt count. CU_USER_INPUT_ACTIVE means pause injected input until released, not user cancellation. CU_WINDOW_NOT_FOREGROUND means reactivate and observe. Never replay uncertain side effects or bypass permission, user takeover or explicit STOP. For general GUI tasks, start_task begins an authorized session-scoped observe-plan-act-verify loop with a goal and stable idempotency_key. get_task retrieves status and the current observation image when waiting for a decision; submit_task_decision accepts one bounded verified action, and cancel_task terminates native control. A trusted optional local planner can decide automatically; if none is configured, the task safely pauses awaiting a decision from the calling agent rather than pretending a model is installed. The former move-task actions remain compatibility workflows, not the core execution model. Do not replay unknown side effects or reopen a terminated native session.';
+const TASK_CONTINUITY_DESCRIPTION = ' Before opening any Computer Use session, AI must pass a concise, human-readable session_title describing the actual current work; do not display a UUID as the title or invent a ChatGPT conversation name. For Windows and macOS, a recoverable Computer Use operation error does not end the user task. Keep diagnosing, re-observing and safely resuming while the original session is valid until the task is verified, the user explicitly stops (including STOP/Esc), or the session terminates. Never impose a fixed task recovery-attempt count. CU_USER_INPUT_ACTIVE means pause injected input until released, not user cancellation. CU_WINDOW_NOT_FOREGROUND means reactivate and observe. Never replay uncertain side effects or bypass permission, user takeover or explicit STOP. For general GUI tasks, start_task begins an authorized session-scoped observe-plan-act-verify loop with a goal and stable idempotency_key. get_task retrieves status and the current observation image when waiting for a decision; submit_task_decision accepts one bounded verified action, and cancel_task terminates native control. A trusted optional local planner can decide automatically; if none is configured, the task safely pauses awaiting a decision from the calling agent rather than pretending a model is installed. The former move-task actions remain compatibility workflows, not the core execution model. Do not replay unknown side effects or reopen a terminated native session.';
 const SCREENSHOT_DESCRIPTION = ' If the target loses focus, call activate with session_id, then observe. Never replay input automatically. observe format auto compares lossless WebP and optimized PNG, keeping the smaller at original resolution; format png/webp forces compatibility. Small images return MCP image content and structuredContent.screenshot.data base64. Large images (or delivery chunked) return screenshot metadata only: call read_screenshot with session_id, screenshot_id, byte offset and optional length (default 256 KiB, max 512 KiB). Decode each chunk separately, concatenate bytes in offset order, verify full sha256 and display using mime_type. Repeat reads are safe; next_offset/eof supports resuming. Only the latest snapshot is kept in memory for 120 seconds, cleared by observe, activation, input or close. Chunk reads never refresh the 30-second input observation deadline; obtain a new observation before input if stale. No screenshot files are saved. The native capture guard is 40 MiB, not a per-call network limit.';
 definition.description += TASK_CONTINUITY_DESCRIPTION + SCREENSHOT_DESCRIPTION;
 definition.outputSchema.properties.screenshot = {type: 'object', additionalProperties: true, required: ['screenshot_id', 'mime_type', 'encoding', 'sha256', 'byte_length', 'delivery'], properties: {
@@ -66,8 +70,9 @@ function validate(args) {
   const allowed = fields[args.action];
   if (Object.keys(args).some(k => k !== 'action' && !allowed.includes(k))) throw fail('CU_INVALID_ARGUMENT');
   for (const k of allowed) if (args[k] === undefined && !['button','window_id','session_title','format','delivery','offset','length'].includes(k) && !(k === 'session_id' && ['get_session', 'close_session'].includes(args.action))) throw fail('CU_INVALID_ARGUMENT');
-  // A title is only displayed when the caller can supply a genuinely known chat title.
-  // It is never derived from the local machine's desktop/window names.
+  // Require a meaningful caller-supplied task/session label for the native HUD.
+  // Do not invent the ChatGPT conversation's actual title if it is unavailable.
+  if (args.action === 'open_session' && args.session_title === undefined) throw fail('CU_SESSION_TITLE_REQUIRED');
   if (args.session_title !== undefined && (
     typeof args.session_title !== 'string' || !args.session_title.trim() ||
     args.session_title.length > 80 || /[\x00-\x1f\x7f]/.test(args.session_title)
@@ -80,7 +85,7 @@ function validate(args) {
   for (const k of ['session_id', 'observation_id', 'screenshot_id']) if (args[k] !== undefined && (typeof args[k] !== 'string' || !args[k].length || args[k].length > 100)) throw fail('CU_INVALID_ARGUMENT');
   for (const k of ['x', 'y']) if (args[k] !== undefined && (!Number.isSafeInteger(args[k]) || args[k] < 0 || args[k] > 32767)) throw fail('CU_INVALID_ARGUMENT');
   for (const k of ['screen_x', 'screen_y','target_x','target_y']) if (args[k] !== undefined && (!Number.isSafeInteger(args[k]) || args[k] < -32768 || args[k] > 32767)) throw fail('CU_INVALID_ARGUMENT');
-  if (args.task_id !== undefined && (typeof args.task_id !== 'string' || !/^cu_(?:task|agent)_[a-f0-9]{64}$/.test(args.task_id))) throw fail('CU_INVALID_ARGUMENT');
+  if (args.task_id !== undefined && (typeof args.task_id !== 'string' || !TASK_ID.test(args.task_id))) throw fail('CU_INVALID_ARGUMENT');
   if (args.goal !== undefined && (typeof args.goal !== 'string' || !args.goal.trim() || args.goal.length > 2000)) throw fail('CU_INVALID_ARGUMENT');
   if (args.decision_id !== undefined && (typeof args.decision_id !== 'string' || !args.decision_id || args.decision_id.length > 100)) throw fail('CU_INVALID_ARGUMENT');
   if (args.decision_json !== undefined && (typeof args.decision_json !== 'string' || !args.decision_json || args.decision_json.length > 4096)) throw fail('CU_INVALID_ARGUMENT');
@@ -144,11 +149,12 @@ class NativeConnection {
   }
 }
 class BaseComputerUse {
-  constructor({platform = process.platform, connect, helperPath, timeoutMs = 45000, idleTimeoutMs = IDLE_SESSION_MS, supportedPlatform, authorizationMode = process.env.CTH_COMPUTER_USE_AUTHORIZATION_MODE || 'all_windows', onPermissionDenied, taskDirectory, taskRetryMs, agentDirectory, agentPlanner} = {}) {
+  constructor({platform = process.platform, connect, helperPath, timeoutMs = 45000, idleTimeoutMs = IDLE_SESSION_MS, supportedPlatform, authorizationMode = process.env.CTH_COMPUTER_USE_AUTHORIZATION_MODE || 'all_windows', onPermissionDenied, taskDirectory, taskRetryMs, agentDirectory, agentPlanner, deviceId} = {}) {
     if (!['darwin', 'win32'].includes(supportedPlatform)) throw fail('CU_PLATFORM_UNSUPPORTED');
     if (typeof helperPath !== 'string' || !helperPath) throw fail('CU_HELPER_UNAVAILABLE');
     if (!['all_windows','per_window'].includes(authorizationMode)) throw fail('CU_INVALID_AUTHORIZATION_MODE');
     this.authorizationMode = authorizationMode; this.onPermissionDenied = onPermissionDenied;
+    this.deviceId=deviceId || localComputerIdentity(computerUseHome(platform),platform).id;
     this.platform = platform; this.supportedPlatform = supportedPlatform; this.connect = connect || (options => new NativeConnection(helperPath, options));
     this.timeoutMs = timeoutMs; this.idleTimeoutMs = idleTimeoutMs; this.session = null; this.lastSession = null; this.busy = false; this.operation = null;
     this.taskRunner = new ComputerUseTaskRunner(this, {directory: taskDirectory, retryDelayMs: taskRetryMs});
@@ -237,7 +243,7 @@ class BaseComputerUse {
     }, rejectOpen).catch(rejectOpen);
     return this.result({...this.status(s), reused: false});
   }
-  async call(input, {signal, internalTaskId, internalAgentTaskId} = {}) {
+  async call(input, {signal, internalTaskId, internalAgentTaskId, samplingServer, planner} = {}) {
     let started = false, timer, abort, operation, activeSession;
     try {
       const args = validate(input);
@@ -271,7 +277,7 @@ class BaseComputerUse {
       if (args.action === 'open_session') return this.open(args);
       if (args.action === 'start_task'){
         if(this.taskRunner.active)throw fail('CU_TASK_RUNNING');
-        return this.result(this.agentRunner.start(args));
+        return this.result(this.agentRunner.start({...args,...(typeof planner==='function'?{planner}:samplingServer?{planner:createSamplingPlanner(()=>samplingServer)}:{})}));
       }
       if (args.action === 'start_move_task') {
         if(this.agentRunner.active)throw fail('CU_TASK_RUNNING');

@@ -18,6 +18,13 @@ flowchart TD
   H -->|是| I[结束且禁止重放]
 \`\`\`
 
+## 任务 ID 和会话名称
+
+- 新任务统一使用 `设备ID_毫秒时间戳`，同毫秒产生冲突时附加 `_序号`。设备 ID 必须来自当前已注册 Harness；公开 ID 不使用任务哈希。内部私有索引继续按幂等键去重。
+- 开发阶段不兼容旧 `cu_agent_<hash>` 和 `cu_task_<hash>` 任务记录；相关 `start/get/cancel` 的公开参数校验一并更新。
+- 所有 Windows/macOS `open_session` 调用都必须传入说明实际工作的可读 `session_title`，用于原生 HUD；不能以会话 UUID 替代，也不能冒充未知的 ChatGPT/Codex 对话标题。
+- 应用内置 MCP Gateway 将 Sampling Planner 绑定到发起该 `start_task` 的连接，避免不同客户端混用 Planner。客户端 Sampling 不可用时进入 `awaiting_decision`。
+
 ## 通用 MCP API
 
 | Action | 用途 |

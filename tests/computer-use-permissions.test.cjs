@@ -80,7 +80,7 @@ test('revoked consent is not treated as macOS TCC and Windows never asks for Mac
    createWindows:()=>({stop(){},async call(){return{structuredContent:{code:'CU_CONSENT_DENIED'}};}}),
    onPermissionRequired:p=>{required=p}});
  cu.setEnabled(true);
- const r=await cu.call({action:'open_session'});
+ const r=await cu.call({action:'open_session',session_title:'Computer Use 测试会话'});
  assert.equal(r.structuredContent.code,'CU_CONSENT_DENIED');
  assert.equal(cu.definition(),null);
  assert.equal(required.platform,'win32');
@@ -96,7 +96,7 @@ test('native pending-session permission denial surfaces before any MCP polling o
  };
  const controller=new MacComputerUse({platform:'darwin',connect:()=>native,
    onPermissionDenied:code=>codes.push(code)});
- const result=await controller.call({action:'open_session'});
+ const result=await controller.call({action:'open_session',session_title:'Computer Use 测试会话'});
  assert.equal(result.structuredContent.state,'initializing');
  await new Promise(resolve=>setImmediate(resolve));
  assert.deepEqual(codes,['CU_SCREEN_RECORDING_REQUIRED']);

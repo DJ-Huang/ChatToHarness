@@ -5,6 +5,8 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const {privateDirectory,readJson,atomicJson,syncDirectory}=require('./durable-files.cjs');
 const {preparePlannerObservation,mapImageDecision}=require('./computer-use-planner-images.cjs');
+const ids=require('./computer-use-task-ids.cjs');
+
 
 const TERMINAL=new Set(['succeeded','cancelled','session_terminated','interrupted']);
 const OPERATIONS=new Set(['click','mouse_move','mouse_down','mouse_drag','mouse_up',
@@ -60,7 +62,7 @@ class ComputerUseAgentRunner {
       Date.now()-task.observationAt>=this.decisionMaxAgeMs;
   }
   file(id){
-    if(typeof id!=='string'||!/^cu_agent_[a-f0-9]{64}$/.test(id))throw fault('CU_INVALID_TASK_ID');
+    if(!ids.validId(id))throw fault('CU_INVALID_TASK_ID');
     return path.join(this.directory,id+'.json');
   }
   persist(rec){rec.updated_at=now();atomicJson(this.file(rec.task_id),rec);}
@@ -85,16 +87,16 @@ class ComputerUseAgentRunner {
     if(metadata.screenshot)delete metadata.screenshot.data;
     return {record:{...rec,observation:metadata},media:shot.content?.filter(c=>c.type==='image')||[]};
   }
-  start({session_id,observation_id,goal,idempotency_key}){
+  start({session_id,observation_id,goal,idempotency_key,planner}){
     if(typeof goal!=='string'||!goal.trim()||goal.length>2000||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(goal))
       throw fault('CU_INVALID_TASK_GOAL');
     if(typeof idempotency_key!=='string'||!idempotency_key.trim()||idempotency_key.length>128)
       throw fault('CU_INVALID_ARGUMENT');
     privateDirectory(this.directory);
-    const id='cu_agent_'+hash(JSON.stringify([session_id,idempotency_key]));
     const goalDigest=hash(goal);
-    if(fs.existsSync(this.file(id))){
-      const rec=this.status(id,session_id);
+    const existing=ids.existing(this.directory,session_id,idempotency_key);
+    if(existing){
+      const rec=this.status(existing,session_id);
       if(rec.goal_digest!==goalDigest)throw fault('CU_TASK_IDEMPOTENCY_CONFLICT');
       return {...rec,reused:true};
     }
@@ -103,16 +105,20 @@ class ComputerUseAgentRunner {
     if(!session.observation||session.observation.id!==observation_id||
        Date.now()-session.observation.at>30000)throw fault('CU_STALE_OBSERVATION');
     if(this.active)throw fault('CU_TASK_RUNNING');
-    if(fs.readdirSync(this.directory).filter(s=>/^cu_agent_[a-f0-9]{64}\.json$/.test(s)).length>=256)
+    if(fs.readdirSync(this.directory).filter(s=>s.endsWith('.json')&&!s.startsWith('.key-')).length>=256)
       throw fault('CU_TASK_STORE_FULL');
-    const rec={schema:1,task_id:id,session_id,window_id:session.windowId||null,
+    const rec={schema:2,task_id:null,session_id,window_id:session.windowId||null,
+      kind:'agent',idempotency_digest:ids.keyHash(session_id,idempotency_key),
       goal_digest:goalDigest,state:'queued',phase:'created',attempts:0,completed_steps:0,
       created_at:now(),updated_at:now(),last_action:null,last_error:null};
-    const fd=fs.openSync(this.file(id),'wx',0o600);
-    try{fs.writeFileSync(fd,JSON.stringify(rec)+'\n');fs.fsyncSync(fd);}
-    finally{fs.closeSync(fd);}
-    syncDirectory(this.directory);
-    const task={rec,goal,decision:null,decisionId:null,image:null,abortController:new AbortController()};
+    const allocated=ids.create(this.directory,this.service,session_id,idempotency_key,rec);
+    if(allocated.reused){
+      const old=this.status(allocated.task_id,session_id);
+      if(old.goal_digest!==goalDigest)throw fault('CU_TASK_IDEMPOTENCY_CONFLICT');
+      return {...old,reused:true};
+    }
+    const id=allocated.task_id;
+    const task={rec,goal,planner:typeof planner==='function'?planner:this.planner,decision:null,decisionId:null,image:null,abortController:new AbortController()};
     this.tasks.set(id,task);this.activeId=id;
     queueMicrotask(()=>this.execute(task).catch(()=>{
       // Uncertain state is never resumed in a different native session.
@@ -197,11 +203,11 @@ class ComputerUseAgentRunner {
     return status.structuredContent?.state==='ready';
   }
   async decide(task,observation){
-    if(this.planner){
+    if(task.planner){
       // A planner is trusted code in the local service; no hidden model access.
       // A planner that hangs is bounded; STOP remains effective.
       try {
-        const response=await boundedPlanner(this.planner,{
+        const response=await boundedPlanner(task.planner,{
           goal:task.goal,step:task.rec.completed_steps,observation,
           last_error:task.rec.last_error,last_action:task.rec.last_action
         },task.abortController.signal);

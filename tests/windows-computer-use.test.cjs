@@ -6,11 +6,11 @@ const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAGQAAABQCAIAAABga0e4AAAACXBIWXMAAAPoAAAD6AG
 function fixture(options = {}) {
   const commands = [];
   const native = {ready: Promise.resolve({ready: true}), closed: false, stop() { this.closed = true; },
-    async request(args) { commands.push(args); return args.action === 'observe' ? {width: 100, height: 80, geometry: [10, 20, 110, 100], displays: [{x:-1920,y:0,width:1920,height:1080},{x:0,y:0,width:2560,height:1440}], png: PNG} : {ok: true, foreground: true}; }};
+    async request(args) { if(args.action!=='set_session_title'||options.captureTitle)commands.push(args); return args.action === 'observe' ? {width: 100, height: 80, geometry: [10, 20, 110, 100], displays: [{x:-1920,y:0,width:1920,height:1080},{x:0,y:0,width:2560,height:1440}], png: PNG} : {ok: true, foreground: true}; }};
   const service = new WindowsComputerUse({platform: 'win32', authorizationMode: 'per_window', connect: () => native, ...options});
   return {service, native, commands};
 }
-async function open(service) { return (await service.call({action: 'open_session'})).structuredContent.session_id; }
+async function open(service) { const id=(await service.call({action: 'open_session',session_title:'Computer Use 测试会话'})).structuredContent.session_id; await new Promise(resolve=>setImmediate(resolve)); return id; }
 async function observe(service, id) { return (await service.call({action: 'observe', session_id: id})).structuredContent.observation_id; }
 
 test('lossless compression compares formats and preserves exact pixels and dimensions', async () => {
@@ -88,7 +88,7 @@ test('forced chunk delivery works for small snapshots and reads preserve observa
 });
 
 test('computer use validates action-specific fields and literal bounded input', () => {
-  for (const args of [null, [], {action: 'eval'}, {action: 'open_session', command: 'cmd'},
+  for (const args of [null, [], {action: 'eval'}, {action: 'open_session',session_title:'Computer Use 测试会话', command: 'cmd'},
     {action: 'click', session_id: 'x', observation_id: 'y', x: NaN, y: 2},
     {action: 'type_text', session_id: 'x', observation_id: 'y', text: 'hello\ncommand'},
     {action: 'type_text', session_id: 'x', observation_id: 'y', text: 'a'.repeat(1001)},
@@ -99,7 +99,7 @@ test('computer use validates action-specific fields and literal bounded input', 
 });
 test('computer use refuses other platforms and stale or foreign sessions', async () => {
   const unsupported = fixture({platform: 'darwin'});
-  assert.equal((await unsupported.service.call({action: 'open_session'})).structuredContent.code, 'CU_WINDOWS_REQUIRED');
+  assert.equal((await unsupported.service.call({action: 'open_session',session_title:'Computer Use 测试会话'})).structuredContent.code, 'CU_WINDOWS_REQUIRED');
   const {service, commands} = fixture(); const id = await open(service);
   assert.equal((await service.call({action: 'observe', session_id: 'foreign'})).isError, true);
   assert.equal((await service.call({action: 'click', session_id: id, observation_id: 'old', x: 1, y: 1})).structuredContent.code, 'CU_STALE_OBSERVATION');
@@ -165,7 +165,7 @@ test('computer use cancellation closes helper and a closed session cannot be reu
 test('computer use local consent denial yields no session and no desktop input', async () => {
   const native = {closed: true, ready: Promise.reject(Object.assign(new Error(), {code: 'CU_CONSENT_DENIED'})), stop() {}};
   const service = new WindowsComputerUse({platform: 'win32', connect: () => native});
-  const initial = await service.call({action: 'open_session'});
+  const initial = await service.call({action: 'open_session',session_title:'Computer Use 测试会话'});
   assert.ok(initial.structuredContent.session_id);
   const result = await service.call({action: 'get_session'});
   assert.equal(result.structuredContent.code, 'CU_CONSENT_DENIED');
@@ -175,7 +175,7 @@ test('computer use timeout kills native consent wait rather than leaving an orph
   let reject;
   const native = {closed: false, ready: new Promise((_r, j) => { reject = j; }), stop() { this.closed = true; reject(Object.assign(new Error(), {code: 'CU_SESSION_CLOSED'})); }};
   const service = new WindowsComputerUse({platform: 'win32', authorizationMode: 'per_window', connect: () => native, timeoutMs: 15});
-  const result = await service.call({action: 'open_session'});
+  const result = await service.call({action: 'open_session',session_title:'Computer Use 测试会话'});
   assert.equal(result.structuredContent.state, 'awaiting_consent');
   await new Promise(r => setTimeout(r, 35));
   assert.equal((await service.call({action: 'get_session'})).structuredContent.code, 'CU_CONSENT_TIMEOUT');
@@ -183,17 +183,18 @@ test('computer use timeout kills native consent wait rather than leaving an orph
 });
 test('computer use closes a live helper on explicit close and requires fresh consent', async () => {
   const {service, native} = fixture(); const id = await open(service);
-  assert.equal((await service.call({action: 'open_session'})).structuredContent.session_id, id);
+  assert.equal((await service.call({action: 'open_session',session_title:'Computer Use 测试会话'})).structuredContent.session_id, id);
   assert.equal((await service.call({action: 'close_session', session_id: id})).structuredContent.closed, true);
   assert.equal(native.closed, true); assert.equal(service.session, null);
 });
 test('computer use recovers a lost open response and can close the current session without its ID', async () => {
   const {service, native} = fixture();
-  await service.call({action: 'open_session'}); // Simulate discarding the delivered response.
+  await service.call({action: 'open_session',session_title:'Computer Use 测试会话'}); // Simulate discarding the delivered response.
+  await new Promise(resolve=>setImmediate(resolve));
   const recovered = await service.call({action: 'get_session'});
   assert.equal(recovered.structuredContent.state, 'ready');
   assert.ok(recovered.structuredContent.session_id);
-  assert.equal((await service.call({action: 'open_session'})).structuredContent.session_id, recovered.structuredContent.session_id);
+  assert.equal((await service.call({action: 'open_session',session_title:'Computer Use 测试会话'})).structuredContent.session_id, recovered.structuredContent.session_id);
   assert.equal((await service.call({action: 'observe', session_id: recovered.structuredContent.session_id})).content[1].type, 'image');
   assert.equal((await service.call({action: 'close_session'})).structuredContent.closed, true);
   assert.equal(native.closed, true);
@@ -203,22 +204,23 @@ test('computer use returns an ID before consent and cancelling the completed ope
   let connections = 0;
   const service = new WindowsComputerUse({platform: 'win32', authorizationMode: 'per_window', connect: () => { connections++; return native; }});
   const controller = new AbortController();
-  const first = await service.call({action: 'open_session'}, {signal: controller.signal});
+  const first = await service.call({action: 'open_session',session_title:'Computer Use 测试会话'}, {signal: controller.signal});
   const id = first.structuredContent.session_id;
   assert.ok(id); assert.equal(JSON.parse(first.content[0].text).session_id, id);
   assert.equal(first.structuredContent.state, 'awaiting_consent');
   controller.abort();
   assert.equal((await service.call({action: 'get_session'})).structuredContent.session_id, id);
-  assert.equal((await service.call({action: 'open_session'})).structuredContent.session_id, id);
+  assert.equal((await service.call({action: 'open_session',session_title:'Computer Use 测试会话'})).structuredContent.session_id, id);
   assert.equal(connections, 1);
   assert.equal((await service.call({action: 'observe', session_id: id})).structuredContent.code, 'CU_CONSENT_PENDING');
-  resolve({ready: true}); await Promise.resolve();
+  native.request=async()=>({ok:true});
+  resolve({ready: true}); await new Promise(resolve=>setImmediate(resolve));
   assert.equal((await service.call({action: 'get_session'})).structuredContent.state, 'ready'); service.stop();
 });
 test('computer use refuses foreign close IDs and closes pending consent without an ID', async () => {
   const native = {closed: false, ready: new Promise(() => {}), stop() { this.closed = true; }};
   const service = new WindowsComputerUse({platform: 'win32', connect: () => native});
-  await service.call({action: 'open_session'});
+  await service.call({action: 'open_session',session_title:'Computer Use 测试会话'});
   assert.equal((await service.call({action: 'close_session', session_id: 'foreign'})).structuredContent.code, 'CU_SESSION_CLOSED');
   assert.equal(native.closed, false);
   assert.equal((await service.call({action: 'close_session'})).structuredContent.closed, true);
@@ -227,11 +229,11 @@ test('computer use refuses foreign close IDs and closes pending consent without 
 });
 test('computer use defaults to all-window configuration and refuses request-time policy changes', async () => {
   const {service} = fixture({authorizationMode: 'all_windows'});
-  const opened = await service.call({action: 'open_session',window_id:'123'});
+  const opened = await service.call({action: 'open_session',session_title:'Computer Use 测试会话',window_id:'123'});
   assert.equal(opened.structuredContent.authorization_mode,'all_windows');
   assert.equal(opened.structuredContent.state,'initializing');
-  assert.equal((await service.call({action:'open_session',window_id:'456'})).structuredContent.code,'CU_SESSION_TARGET_MISMATCH');
-  assert.throws(()=>validate({action:'open_session',authorization_mode:'all_windows'}),/CU_INVALID_ARGUMENT/);
+  assert.equal((await service.call({action:'open_session',session_title:'Computer Use 测试会话',window_id:'456'})).structuredContent.code,'CU_SESSION_TARGET_MISMATCH');
+  assert.throws(()=>validate({action:'open_session',session_title:'Computer Use 测试会话',authorization_mode:'all_windows'}),/CU_INVALID_ARGUMENT/);
   service.stop();
   assert.throws(()=>new WindowsComputerUse({authorizationMode:'bad'}),/CU_INVALID_AUTHORIZATION_MODE/);
 });
@@ -245,8 +247,8 @@ test('computer use only lists windows in globally authorized mode', async () => 
 });
 test('computer use can close busy input and old completion cannot clear a newer session', async () => {
   let reject;
-  const first={ready:Promise.resolve({ready:true}),closed:false,request:()=>new Promise((_r,j)=>{reject=j;}),stop(){this.closed=true;reject(Object.assign(new Error(),{code:'CU_SESSION_CLOSED'}));}};
-  const second={ready:Promise.resolve({ready:true}),closed:false,stop(){this.closed=true;}};
+  const first={ready:Promise.resolve({ready:true}),closed:false,request:cmd=>cmd.action==='set_session_title'?Promise.resolve({ok:true}):new Promise((_r,j)=>{reject=j;}),stop(){this.closed=true;reject?.(Object.assign(new Error(),{code:'CU_SESSION_CLOSED'}));}};
+  const second={ready:Promise.resolve({ready:true}),closed:false,request:async()=>({ok:true}),stop(){this.closed=true;}};
   let count=0;const service=new WindowsComputerUse({platform:'win32',connect:()=>++count===1?first:second});
   const id=await open(service);service.session.observation={id:'obs',at:Date.now(),width:10,height:10,geometry:[0,0,10,10]};
   const active=service.call({action:'type_text',session_id:id,observation_id:'obs',text:'fixture'});
@@ -272,7 +274,7 @@ test('computer use stdio MCP discovers tool without opening native UI', {skip: p
 });
 
 test('Windows HUD title is passed through private stdio without exposing it in status',async () => {
-  const {service,commands}=fixture();
+  const {service,commands}=fixture({captureTitle:true});
   const opened=await service.call({action:'open_session',session_title:'移动窗口'});
   for(let i=0;i<5;i++) await new Promise(resolve=>setImmediate(resolve));
   assert.equal(commands.filter(x=>x.action==='set_session_title').length,1);

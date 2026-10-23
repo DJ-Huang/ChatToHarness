@@ -9,7 +9,7 @@ const {createSamplingPlanner}=require('./computer-use-sampling-planner.cjs');
 const device=localComputerIdentity(computerUseHome());
 const definition=registeredComputerUse(baseDefinition,device);
 const server = new Server({name: 'ChatToHarness macOS Computer Use', version: require('../package.json').version}, {capabilities: {tools: {}}});
-const service = new MacComputerUse({agentPlanner:createSamplingPlanner(()=>server)});
+const service = new MacComputerUse({agentPlanner:createSamplingPlanner(()=>server),deviceId:device.id});
 server.setRequestHandler(ListToolsRequestSchema, () => ({tools: [definition]}));
 server.setRequestHandler(CallToolRequestSchema, (request, {signal}) => {
   if(request.params.name!==definition.name)return {isError:true,content:[{type:'text',text:'Unknown tool'}]};

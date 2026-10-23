@@ -19,7 +19,7 @@ async function fixture(opts = {}) {
     ready: Promise.resolve({ready: true, window_id: '123'}),
     stop() {this.closed = true;},
     async request(cmd) {
-      requests.push(cmd);
+      if(cmd.action!=='set_session_title')requests.push(cmd);
       if (cmd.action === 'observe') return {width: 64, height: 48,
         geometry: [10, 20, 74, 68], displays: [{x:-1640,y:-1440,width:2560,height:1440},{x:0,y:0,width:2056,height:1329}], png: pixels.toString('base64')};
       return {foreground: true, ok: true};
@@ -27,8 +27,8 @@ async function fixture(opts = {}) {
   };
   const service = new MacComputerUse({platform: 'darwin', authorizationMode: 'all_windows',
     connect: () => native, ...opts});
-  const start = await service.call({action: 'open_session', window_id: '123'});
-  await Promise.resolve();
+  const start = await service.call({action: 'open_session',session_title:'Computer Use 测试会话', window_id: '123'});
+  await new Promise(resolve=>setImmediate(resolve));
   return {native, service, requests, session: start.structuredContent.session_id};
 }
 
@@ -220,8 +220,9 @@ test('macOS only accepts a genuinely supplied bounded session title via private 
 
 test('missing title cannot be fabricated; unsafe or oversized titles are rejected before opening', async () => {
   const {validate,baseDefinition}=require('../app/base-computer-use.cjs');
-  assert.doesNotThrow(()=>validate({action:'open_session',window_id:'123'}));
-  assert.equal(Object.hasOwn(baseDefinition.inputSchema.properties,'session_title'),false);
+  assert.doesNotThrow(()=>validate({action:'open_session',session_title:'Computer Use 测试会话',window_id:'123'}));
+  assert.equal(Object.hasOwn(baseDefinition.inputSchema.properties,'session_title'),true);
+  assert.throws(()=>validate({action:'open_session',window_id:'123'}),/CU_SESSION_TITLE_REQUIRED/);
   for(const name of ['', '  ', 'text\nsecret', 'a'.repeat(81), 123, null]){
     assert.throws(()=>validate({action:'open_session',window_id:'123',session_title:name}),/CU_INVALID_ARGUMENT/);
   }

@@ -131,3 +131,31 @@ test('MCP Servers setting is wired through GUI, preload, main and tool catalog',
     ['mcp-manager.cjs','this.services?.stopComputerUse?.()']
   ]) assert.ok(fs.readFileSync(path.join(root,file),'utf8').includes(needle),file+' missing wiring');
 });
+
+test('MCP manager keeps a model Planner scoped to its single Computer Use start call',async t=>{
+  const f=fixture(t,'win32'),cu=f.computerUse;
+  const received=[];
+  cu.createWindows=()=>({
+    stop(){},
+    async call(args,{planner}={}){
+      received.push({action:args.action,planner});
+      return {structuredContent:{action:args.action,planner:typeof planner==='function'}};
+    }
+  });
+  const services={
+    tools:()=>cu.definition()?[cu.definition()]:[],
+    has:name=>name==='computer_use'&&Boolean(cu.definition()),
+    call:(name,args,opts)=>cu.call(args,opts),
+    dispose:()=>cu.dispose()
+  };
+  const mgr=new McpManager({settings:{list:()=>[],getAllowAllTools:()=>false},services});
+  t.after(async()=>mgr.close());
+  cu.setEnabled(true);mgr.running=true;mgr.changed();
+  const planner=async()=>({done:true});
+  const a=await mgr.call('computer_use',{action:'start_task'},{planner});
+  assert.equal(a.structuredContent.planner,true);
+  assert.equal(received[0].planner,planner);
+  const b=await mgr.call('computer_use',{action:'get_session'});
+  assert.equal(b.structuredContent.planner,false);
+  assert.equal(received[1].planner,undefined);
+});

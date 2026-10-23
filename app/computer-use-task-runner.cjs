@@ -3,7 +3,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const {privateDirectory, readJson, atomicJson, syncDirectory} = require('./durable-files.cjs');
+const {privateDirectory, readJson, atomicJson} = require('./durable-files.cjs');
+const ids=require('./computer-use-task-ids.cjs');
+
 
 const TERMINAL = new Set(['succeeded', 'cancelled', 'session_terminated', 'interrupted']);
 const now = () => new Date().toISOString();
@@ -26,7 +28,7 @@ class ComputerUseTaskRunner {
   }
   get active() { return this.activeId !== null; }
   file(taskId) {
-    if (typeof taskId !== 'string' || !/^cu_task_[a-f0-9]{64}$/.test(taskId))
+    if (!ids.validId(taskId))
       throw problem('CU_INVALID_TASK_ID');
     return path.join(this.directory, taskId + '.json');
   }
@@ -49,10 +51,9 @@ class ComputerUseTaskRunner {
   }
   start({session_id, observation_id, target_x, target_y, idempotency_key}) {
     privateDirectory(this.directory);
-    const taskId = 'cu_task_' + crypto.createHash('sha256')
-      .update(JSON.stringify([session_id, idempotency_key])).digest('hex');
-    if (fs.existsSync(this.file(taskId))) {
-      const record = this.status(taskId, session_id);
+    const existing=ids.existing(this.directory,session_id,idempotency_key);
+    if (existing) {
+      const record = this.status(existing, session_id);
       if (record.goal.x !== target_x || record.goal.y !== target_y)
         throw problem('CU_TASK_IDEMPOTENCY_CONFLICT');
       return {...record, reused: true};
@@ -66,18 +67,21 @@ class ComputerUseTaskRunner {
         Date.now() - session.observation.at > 30000)
       throw problem('CU_STALE_OBSERVATION');
     if (this.active) throw problem('CU_TASK_RUNNING');
-    if (fs.readdirSync(this.directory).filter(name=>/^cu_task_[a-f0-9]{64}\.json$/.test(name)).length >= 256)
+    if (fs.readdirSync(this.directory).filter(name=>name.endsWith('.json')&&!name.startsWith('.key-')).length >= 256)
       throw problem('CU_TASK_STORE_FULL');
-    const record = {schema: 1, task_id: taskId, session_id,
+    const record = {schema: 2, task_id: null, session_id,
       window_id: session.windowId || null, fingerprint,
-      kind: 'move_window', goal: {x: target_x, y: target_y},
+      idempotency_digest:ids.keyHash(session_id,idempotency_key),
+      kind: 'move', goal: {x: target_x, y: target_y},
       state: 'queued', phase: 'created', created_at: now(),
       updated_at: now(), attempts: 0, cancel_requested: false};
-    // Create exclusively so concurrent identical starts cannot overwrite a record.
-    const fd = fs.openSync(this.file(taskId), 'wx', 0o600);
-    try { fs.writeFileSync(fd, JSON.stringify(record) + '\n'); fs.fsyncSync(fd); }
-    finally { fs.closeSync(fd); }
-    syncDirectory(this.directory);
+    const allocated=ids.create(this.directory,this.service,session_id,idempotency_key,record);
+    if(allocated.reused){
+      const old=this.status(allocated.task_id,session_id);
+      if(old.goal.x!==target_x||old.goal.y!==target_y)throw problem('CU_TASK_IDEMPOTENCY_CONFLICT');
+      return {...old,reused:true};
+    }
+    const taskId=allocated.task_id;
     this.tasks.set(taskId, record);
     this.activeId = taskId;
     queueMicrotask(() => this.execute(record).catch(() => {

@@ -32,7 +32,7 @@ async function fixture(t,planner=null,intercept=()=>{}){
   t.after(()=>{native.closed=true;fs.rmSync(dir,{recursive:true,force:true,maxRetries:5,retryDelay:30});});
   const service=new WindowsComputerUse({platform:'win32',connect:()=>native,
     agentPlanner:planner,agentDirectory:dir,taskRetryMs:10,idleTimeoutMs:10000});
-  const session=(await service.call({action:'open_session',window_id:'12345'})).structuredContent.session_id;
+  const session=(await service.call({action:'open_session',session_title:'Computer Use 测试会话',window_id:'12345'})).structuredContent.session_id;
   await until(async()=>((await service.call({action:'get_session'})).structuredContent.state==='ready'));
   const obs=await service.call({action:'observe',session_id:session});
   assert.equal(obs.isError,undefined);

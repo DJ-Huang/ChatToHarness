@@ -33,7 +33,7 @@ async function fixture(t, behavior={}) {
   };
   const service=new WindowsComputerUse({platform:'win32',connect:()=>native,authorizationMode:'all_windows',
     taskDirectory:path.join(root,'records'),taskRetryMs:12,idleTimeoutMs:10000});
-  const opened=await service.call({action:'open_session',window_id:'12345'});
+  const opened=await service.call({action:'open_session',session_title:'Computer Use 测试会话',window_id:'12345'});
   const id=opened.structuredContent.session_id;
   await until(async()=>(await service.call({action:'get_session'})).structuredContent.state==='ready');
   const observe=()=>service.call({action:'observe',session_id:id});
@@ -60,7 +60,7 @@ test('TaskRunner persists a checkpoint, recovers pre-input error and verifies ob
   const launch=await f.start();
   assert.equal(launch.isError,undefined);
   const taskId=launch.structuredContent.task_id;
-  assert.match(taskId,/^cu_task_[0-9a-f]{64}$/);
+  assert.match(taskId,/^cu-[0-9a-f-]{36}_[0-9]{13}(?:_[1-9][0-9]*)?$/);
   const done=await until(async()=>{
     const state=(await f.status(taskId)).structuredContent;
     return state.state==='succeeded'?state:null;

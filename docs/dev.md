@@ -1,5 +1,27 @@
 # Development record — Windows computer use
 
+## Generic GUI Agent ID and session-name contracts — 2026-10-23
+
+- **Issue / branch:** ChatToHarness #1 / `feat/computer-use`; Windows repository `D:\\proj\\github\\ChatToHarness`. No macHarness, real pointer input, version bump, installation or push.
+- [x] **Public task IDs:** Both general GUI and compatibility window-move tasks now use persistent Harness device UUID + 13-digit Unix epoch millisecond timestamp; same-millisecond collisions append a sequence number. No legacy `cu_agent_<hash>`/`cu_task_<hash>` API compatibility. Stable idempotency hashes remain private filesystem indices; duplicate start recovers the original task, conflicting payload is rejected. `task_id` input schema, status, cancel and decision calls all use the same validated format.
+- [x] **AI session naming:** `open_session` requires a truthful human-readable `session_title`; use known real ChatGPT/Codex title or an accurate task description, never a guessed conversation title or UUID. Native HUD title is sent through already-authorized private stdio.
+- [x] **Planner context wiring:** MCP Gateway forwards a per-connection Sampling Planner through Manager → HarnessServices → ComputerUseSwitch → BaseComputerUse to the specific started Agent task. Never stash a different client's Planner on a shared controller. Without Sampling, task safely awaits an external decision.
+- [x] **Regressions:** 119 Computer Use mock regression tests: **115 PASS / 0 FAIL / 4 SKIP** (Mac-only on Windows); JS syntax and `git diff --check` PASS. Includes per-client Planner forwarding, device identity, readable task ID allocation and collision, same-key idempotency, required session name, stop/consent, macOS/Windows contracts. Real model Sampling after tool return and GUI task completion remain unverified.
+- [ ] **Full npm test:** fails in this Windows environment. Observed `EPERM` on Windows test-created symlinks under `D:\\system_folder\\Temp` and `Bundled computer-use resources are missing` in Windows packaging-config test. Do not report full suite as passing or treat these failures as Computer Use regressions without independent reproduction.
+- [ ] **Open:** real installed-client Sampling in ChatGPT/Codex, Windows/macOS native end-to-end dynamic interaction, cross-application authorization transitions, full npm test and new installation package. Do not treat mock suite or test build metadata as release acceptance.
+
+## Computer Use device-time task IDs and readable titles — 2026-10-23
+
+- **Issue/branch:** ChatToHarness #1, `feat/computer-use`; Windows checkout, no macHarness, no live desktop input, no installer/version update.
+- [x] Generic and window-move TaskRunner IDs now use registered device ID + 13-digit millisecond time + optional collision sequence. A private idempotency index prevents duplicate work after lost replies. Legacy hash task IDs are intentionally unsupported.
+- [x] New task IDs are accepted consistently by MCP input schema, runtime validation, task get/cancel/decision handlers and Windows/macOS packaging manifests.
+- [x] AI must send a human-readable `session_title` with each `open_session`, describing the real current task; names are shown by native HUD via private stdio, not fabricated from unknown conversation metadata.
+- [x] The app-owned MCP Gateway forwards a client-scoped optional Sampling Planner into the generic Computer Use task; no shared mutable global planner reference.
+- [x] Mock-only regression: 112 cases across core, schema, Windows/macOS adapters, packaging, policy, app switch/HUD — 108 pass, 0 fail, 4 macOS-only skip on Windows. `git diff --check` PASS. No real GUI action attempted.
+- [ ] Production follow-ups: rebuilt Windows installer, client MCP sampling after tool return, full native GUI acceptance, macOS hardware checks, full npm test environment.
+
+
+
 ## General Computer Use Agent: chunked model screenshots — 2026-10-23
 
 - **Branch / issue:** `feat/computer-use` / ChatToHarness #1; Windows checkout `D:\\proj\\github\\ChatToHarness`. No macHarness used, no real-system pointer input, version bump or installer replacement.

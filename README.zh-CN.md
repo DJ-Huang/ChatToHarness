@@ -73,7 +73,7 @@ ChatGPT：通过 `@` 选择已连接插件，再描述任务和工程路径。�
 
 ## 开发
 
-Computer Use 开发资料：[Windows 原生设置与验证](docs/windows-computer-use.md) · [跨平台任务架构](docs/computer-use-agent-architecture.md)。Windows 和 macOS 安装包已包含内置插件；实验状态及已知限制见 [v0.8.0 发布说明](release-notes/v0.8.0.md)。
+Computer Use 开发资料：[Windows 原生设置与验证](docs/windows-computer-use.md) · [跨平台任务架构](docs/computer-use-agent-architecture.md)。Windows 和 macOS 安装包已包含内置插件；实验状态及已知限制见 [v0.8.1 发布说明](release-notes/v0.8.1.md)。
 
 双击 [Dev.command](Dev.command)（Mac）或 [Dev.cmd](Dev.cmd)（Windows），直接运行当前源码；再次启动会先清理旧实例，再运行新代码。Mac 终端可运行 `./dev.sh`。已有依赖也可使用 `npm run dev` / `npm start`，无需打包。[开发说明](docs/zh-CN/GUIDE.md#开发时直接运行源码)
 

@@ -25,7 +25,7 @@ async function fixture(opts = {}) {
       return {foreground: true, ok: true};
     }
   };
-  const service = new MacComputerUse({platform: 'darwin', authorizationMode: 'all_windows',
+  const service = new MacComputerUse({platform: 'darwin', deviceId: 'cu-11111111-1111-4111-8111-111111111111', authorizationMode: 'all_windows',
     connect: () => native, ...opts});
   const start = await service.call({action: 'open_session',session_title:'Computer Use 测试会话', window_id: '123'});
   await new Promise(resolve=>setImmediate(resolve));
@@ -101,16 +101,21 @@ test('macOS packaged MCP configuration references dedicated native files', {skip
 test('macOS MCP stdio discovers tool and reports helper permission denial safely', {skip: process.platform!=='darwin'}, async t => {
   const {Client} = require('@modelcontextprotocol/sdk/client/index.js');
   const {StdioClientTransport} = require('@modelcontextprotocol/sdk/client/stdio.js');
+  const temporaryHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-macos-stdio-'));
   const client = new Client({name:'cu-mac-fixture',version:'1'});
-  t.after(()=>client.close());
+  t.after(async () => {
+    await client.close();
+    fs.rmSync(temporaryHome, {recursive:true,force:true});
+  });
   await client.connect(new StdioClientTransport({command:process.execPath,
-    args:[path.resolve(__dirname,'../app/macos-computer-use-stdio.cjs')],stderr:'pipe'}));
+    args:[path.resolve(__dirname,'../app/macos-computer-use-stdio.cjs')],env:{LOCALHARNESS_HOME:temporaryHome},stderr:'pipe'}));
   const tools=await client.listTools();
   assert.equal(tools.tools.length,1);
   const entry=tools.tools[0];
   assert.equal(entry.name,'computer_use');
   const device=entry._meta?.['com.chattoharness/device'];
   assert.ok(device?.id && device?.name);
+  assert.equal(fs.readFileSync(path.join(temporaryHome,'computer-use-device-id'),'utf8').trim(),device.id);
   assert.equal(device.platform,'darwin');
   assert.equal(entry.inputSchema.properties.target_device_id.const,device.id);
   assert.equal(entry.inputSchema.required.includes('target_device_id'),false);
@@ -133,14 +138,19 @@ test('staged Mac bundle exposes MCP tool with bundled Node and isolated dependen
   }
   const {Client}=require('@modelcontextprotocol/sdk/client/index.js');
   const {StdioClientTransport}=require('@modelcontextprotocol/sdk/client/stdio.js');
+  const temporaryHome=fs.mkdtempSync(path.join(os.tmpdir(),'cth-macos-bundle-stdio-'));
   const client=new Client({name:'mac-bundle-smoke',version:'1'});
-  t.after(()=>client.close());
-  await client.connect(new StdioClientTransport({command:bundledNode,args:[stagedEntry],stderr:'pipe'}));
+  t.after(async () => {
+    await client.close();
+    fs.rmSync(temporaryHome,{recursive:true,force:true});
+  });
+  await client.connect(new StdioClientTransport({command:bundledNode,args:[stagedEntry],env:{LOCALHARNESS_HOME:temporaryHome},stderr:'pipe'}));
   const tools=await client.listTools();
   assert.equal(tools.tools.length,1);
   assert.equal(tools.tools[0].name,'computer_use');
   const id=tools.tools[0]._meta?.['com.chattoharness/device']?.id;
   assert.ok(id);
+  assert.equal(fs.readFileSync(path.join(temporaryHome,'computer-use-device-id'),'utf8').trim(),id);
   assert.equal(tools.tools[0].inputSchema.properties.target_device_id.const,id);
   const state=await client.callTool({name:'computer_use',arguments:{action:'get_session'}});
   assert.equal(state.structuredContent.state,'none');
@@ -204,7 +214,7 @@ test('macOS only accepts a genuinely supplied bounded session title via private 
   const requests=[];
   const native={closed:false,ready:Promise.resolve({window_id:'123',input_enabled:true}),
     stop(){this.closed=true;},async request(command){requests.push(command);return {ok:true};}};
-  const service=new MacComputerUse({platform:'darwin',connect:()=>native});
+  const service=new MacComputerUse({platform:'darwin',deviceId:'cu-11111111-1111-4111-8111-111111111111',connect:()=>native});
   const result=await service.call({action:'open_session',window_id:'123',session_title:'移动窗口'});
   assert.match(result.structuredContent.session_id,/^[0-9a-f-]{36}$/);
   await new Promise(resolve=>setImmediate(resolve));

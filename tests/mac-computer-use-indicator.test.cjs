@@ -11,7 +11,7 @@ test('session shown in Mac native HUD is exactly the MCP open_session ID',async(
  const options=[];
  const fake={closed:false,ready:Promise.resolve({window_id:'123',input_enabled:true}),
    stop(){this.closed=true},request(){return Promise.resolve({ok:true})}};
- const service=new MacComputerUse({platform:'darwin',connect:args=>{options.push(args);return fake;}});
+ const service=new MacComputerUse({platform:'darwin',deviceId:'cu-11111111-1111-4111-8111-111111111111',connect:args=>{options.push(args);return fake;}});
  const opened=await service.call({action:'open_session',session_title:'Computer Use 测试会话',window_id:'123'});
  const session=opened.structuredContent.session_id;
  assert.match(session,/^[a-f0-9-]{36}$/);

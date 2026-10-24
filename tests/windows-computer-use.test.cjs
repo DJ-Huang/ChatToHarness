@@ -262,10 +262,19 @@ test('computer use stdio MCP discovers tool without opening native UI', {skip: p
   const {Client} = require('@modelcontextprotocol/sdk/client/index.js');
   const {StdioClientTransport} = require('@modelcontextprotocol/sdk/client/stdio.js');
   const path = require('node:path');
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const temporaryHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-windows-stdio-'));
   const client = new Client({name: 'computer-use-test', version: '1'});
-  t.after(() => client.close());
-  await client.connect(new StdioClientTransport({command: process.execPath, args: [path.resolve(__dirname, '../app/windows-computer-use-stdio.cjs')], stderr: 'pipe'}));
+  t.after(async () => {
+    await client.close();
+    fs.rmSync(temporaryHome, {recursive: true, force: true});
+  });
+  await client.connect(new StdioClientTransport({command: process.execPath, args: [path.resolve(__dirname, '../app/windows-computer-use-stdio.cjs')], env: {LOCALHARNESS_HOME: temporaryHome}, stderr: 'pipe'}));
   const tools = await client.listTools(); assert.equal(tools.tools.length, 1); assert.equal(tools.tools[0].name, 'computer_use');
+  const deviceId = tools.tools[0]._meta?.['com.chattoharness/device']?.id;
+  assert.ok(deviceId);
+  assert.equal(fs.readFileSync(path.join(temporaryHome, 'computer-use-device-id'), 'utf8').trim(), deviceId);
   const {NEW_RE}=require('../app/computer-use-task-ids.cjs');
   assert.equal(tools.tools[0].inputSchema.properties.task_id.pattern,NEW_RE.source);
   const nextId='cu-20436e7e-24f0-4f0a-a37d-1d174c1efe69_9999999999999';

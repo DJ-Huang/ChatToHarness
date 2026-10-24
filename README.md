@@ -74,7 +74,7 @@ Folder settings do not sandbox the terminal: commands run with your current user
 
 Optional Windows source preview: [computer use setup, permissions and verification](docs/windows-computer-use.md). This standalone MCP service adds locally consented window capture and input; it is not enabled automatically or included in released installers.
 
-Double-click [Dev.command](Dev.command) (Mac) or [Dev.cmd](Dev.cmd) (Windows) to run current source. Relaunching cleans up the old instance before loading new code. With dependencies ready, `npm run dev` / `npm start` do the same without packaging. [Development guide](docs/en/GUIDE.md#run-source-during-development)
+Double-click [Dev.command](Dev.command) (Mac) or [Dev.cmd](Dev.cmd) (Windows) to run current source. Relaunching cleans up the old instance before loading new code. On Mac, run `./dev.sh` from a terminal. With dependencies ready, `npm run dev` / `npm start` do the same without packaging. [Development guide](docs/en/GUIDE.md#run-source-during-development)
 
 Use Node 24.22.0. Build on the matching target operating system and architecture.
 

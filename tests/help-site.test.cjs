@@ -70,3 +70,36 @@ test('every built-in tool and documented console action maps to a real article',
   const guide=fs.readFileSync(path.join(root,'docs/zh-CN/GUIDE.md'),'utf8');
   for(const heading of ['## 安装与使用','## MCP Servers','## 应用更新','## 故障处理'])assert.ok(guide.includes(heading),'Lost old guide anchor: '+heading);
 });
+
+
+test('additional or reordered sections keep published anchors and the goal summary in every language',t=>{
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'cth-help-headings-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true}));
+  const titles={en:['Your goal','Before you start','Steps','What success looks like','If it does not work','Next steps'],'zh-CN':['使用目标','开始前','操作步骤','完成后的表现','没有成功时','下一步'],ja:['目的','始める前に','操作手順','完了時の状態','うまくいかない場合','次のステップ']};
+  const ids=['goal','before','steps','result','troubleshooting','next'];
+  for(const [locale,headings]of Object.entries(titles)){
+    const directory=path.join(tmp,locale);fs.mkdirSync(directory,{recursive:true});
+    const rows=[['Computer Use','Extra introduction'],[headings[5],'Continue here'],...headings.slice(0,5).map((title,index)=>[title,index===0?'The actual goal.':'Section text.'])];
+    fs.writeFileSync(path.join(directory,'sample.md'),'# Sample\n\n'+rows.map(([title,body])=>'## '+title+'\n\n'+body).join('\n\n'));
+    const article=readArticle(locale,'sample',{docsRoot:tmp});
+    assert.equal(article.toc.length,7);
+    assert.equal(article.summary,'The actual goal.');
+    for(let i=0;i<headings.length;i++)assert.equal(article.toc.find(item=>item.text===headings[i]).id,ids[i]);
+    assert.equal(article.toc.find(item=>item.text==='Computer Use').id,'section-computer-use');
+  }
+});
+
+test('articles accept any number of sections and generate unique links for repeated or Unicode titles',t=>{
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'cth-help-freeform-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true}));
+  fs.mkdirSync(path.join(tmp,'en'),{recursive:true});const file=path.join(tmp,'en/sample.md');
+  for(const headings of [[],['Custom'],['Custom','Custom','自定义章节','自定义章节','Your goal','Your goal','Before you start','Other','Another']]){
+    fs.writeFileSync(file,'# Sample\n\n'+headings.map(title=>'## '+title+'\n\nText.').join('\n\n'));
+    const article=readArticle('en','sample',{docsRoot:tmp});
+    assert.equal(article.toc.length,headings.length);
+    assert.equal(new Set(article.toc.map(item=>item.id)).size,headings.length);
+    if(headings.length>1){
+      assert.equal(article.toc[0].id,'section-custom');assert.equal(article.toc[1].id,'section-custom-2');
+      assert.equal(article.toc[2].id,'section-自定义章节');assert.equal(article.toc[3].id,'section-自定义章节-2');
+      assert.equal(article.toc[4].id,'goal');assert.equal(article.toc[5].id,'goal-2');
+    }
+  }
+});

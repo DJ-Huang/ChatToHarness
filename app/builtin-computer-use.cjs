@@ -127,7 +127,7 @@ class ComputerUseSwitch {
   }
   denied(started=false) {
     const data={code:'CU_DISABLED',execution_state:started?'unknown':'not_started',
-      operation_executed:started?null:false,next_action:'Enable Computer Use in MCP Servers'};
+      operation_executed:started?null:false,next_action:'Enable Computer Use in Plugins > Computer Use > Manage'};
     return {isError:true,content:[{type:'text',text:JSON.stringify(data)}],structuredContent:data};
   }
   dispose(){this.stop();this.enabled=false;}

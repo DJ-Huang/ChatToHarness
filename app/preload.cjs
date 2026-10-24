@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('localHarness',Object.freeze({
   mcpTestServer:id=>call('mcp-test-server',id),mcpSetToolPolicy:input=>call('mcp-set-tool-policy',input),
   mcpSetAllowAllTools:enabled=>call('mcp-set-allow-all-tools',enabled),
   mcpSetComputerUse:enabled=>call('mcp-set-computer-use',enabled),
+  mcpComputerUsePermissionStatus:()=>call('mcp-computer-use-permission-status'),
   mcpComputerUsePermissions:request=>call('mcp-computer-use-permissions',request),
   mcpComputerUseDismissPermissions:()=>call('mcp-computer-use-dismiss-permissions'),
   mcpComputerUseOpenPermissionSettings:name=>call('mcp-computer-use-open-permission-settings',name),

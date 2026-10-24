@@ -4,9 +4,9 @@ The website renders articles from `docs/en/`, `docs/zh-CN/` and `docs/ja/` at bu
 
 ## Editing an article
 
-1. Edit the same filename in all three language folders. Preserve the six main sections: goal, preparation, steps, expected result, troubleshooting and next steps. Write user actions and observable outcomes, not implementation explanations.
+1. Edit the same filename in all three language folders. Organize sections to fit the topic; goal, preparation, steps, expected result, troubleshooting and next steps are a suggested outline, not a required section count or order. Sections may be added, omitted or reordered. Write user actions and observable outcomes, not implementation explanations.
 2. Use repository-relative links such as `first-task.md` and `../images/help/en/connection.png`. These also work in GitHub. During the website build, article links become help-center URLs; developer references remain repository links.
-3. Maintain translated terms using `docs/terminology.json`, and match the actual app labels. Use stable section links `#goal`, `#before`, `#steps`, `#result`, `#troubleshooting`, `#next` on the website. For links intended to work in both GitHub and the website, link to the article without a section fragment because GitHub generates localized heading anchors.
+3. Maintain translated terms using `docs/terminology.json`, and match the actual app labels. Existing standard section titles retain the website links `#goal`, `#before`, `#steps`, `#result`, `#troubleshooting`, `#next` regardless of their position. Other level-two headings receive independent `#section-…` links and appear in the contents; repeated headings receive unique suffixes. Preserve published links when renaming a standard section. For links intended to work in both GitHub and the website, link to the article without a section fragment because GitHub generates localized heading anchors.
 4. Put images in `docs/images/`. Use corresponding-language app captures, explanatory alt text and numbered captions. Do not embed remote images or raw HTML. Follow `docs/images/help/README.md` for provenance and disclosure.
 5. Update `docs/feature-coverage.json` when adding a user-facing action or built-in tool. A topic should cover its subordinate actions, not expose implementation parameters as the manual.
 

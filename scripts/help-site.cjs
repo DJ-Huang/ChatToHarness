@@ -14,7 +14,18 @@ const repository='https://github.com/DJ-Huang/ChatToHarness/blob/main/';
 const escape=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const route=(locale,slug='')=>`${base}docs/${locale}/${slug?slug+'/':''}`;
 const slugs=navigation.groups.flatMap(group=>group.articles);
-const sections=['goal','before','steps','result','troubleshooting','next'];
+// Recognize published section titles without tying their links to document order.
+const sectionTitles={
+  en:{'your goal':'goal','before you start':'before','steps':'steps','what success looks like':'result','if it does not work':'troubleshooting','next steps':'next'},
+  'zh-CN':{'使用目标':'goal','开始前':'before','操作步骤':'steps','完成后的表现':'result','没有成功时':'troubleshooting','下一步':'next'},
+  ja:{'目的':'goal','始める前に':'before','操作手順':'steps','完了時の状態':'result','うまくいかない場合':'troubleshooting','次のステップ':'next'}
+};
+const normalizedHeading=value=>value.trim().toLowerCase().replace(/\s+/g,' ');
+function standardSectionId(locale,title){
+  const titles=Object.hasOwn(sectionTitles,locale)?sectionTitles[locale]:null,key=normalizedHeading(title);
+  return titles&&Object.hasOwn(titles,key)?titles[key]:null;
+}
+const headingSlug=value=>value.normalize('NFKC').trim().toLowerCase().replace(/[^\p{L}\p{N}_]+/gu,'-').replace(/^-+|-+$/g,'')||'section';
 function safeURL(href){
   if(typeof href!=='string'||/[\u0000-\u0020\\]/.test(href)||/^(?:javascript|data|vbscript):/i.test(href))throw new Error('Unsafe documentation link: '+href);
   if(/^[a-z][a-z\d+.-]*:/i.test(href)&&!/^https?:/i.test(href))throw new Error('Unsupported documentation link: '+href);
@@ -43,12 +54,15 @@ function readArticle(locale,slug,{docsRoot=path.join(root,'docs')}={}){
   const markdown=fs.readFileSync(source,'utf8');
   const title=/^# (.+)$/m.exec(markdown)?.[1];
   if(!title)throw new Error('Missing article title: '+source);
-  const toc=[];let heading=0;
+  const toc=[],usedIds=new Set();
+  const uniqueId=base=>{let id=base,suffix=2;while(usedIds.has(id))id=base+'-'+suffix++;usedIds.add(id);return id;};
   const parser=new Marked({gfm:true,breaks:false,renderer:{
     html({text}){return escape(text);},
     heading({tokens,depth}){
       const text=this.parser.parseInline(tokens),plain=tokens.map(token=>token.text||token.raw).join('');
-      const id=depth===1?'title':depth===2?(sections[heading++]||`section-${heading}`):'sub-'+encodeURIComponent(plain.toLowerCase().replace(/\s+/g,'-'));
+      const id=uniqueId(depth===1?'title':depth===2
+        ? standardSectionId(locale,plain) || 'section-'+headingSlug(plain)
+        : 'sub-'+encodeURIComponent(plain.toLowerCase().replace(/\s+/g,'-')));
       if(depth===2)toc.push({id,text:plain});
       return `<h${depth} id="${escape(id)}">${text}</h${depth}>\n`;
     },
@@ -62,8 +76,10 @@ function readArticle(locale,slug,{docsRoot=path.join(root,'docs')}={}){
     }
   }});
   const html=parser.parse(markdown);
-  if(heading!==6)throw new Error(`Expected six user-guide sections: ${source}`);
-  const goal=markdown.split(/^## .+$/m)[1]?.trim().split('\n')[0]||'';
+  const parts=markdown.split(/^## (.+)$/m);
+  let goalText=parts[2]||'';
+  for(let i=1;i<parts.length;i+=2)if(standardSectionId(locale,parts[i])==='goal'){goalText=parts[i+1]||'';break;}
+  const goal=goalText.trim().split('\n')[0]||'';
   const text=markdown.replace(/!\[[^\]]*\]\([^)]*\)/g,'').replace(/\[([^\]]+)\]\([^)]*\)/g,'$1').replace(/[#*>`|]/g,'').replace(/\s+/g,' ').trim();
   return {slug,locale,title,summary:goal,html,toc,text,source};
 }

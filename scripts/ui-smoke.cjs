@@ -75,9 +75,11 @@ async function close() {
   }
 }
 async function tab(page, name) {
+  if (await page.locator('#plugin-management-drawer').isVisible()) await page.locator('#plugin-management-close').click();
   await page.locator('#nav-' + name).click();
   assert.equal(await page.locator('#panel-' + name).isVisible(), true);
   assert.equal(await page.locator('#nav-' + name).getAttribute('aria-selected'), 'true');
+  if (name === 'mcp' && await page.locator('#plugin-manage-' + mcpServerId).count()) await page.locator('#plugin-manage-' + mcpServerId).click();
   for (const other of ['overview', 'logs', 'history', 'connection', 'directories', 'mcp', 'help']) {
     if (other !== name) assert.equal(await page.locator('#panel-' + other).isVisible(), false);
   }
@@ -194,6 +196,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   // a workspace or a tunnel. The smoke runner's standalone Node executable is
   // intentional: Electron's process.execPath would launch another desktop app.
   await tab(page, 'mcp');
+  await page.locator('#plugin-add-mcp').click();
   await page.locator('#mcp-add').click();
   await page.locator('#mcp-id').fill(mcpServerId);
   await page.locator('#mcp-name').fill('UI MCP fixture');
@@ -220,13 +223,16 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
   // imported third-party MCP server. GUI changes must survive a re-render.
   const nativeBefore=await getState();
   assert.equal(nativeBefore.mcp.computerUse.enabled,false);
+  await tab(page, 'mcp');
+  await page.locator('#plugin-management-close').click();
+  await page.locator('#plugin-computer-use-manage').click();
   const computerToggle=page.locator('#mcp-computer-use');
   if(nativeBefore.mcp.computerUse.available){
     await computerToggle.check();
     await page.waitForFunction(() => {
       const modal=document.getElementById('mcp-computer-use-permission-dialog');
       const enabled=document.getElementById('mcp-computer-use-state').textContent.includes('已启用当前系统');
-      return enabled || !modal.hidden;
+      return enabled || modal.open;
     });
     const checked=await getState();
     assert.equal(checked.mcp.servers.length,1,'Computer Use must not create an external MCP server');
@@ -237,7 +243,7 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
       assert.equal((await page.locator('#mcp-computer-use-permission-dialog').isVisible()),true);
       assert.equal(JSON.parse(fs.readFileSync(path.join(stateHome,'preferences.json'),'utf8')).computerUseEnabled,false);
       await page.locator('#mcp-computer-use-permission-dismiss').click();
-      await page.waitForFunction(()=>document.getElementById('mcp-computer-use-permission-dialog').hidden);
+      await page.waitForFunction(()=>!document.getElementById('mcp-computer-use-permission-dialog').open);
     } else {
       assert.equal(checked.mcp.computerUse.enabled,true);
       assert.equal(JSON.parse(fs.readFileSync(path.join(stateHome,'preferences.json'),'utf8')).computerUseEnabled,true);
@@ -249,6 +255,8 @@ server.listen(0,'127.0.0.1',()=>fs.writeFileSync(file,'http://127.0.0.1:'+server
     }
   }
 
+  await page.locator('#plugin-management-close').click();
+  await tab(page, 'mcp');
   await page.getByRole('button', { name: '测试连接', exact: true }).click();
   assert.equal(await page.locator('#mcp-trust').isVisible(), true);
   assert.ok((await page.locator('#mcp-trust-target').textContent()).includes(process.execPath));

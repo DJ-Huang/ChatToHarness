@@ -38,6 +38,7 @@ test('macOS development bundle is named, signed, cached and leaves Electron depe
   const binary=prepareDevelopmentApp(options);
   assert.match(binary,/ChatToHarness\.app\/Contents\/MacOS\/Electron$/);
   assert.equal(fs.readFileSync(binary,'utf8'),'fixture');
+  assert.equal(execFileSync('/usr/bin/plutil',['-extract','CFBundleIdentifier','raw',path.resolve(binary,'../../Info.plist')],{encoding:'utf8'}).trim(),'local.chattoharness.dev');
   assert.equal(fs.readlinkSync(path.resolve(binary,'../../link')),'MacOS/Electron');
   assert.equal(fs.readFileSync(f.info,'utf8'),f.original);assert.equal(f.signatures,1);
   assert.equal(prepareDevelopmentApp(options),binary);assert.equal(f.signatures,1);

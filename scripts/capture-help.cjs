@@ -27,7 +27,8 @@ async function main(){
     async function capture(name,selectors=[]){
       await page.setViewportSize({width:1160,height:1200});
       if(name==='mcp-editor'||name==='mcp-http')await page.locator('#mcp-editor').evaluate(el=>el.scrollIntoView({block:'start'}));
-      if(name==='mcp-import'||name==='mcp-export')await page.locator('#mcp-import-text').evaluate(el=>el.closest('section').scrollIntoView({block:'start'}));
+      if(name==='mcp-import')await page.locator('#mcp-import-text').evaluate(el=>el.closest('section').scrollIntoView({block:'start'}));
+      if(name==='mcp-export')await page.locator('#mcp-export-text').evaluate(el=>el.closest('section').scrollIntoView({block:'start'}));
       if(name==='history-detail')await page.locator('#history-detail').scrollIntoViewIfNeeded();
       await page.evaluate(({selectors,disclosure})=>{
         document.querySelectorAll('[data-doc-marker]').forEach(el=>el.remove());document.activeElement?.blur();
@@ -36,7 +37,7 @@ async function main(){
       },{selectors,disclosure});
       await page.screenshot({path:path.join(output,locale,name+'.png'),scale:'css'});
     }
-    async function tab(name){await page.locator('#nav-'+name).click();}
+    async function tab(name){if(await page.locator('#plugin-management-drawer').isVisible())await page.locator('#plugin-management-close').click();await page.locator('#nav-'+name).click();if(name==='mcp'&&await page.locator('#plugin-installed-list button').count())await page.locator('#plugin-installed-list button').first().click();}
     await capture('overview',['#status-badge','.navigation','#progress-title']);
     await tab('connection');await capture('connection',['#tunnel-id','#api-key','#save-connect']);
     await tab('directories');await capture('directories',['#add-directory','#auto-project-context','#save-workspace']);
@@ -44,14 +45,18 @@ async function main(){
     await tab('logs');await page.waitForFunction(()=>document.querySelector('#log-entries').textContent.length>0);await capture('logs',['.live-log-filters','#log-search','#logs-history-shortcut']);
     await page.locator('#logs-history-shortcut').click();await page.waitForSelector('#history-rows button');await capture('history',['#history-search','#history-rows','#history-export']);
     await page.locator('#history-rows button').first().click();await capture('history-detail',['#history-detail','#history-copy','#history-diagnostics']);
-    await tab('mcp');await page.locator('.mcp-tools > summary').click();await capture('mcp-tools',['.mcp-tools','#mcp-allow-all-tools']);
+    await tab('mcp');await page.locator('.mcp-tools > summary').click();await capture('mcp-tools',['.mcp-tools','.mcp-policy']);
+    await page.locator('#plugin-management-close').click();
+    await page.locator('#plugin-add-mcp').click();
     await page.locator('#mcp-add').click();await page.locator('#mcp-id').fill('my_tools');await page.locator('#mcp-name').fill('My tools');await page.locator('#mcp-command').fill('/path/to/your-server');await page.locator('#mcp-args').fill('[]');
     await page.locator('#mcp-editor').scrollIntoViewIfNeeded();await capture('mcp-editor',['#mcp-id','#mcp-command','#mcp-save']);
     await page.locator('#mcp-transport').selectOption('streamable-http');await page.locator('#mcp-url').fill('https://example.com/mcp');await capture('mcp-http',['#mcp-transport','#mcp-url','#mcp-headers']);await page.locator('#mcp-cancel').click();
+    await page.locator('#plugin-add-mcp').click();await page.locator('#plugin-import').click();
     await page.locator('#mcp-import-text').fill('{"mcpServers":{"imported":{"command":"/path/to/example-server","args":[]}}}');await page.locator('#mcp-import-preview').click();await page.locator('#mcp-import-preview-panel').scrollIntoViewIfNeeded();await capture('mcp-import',['#mcp-import-text','#mcp-import-preview-panel']);
+    await page.locator('#plugin-management-close').click();await page.locator('#plugin-settings').click();
     await page.locator('#mcp-export').click();await page.locator('#mcp-export-panel').scrollIntoViewIfNeeded();await capture('mcp-export',['#mcp-export-text','#mcp-copy-export']);
-    await page.evaluate(()=>window.localHarness._demo('untrusted'));await page.locator('.mcp-server .mcp-actions button').first().click();await page.locator('#mcp-trust').scrollIntoViewIfNeeded();await capture('mcp-trust',['#mcp-trust-target','#mcp-trust-confirm']);
-    await page.locator('#mcp-trust-cancel').click();await page.evaluate(()=>window.localHarness._demo('approval'));await page.locator('#mcp-approvals').scrollIntoViewIfNeeded();await capture('mcp-approval',['#mcp-approval-list details','#mcp-approval-list select','#mcp-approval-list .mcp-actions']);
+    await page.locator('#plugin-management-close').click();await page.evaluate(()=>window.localHarness._demo('untrusted'));await page.locator('#plugin-installed-list button').first().click();await page.locator('.mcp-server:not([hidden]) .mcp-actions button').first().click();await page.locator('#mcp-trust').scrollIntoViewIfNeeded();await capture('mcp-trust',['#mcp-trust-target','#mcp-trust-confirm']);
+    await page.locator('#mcp-trust-cancel').click();await page.locator('#plugin-management-close').click();await page.evaluate(()=>window.localHarness._demo('approval'));await page.locator('#mcp-approvals').scrollIntoViewIfNeeded();await capture('mcp-approval',['#mcp-approval-list details','#mcp-approval-list select','#mcp-approval-list .mcp-actions']);
     if(errors.length)throw new Error(errors.join('\n'));
     console.log('Captured 15 isolated interface scenes: '+locale);
   }finally{await instance.close();}

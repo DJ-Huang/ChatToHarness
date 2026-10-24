@@ -14,9 +14,9 @@ Check the system and account requirements, then open GitHub Releases from the we
 
 ## Steps
 
-1. Mac: download the Apple silicon .dmg, open it and drag the app to Applications. Launch it there.
-2. Windows: download the x64 -setup.exe and follow the installation wizard.
-3. Check the file against SHA256SUMS.txt from the same release and read its signing notes.
+1. Download the installer for your system from the official release: the Apple silicon .dmg for Mac or the x64 -setup.exe for Windows.
+2. Before opening the installer, check the downloaded file against SHA256SUMS.txt from the same release and read its signing notes.
+3. After verification, install the app. Mac: open the .dmg and drag the app to Applications. Windows: run the -setup.exe and follow the installation wizard.
 4. Open the app and look for Overview, Connection and Work directories in the sidebar.
 
 ![Install ChatToHarness](../images/help/en/install.svg)

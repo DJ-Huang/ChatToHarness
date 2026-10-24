@@ -1,9 +1,9 @@
 <p align="center">
-  <a href="https://dj-huang.github.io/ChatToHarness/"><img src="site/assets/logo.png" alt="ChatToHarness 标志" width="160" height="160" /></a>
+  <a href="https://dj-huang.github.io/ChatToHarness/zh-CN/"><img src="site/assets/logo.png" alt="ChatToHarness 标志" width="160" height="160" /></a>
 </p>
 <h1 align="center">ChatToHarness</h1>
 <p align="center">
-  <a href="https://dj-huang.github.io/ChatToHarness/">官网与下载</a> · <a href="https://github.com/DJ-Huang/ChatToHarness/releases">GitHub Releases</a>
+  <a href="https://dj-huang.github.io/ChatToHarness/zh-CN/">官网与下载</a> · <a href="https://github.com/DJ-Huang/ChatToHarness/releases">GitHub Releases</a>
 </p>
 <p align="center">
   <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a>

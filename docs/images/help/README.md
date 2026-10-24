@@ -16,3 +16,19 @@ node scripts/capture-help.cjs ja
 ```
 
 Use a GUI-capable host with the pinned Electron and Playwright dependencies installed. Review the resulting images before publishing; never substitute your personal configuration or credentials. Keep the numbered captions in the articles aligned with the captures.
+
+## Computer Use management screenshots — 2026-10-24
+
+The three `computer-use.png` files were captured from the v0.8.1 application renderer at commit `733f3fdc1f5ccd3dc55f8bd9ff1a3b129eee3483`, using the same isolated documentation harness. They show the macOS management interface with Computer Use **off** and Screen Recording / Accessibility **not checked**. These states are synthetic; no native helper, system-permission prompt, desktop input, existing profile or live client connection was used.
+
+The screenshots are 1160 × 900 pixels. Each image has its own localized interface and visible demonstration notice. The capture notice is placed inside an open modal dialog so it remains visible above the backdrop. The older scenes retain the provenance recorded above.
+
+Capture only this scene without replacing the existing screenshots:
+
+```sh
+node scripts/capture-help.cjs en computer-use
+node scripts/capture-help.cjs zh-CN computer-use
+node scripts/capture-help.cjs ja computer-use
+```
+
+Omitting the scene argument captures all 16 scenes. New captures read the version label from `package.json`.

@@ -222,5 +222,49 @@
   "使用文档": [
     "User guide",
     "使い方ガイド"
+  ],
+  "实验功能": [
+    "Experimental",
+    "実験的機能"
+  ],
+  "查看窗口，操作应用。": [
+    "See the window. Use the app.",
+    "ウィンドウを確認して、アプリを操作。"
+  ],
+  "在已授权的窗口内，基于截图执行点击、输入、滚动和拖动。支持 Windows x64 与 macOS arm64。": [
+    "Use screenshots to click, type, scroll and drag within authorized windows. Available on Windows x64 and macOS arm64.",
+    "許可したウィンドウの画像を確認し、クリック、文字入力、スクロール、ドラッグを実行します。Windows x64 と macOS arm64 に対応しています。"
+  ],
+  "从插件 → Computer Use → 管理进入，检查权限后主动开启。": [
+    "Open Plugins → Computer Use → Manage, check permissions, then enable it.",
+    "「プラグイン → Computer Use → 管理」で権限を確認して有効にします。"
+  ],
+  "首次使用默认关闭，升级保留已保存的开关状态。": [
+    "Off on first use. Updates preserve your saved setting.",
+    "初回は無効です。更新後も保存済みの設定を保持します。"
+  ],
+  "macOS 需要屏幕录制与辅助功能权限。": [
+    "macOS requires Screen Recording and Accessibility permissions.",
+    "macOS では画面収録とアクセシビリティの権限が必要です。"
+  ],
+  "按 Esc 或点击 STOP 停止；后续操作由接入的客户端决定。": [
+    "Press Esc or click STOP to stop. The connected client decides subsequent actions.",
+    "Esc または STOP で停止できます。次の操作は接続先クライアントが判断します。"
+  ],
+  "查看 Computer Use 使用说明 ↗": [
+    "Read the Computer Use guide ↗",
+    "Computer Use の使い方を見る ↗"
+  ],
+  "查看 Computer Use 截图": [
+    "View the Computer Use screenshot",
+    "Computer Use の画面を見る"
+  ],
+  "Computer Use 管理：电脑控制开关与 macOS 系统权限": [
+    "Computer Use management: desktop-control switch and macOS permissions",
+    "Computer Use の管理：操作スイッチと macOS のシステム権限"
+  ],
+  "macOS 界面演示：控制关闭、权限尚未检查，未执行真实桌面输入。": [
+    "macOS interface demonstration: control is off, permissions are not checked, and no live desktop input is performed.",
+    "macOS 画面の操作例です。操作は無効、権限は未確認で、実際のデスクトップ入力は実行していません。"
   ]
 }

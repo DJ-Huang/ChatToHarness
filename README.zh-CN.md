@@ -24,6 +24,14 @@
 
 ![连接配置：使用演示 Tunnel ID，不含真实凭据。](docs/images/help/zh-CN/connection.png)
 
+### Computer Use — 实验功能
+
+![Computer Use 管理：电脑控制开关与 macOS 系统权限](docs/images/help/zh-CN/computer-use.png)
+
+在已授权窗口中查看截图，再由接入的客户端执行点击、输入、滚动或拖动。从**插件 → Computer Use → 管理**检查权限并主动开启内置功能，支持 Windows x64 与 macOS arm64；按 **Esc / STOP** 可结束控制。[设置与使用](docs/zh-CN/GUIDE.md)
+
+*macOS 界面演示，使用隔离数据：控制关闭、权限尚未检查，未执行真实桌面输入。*
+
 ### ChatGPT
 
 ![ChatGPT — @LocalHarness](docs/images/chatgpt-plugin-zh-CN.png)

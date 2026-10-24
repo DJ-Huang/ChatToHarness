@@ -24,6 +24,14 @@
 
 ![接続設定：デモ用 Tunnel ID を使用し、実際の認証情報は含みません。](docs/images/help/ja/connection.png)
 
+### Computer Use — 実験的機能
+
+![Computer Use の管理：操作スイッチと macOS のシステム権限](docs/images/help/ja/computer-use.png)
+
+許可したウィンドウの画像を確認し、接続先クライアントからクリック、文字入力、スクロール、ドラッグを実行します。**プラグイン → Computer Use → 管理**で権限を確認し、内蔵機能を有効にしてください。Windows x64 と macOS arm64 に対応し、**Esc / STOP** で操作を終了できます。[設定と使い方](docs/ja/GUIDE.md)
+
+*隔離データによる macOS 画面の操作例です。操作は無効、権限は未確認で、実際のデスクトップ入力は実行していません。*
+
 ### ChatGPT
 
 ![ChatGPT — @LocalHarness](docs/images/chatgpt-plugin-ja.png)

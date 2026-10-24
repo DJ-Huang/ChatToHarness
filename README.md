@@ -24,6 +24,14 @@ A desktop console for connecting supported AI clients to local files, terminals,
 
 ![Connection settings — demonstration Tunnel ID, no real credentials.](docs/images/help/en/connection.png)
 
+### Computer Use — experimental
+
+![Computer Use management: desktop-control switch and macOS permissions](docs/images/help/en/computer-use.png)
+
+Observe an authorized window, then click, type, scroll or drag through the connected client. Open **Plugins → Computer Use → Manage** to check permissions and enable the built-in feature. It supports Windows x64 and macOS arm64; **Esc / STOP** ends control. [Setup and usage](docs/en/GUIDE.md)
+
+*macOS interface demonstration with isolated data: control is off, permissions are not checked, and no live desktop input is performed.*
+
 ### ChatGPT
 
 ![ChatGPT — @LocalHarness](docs/images/chatgpt-plugin-en.png)

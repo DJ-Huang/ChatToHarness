@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "platform": "win32",
+  "authorization_mode": "per_window",
+  "real_mcp": true,
+  "real_mouse_input": true,
+  "display_count": 1,
+  "sample_count": 12,
+  "pointer_stable": true,
+  "glow_aligned": true,
+  "slow_pointer_takeover_yields": true,
+  "drag": {
+    "expected": {
+      "x": 36,
+      "y": 32
+    },
+    "measured": {
+      "x": 36,
+      "y": 32
+    },
+    "initial": {
+      "x": 970,
+      "y": 509,
+      "width": 620,
+      "height": 320
+    },
+    "final": {
+      "x": 1006,
+      "y": 541,
+      "width": 620,
+      "height": 320
+    }
+  },
+  "transient_pointer_replan": true,
+  "partial_occlusion_recovery": true,
+  "all_occlusion_rejected": true,
+  "stop": true,
+  "task_round_trip": true,
+  "task_auto_close": true,
+  "cleanup_closed": true,
+  "source_sha256": {
+    "native/ComputerUse.cs": "fa80ce8c2788608bc7a2c36f6e6ef14f82958cb43e177a52874ba11da0391731",
+    "app/windows-computer-use.cjs": "915ff548f7a98599552ef89c94813e92f91b372b1fb439a548fc8942e46c38ef",
+    "app/macos-computer-use.cjs": "37a16a707ed04703cb82094c629eef02bfd9a6ea42ef81ac277fbe5f1b454065"
+  }
+}

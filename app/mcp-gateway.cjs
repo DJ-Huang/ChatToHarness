@@ -9,6 +9,8 @@ const crypto = require('node:crypto');
 const {Server} = require('@modelcontextprotocol/sdk/server/index.js');
 const {ListToolsRequestSchema,CallToolRequestSchema,McpError,ErrorCode} = require('@modelcontextprotocol/sdk/types.js');
 const {LineTransport} = require('./mcp-transport.cjs');
+const {createSamplingPlanner}=require('./computer-use-sampling-planner.cjs');
+const {fromHostMetadata}=require('./computer-use-conversation-title.cjs');
 const {McpResultPages,decorateTool} = require('./mcp-result-pages.cjs');
 const {fingerprint} = require('./mcp-manager.cjs');
 const {DIAGNOSTIC_WORKFLOW}=require('./tool-recovery.cjs');
@@ -173,7 +175,12 @@ class McpGateway {
         const timing=requestTimes.get(extra.requestId);
         if(timing)timingLog('tool-dispatched',timing,{durationMs:elapsed(timing.receivedAt)});
         return this.toolCall(request.params.name,request.params.arguments||{},
-        {executionId:executionIds.get(extra.requestId),session,request:timing?.request,signal:extra.signal,onprogress:progress=>{
+        {executionId:executionIds.get(extra.requestId),session,request:timing?.request,signal:extra.signal,
+         hostConversationTitle: request.params.name==='computer_use' && request.params.arguments?.action==='open_session'
+           ? fromHostMetadata(request.params._meta) : undefined,
+         planner: request.params.name==='computer_use' && request.params.arguments?.action==='start_task'
+           ? createSamplingPlanner(()=>server) : undefined,
+         onprogress:progress=>{
           const token=request.params._meta?.progressToken;
           if(token!==undefined)void server.notification({method:'notifications/progress',params:{...progress,progressToken:token}}).catch(()=>{});
         }});

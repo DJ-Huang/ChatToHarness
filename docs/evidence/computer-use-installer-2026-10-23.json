@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "platform": "win32-x64",
+  "installer": "D:\\proj\\github\\ChatToHarness\\dist\\computer-use-logs-20261023\\ChatToHarness-0.7.3-windows-x64-setup.exe",
+  "bytes": 213400736,
+  "sha256": "46255d972fe3cd14f6258a24969949425f74d8a55cececae7cde5117ecf56a3f",
+  "build": {
+    "schema": 1,
+    "version": "0.7.3",
+    "commit": "7db29d4e2d72333d97b6b1afb501116b46b5dadc",
+    "dirty": true,
+    "source_sha256": "1df5c87fc987e4a51a08b5e9b307983b0450b34d3dc64b73e2503376c5d36bf6",
+    "built_at": "2026-10-23T08:10:43.282Z"
+  },
+  "resources_verified": true,
+  "conversation_title_schema": true,
+  "reused_title_update": true,
+  "pointer_diagnostics": true,
+  "full_suite": {
+    "tests": 436,
+    "pass": 413,
+    "fail": 9,
+    "skip": 14,
+    "log": ".cache/acceptance/computer-use/full-suite-final-20261023.log",
+    "failures": {
+      "windows_symlink_eperm": 8,
+      "task_cancel_fixture_timeout": 1
+    }
+  },
+  "installed_acceptance": "completed_with_open_limitations_see_computer-use-installed-2026-10-23.json",
+  "root_pointer_reset": "unresolved",
+  "runtime_recheck": {
+    "tests": 9,
+    "pass": 8,
+    "fail": 0,
+    "skip": 1
+  },
+  "task_cancel_recheck": {
+    "pass": true,
+    "log": ".cache/acceptance/computer-use/task-cancel-recheck-20261023.log",
+    "does_not_override_full_suite_failure": true
+  }
+}

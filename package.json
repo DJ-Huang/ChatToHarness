@@ -7,6 +7,13 @@
   "license": "MIT",
   "main": "app/main.cjs",
   "scripts": {
+    "build:computer-use": "node scripts/build-computer-use.cjs",
+    "computer-use": "node app/computer-use-stdio.cjs",
+    "computer-use:mac": "node app/macos-computer-use-stdio.cjs",
+    "computer-use:mac:permissions": "node scripts/mac-computer-use-permissions.cjs",
+    "test:computer-use-mac": "node scripts/test-computer-use-macos.cjs",
+    "test:computer-use-mac:gui": "node scripts/test-computer-use-macos-interactive.cjs --confirm-real-gui-input",
+    "test:computer-use-native": "node scripts/test-computer-use-native.cjs",
     "start": "node scripts/dev.cjs",
     "dev": "node scripts/dev.cjs",
     "prepare:resources": "node scripts/prepare-resources.cjs",
@@ -132,6 +139,7 @@
     "url": "https://github.com/DJ-Huang/ChatToHarness.git"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1"
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "sharp": "0.35.5"
   }
 }

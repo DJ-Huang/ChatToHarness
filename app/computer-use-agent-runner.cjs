@@ -1,0 +1,339 @@
+'use strict';
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const {privateDirectory,readJson,atomicJson,syncDirectory}=require('./durable-files.cjs');
+const {preparePlannerObservation,mapImageDecision}=require('./computer-use-planner-images.cjs');
+const ids=require('./computer-use-task-ids.cjs');
+
+
+const TERMINAL=new Set(['succeeded','cancelled','session_terminated','interrupted']);
+const OPERATIONS=new Set(['click','mouse_move','mouse_down','mouse_drag','mouse_up',
+  'drag_window','type_text','key_press','scroll','activate']);
+const now=()=>new Date().toISOString();
+const hash=v=>crypto.createHash('sha256').update(v).digest('hex');
+const fault=code=>Object.assign(new Error(code),{code});
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+// A resolved decision must not leave a 15-second timer running. Aborted or
+// timed-out decisions cannot return late GUI actions.
+async function boundedPlanner(planner,context,parentSignal,timeoutMs=15000){
+  const controller=new AbortController();
+  const onStop=()=>controller.abort();
+  parentSignal?.addEventListener('abort',onStop,{once:true});
+  if(parentSignal?.aborted)controller.abort();
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  timer.unref?.();
+  const aborted=new Promise(resolve=>{
+    if(controller.signal.aborted){resolve({wait:true});return;}
+    controller.signal.addEventListener('abort',()=>resolve({wait:true}),{once:true});
+  });
+  try{return await Promise.race([
+    Promise.resolve().then(()=>controller.signal.aborted?{wait:true}:planner({...context,signal:controller.signal})),
+    aborted
+  ]);}finally{
+    clearTimeout(timer);
+    parentSignal?.removeEventListener('abort',onStop);
+    controller.abort();
+  }
+}
+
+/**
+ * Platform-neutral, session-scoped GUI task orchestration.
+ * It does not supply a model. A trusted planner adapter can decide from fresh
+ * observations; otherwise an authorized MCP caller supplies decisions.
+ * Screenshots, goals, typed text and actions never enter persistent records.
+ */
+class ComputerUseAgentRunner {
+  constructor(service,{directory=path.join(os.homedir(),'.chattoharness','computer-use-agent-tasks'),
+    planner=null,retryDelayMs=200,decisionMaxAgeMs=28000}={}) {
+    this.service=service;
+    this.directory=directory;
+    this.planner=planner;
+    this.retryDelayMs=retryDelayMs;
+    // Native GUI observations are valid for 30 seconds at most.
+    this.decisionMaxAgeMs=Math.min(28000,Math.max(1,decisionMaxAgeMs));
+    this.tasks=new Map();
+    this.activeId=null;
+  }
+  get active(){return this.activeId!==null;}
+  decisionExpired(task){
+    return !Number.isFinite(task.observationAt)||
+      Date.now()-task.observationAt>=this.decisionMaxAgeMs;
+  }
+  file(id){
+    if(!ids.validId(id))throw fault('CU_INVALID_TASK_ID');
+    return path.join(this.directory,id+'.json');
+  }
+  persist(rec){rec.updated_at=now();atomicJson(this.file(rec.task_id),rec);}
+  status(id,sessionId){
+    let rec;
+    try{rec=readJson(this.file(id));}
+    catch(err){if(err.code==='ENOENT')throw fault('CU_TASK_NOT_FOUND');throw err;}
+    if(rec.task_id!==id||rec.session_id!==sessionId)throw fault('CU_TASK_SCOPE_MISMATCH');
+    if(!TERMINAL.has(rec.state)&&!this.tasks.has(id))
+      return {...rec,state:'interrupted',reason:'CU_OWNER_RESTARTED'};
+    return {...rec};
+  }
+  get(id,sessionId){
+    const rec=this.status(id,sessionId);
+    const task=this.tasks.get(id);
+    if(!task||rec.state!=='awaiting_decision'||!task.image||this.decisionExpired(task))
+      return {record:rec};
+    // Only the owner-session caller receives an in-memory fresh observation.
+    const shot=task.image;
+    const metadata={...shot.structuredContent};
+    if(metadata.screenshot)metadata.screenshot={...metadata.screenshot};
+    if(metadata.screenshot)delete metadata.screenshot.data;
+    return {record:{...rec,observation:metadata},media:shot.content?.filter(c=>c.type==='image')||[]};
+  }
+  start({session_id,observation_id,goal,idempotency_key,planner}){
+    if(typeof goal!=='string'||!goal.trim()||goal.length>2000||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(goal))
+      throw fault('CU_INVALID_TASK_GOAL');
+    if(typeof idempotency_key!=='string'||!idempotency_key.trim()||idempotency_key.length>128)
+      throw fault('CU_INVALID_ARGUMENT');
+    privateDirectory(this.directory);
+    const goalDigest=hash(goal);
+    const existing=ids.existing(this.directory,session_id,idempotency_key);
+    if(existing){
+      const rec=this.status(existing,session_id);
+      if(rec.goal_digest!==goalDigest)throw fault('CU_TASK_IDEMPOTENCY_CONFLICT');
+      return {...rec,reused:true};
+    }
+    const session=this.service.session;
+    if(!session||session.id!==session_id||session.state!=='ready')throw fault('CU_SESSION_CLOSED');
+    if(!session.observation||session.observation.id!==observation_id||
+       Date.now()-session.observation.at>30000)throw fault('CU_STALE_OBSERVATION');
+    if(this.active)throw fault('CU_TASK_RUNNING');
+    if(fs.readdirSync(this.directory).filter(s=>s.endsWith('.json')&&!s.startsWith('.key-')).length>=256)
+      throw fault('CU_TASK_STORE_FULL');
+    const rec={schema:2,task_id:null,session_id,window_id:session.windowId||null,
+      kind:'agent',idempotency_digest:ids.keyHash(session_id,idempotency_key),
+      goal_digest:goalDigest,state:'queued',phase:'created',attempts:0,completed_steps:0,
+      created_at:now(),updated_at:now(),last_action:null,last_error:null};
+    const allocated=ids.create(this.directory,this.service,session_id,idempotency_key,rec);
+    if(allocated.reused){
+      const old=this.status(allocated.task_id,session_id);
+      if(old.goal_digest!==goalDigest)throw fault('CU_TASK_IDEMPOTENCY_CONFLICT');
+      return {...old,reused:true};
+    }
+    const id=allocated.task_id;
+    const task={rec,goal,planner:typeof planner==='function'?planner:this.planner,decision:null,decisionId:null,image:null,abortController:new AbortController()};
+    this.tasks.set(id,task);this.activeId=id;
+    queueMicrotask(()=>this.execute(task).catch(()=>{
+      // Uncertain state is never resumed in a different native session.
+      try{
+        if(!TERMINAL.has(rec.state))this.finish(task,'interrupted','CU_AGENT_RUNNER_FAILURE');
+        // An unexpected agent failure cannot leave interactive control orphaned.
+        if(this.service.session?.id===rec.session_id)this.service.stop('CU_AGENT_RUNNER_FAILURE');
+      }catch{this.tasks.delete(id);this.activeId=null;this.service.stop('CU_AGENT_STORE_FAILURE');}
+    }));
+    return {...rec,reused:false};
+  }
+  finish(task,state,reason){
+    const rec=task.rec;
+    if(TERMINAL.has(rec.state))return;
+    task.abortController.abort();
+    rec.state=state;rec.phase='finished';rec.finished_at=now();
+    if(reason)rec.reason=reason;
+    this.persist(rec);
+    task.image=null;task.decision=null;
+    if(this.activeId===rec.task_id)this.activeId=null;
+    this.tasks.delete(rec.task_id);
+    if(state==='succeeded'&&this.service.session?.id===rec.session_id)
+      this.service.stop('CU_TASK_COMPLETED');
+  }
+  onSessionStop(sessionId,code){
+    const task=this.tasks.get(this.activeId);
+    if(task?.rec.session_id===sessionId)
+      this.finish(task,code==='CU_AGENT_CANCELLED'?'cancelled':'session_terminated',code);
+  }
+  cancel(id,sessionId){
+    const rec=this.status(id,sessionId);
+    if(TERMINAL.has(rec.state))return rec;
+    const task=this.tasks.get(id);
+    if(!task)return rec;
+    // Native STOP/Esc can interrupt at any instant; no action replay after it.
+    this.service.stop('CU_AGENT_CANCELLED');
+    if(!TERMINAL.has(task.rec.state))this.finish(task,'cancelled','CU_AGENT_CANCELLED');
+    return this.status(id,sessionId);
+  }
+  static validateDecision(value){
+    if(!value||typeof value!=='object'||Array.isArray(value))throw fault('CU_INVALID_DECISION');
+    if(value.done===true&&Object.keys(value).length===1)return {done:true};
+    if(value.wait===true&&Object.keys(value).length===1)return {wait:true};
+    const action=value.action;
+    if(!action||typeof action!=='object'||Array.isArray(action)||
+      !OPERATIONS.has(action.action)||Object.keys(value).length!==1)
+      throw fault('CU_INVALID_DECISION');
+    // Input fields and ranges are validated AGAIN by BaseComputerUse.validate,
+    // after the fresh observation has been bound by this runner.
+    if(Object.keys(action).some(k=>['session_id','observation_id','window_id',
+      'task_id','target_device_id','session_title'].includes(k)))
+      throw fault('CU_INVALID_DECISION');
+    return {action:{...action}};
+  }
+  submit({task_id,session_id,decision_id,decision_json}){
+    const rec=this.status(task_id,session_id),task=this.tasks.get(task_id);
+    if(!task||rec.state!=='awaiting_decision'||decision_id!==task.decisionId||
+      this.decisionExpired(task))throw fault('CU_STALE_DECISION');
+    if(typeof decision_json!=='string'||decision_json.length>4096)throw fault('CU_INVALID_DECISION');
+    let decoded;
+    try{decoded=JSON.parse(decision_json);}catch{throw fault('CU_INVALID_DECISION');}
+    const decision=ComputerUseAgentRunner.validateDecision(decoded);
+    if(task.decision)throw fault('CU_DECISION_ALREADY_SUBMITTED');
+    task.decision=decision;
+    return {task_id,session_id,accepted:true,decision_id};
+  }
+  async call(task,input){
+    task.rec.phase=input.action==='observe'?'observing':'executing';
+    if(OPERATIONS.has(input.action)){
+      task.rec.last_action=input.action;
+      task.rec.attempts++;
+    }
+    this.persist(task.rec); // checkpoint before any side-effecting input
+    const result=await this.service.call(input,{internalAgentTaskId:task.rec.task_id});
+    if(TERMINAL.has(task.rec.state))throw fault('CU_TASK_STOPPED');
+    return result;
+  }
+  async healthy(task){
+    const s=this.service.session;
+    if(!s||s.id!==task.rec.session_id||s.state!=='ready')return false;
+    const status=await this.call(task,{action:'get_session',session_id:s.id});
+    return status.structuredContent?.state==='ready';
+  }
+  async decide(task,observation){
+    await this.service.updateTaskHud?.(task.rec.session_id,'planning');
+    if(task.planner){
+      // A planner is trusted code in the local service; no hidden model access.
+      // A planner that hangs is bounded; STOP remains effective.
+      try {
+        const response=await boundedPlanner(task.planner,{
+          goal:task.goal,step:task.rec.completed_steps,observation,
+          last_error:task.rec.last_error,last_action:task.rec.last_action
+        },task.abortController.signal);
+        if(response&&!response.wait){
+          if(Date.now()-(this.service.session?.observation?.at??0)>=this.decisionMaxAgeMs)
+            return {wait:true};
+          return mapImageDecision(ComputerUseAgentRunner.validateDecision(response),observation);
+        }
+      } catch {
+        // A transient planner/model failure cannot end the user task.
+        task.rec.last_error='CU_PLANNER_ERROR';
+      }
+    }
+    const rec=task.rec;
+    task.decisionId=crypto.randomUUID();
+    task.image=observation;
+    task.observationAt=this.service.session?.observation?.at??Date.now();
+    rec.state='awaiting_decision';rec.phase='awaiting_decision';
+    rec.decision_id=task.decisionId;this.persist(rec);
+    await this.service.updateTaskHud?.(rec.session_id,'awaiting_decision');
+    while(!TERMINAL.has(rec.state)){
+      if(this.decisionExpired(task)){
+        // Discard an unconsumed decision before the native 30-second input TTL.
+        // Re-observe; never apply or complete a task from an expired screenshot.
+        task.image=null;task.decision=null;task.decisionId=null;
+        delete rec.decision_id;
+        rec.state='planning';rec.phase='observation_expired';
+        this.persist(rec);
+        return {wait:true};
+      }
+      if(task.decision)break;
+      await pause(Math.max(150,this.retryDelayMs));
+      if(!await this.healthy(task)){
+        this.finish(task,'session_terminated','CU_SESSION_CLOSED');
+        return null;
+      }
+    }
+    const decision=task.decision;
+    task.image=null;task.decision=null;task.decisionId=null;
+    task.observationAt=null;
+    delete rec.decision_id;
+    if(!TERMINAL.has(rec.state)){rec.state='running';rec.phase='planning';this.persist(rec);}
+    return decision?mapImageDecision(decision,observation):null;
+  }
+  async execute(task){
+    const rec=task.rec;
+    let backoff=this.retryDelayMs;
+    let needsActivation=true;
+    while(!TERMINAL.has(rec.state)){
+      if(!await this.healthy(task)){
+        this.finish(task,'session_terminated','CU_SESSION_CLOSED');
+        return;
+      }
+      if(needsActivation){
+        const focus=await this.call(task,{action:'activate',session_id:rec.session_id});
+        if(focus.isError){
+          rec.last_error=focus.structuredContent?.code||'CU_ACTIVATION_FAILED';
+          rec.state='recovering';this.persist(rec);
+          if(focus.structuredContent?.task_state==='session_terminated'){
+            this.finish(task,'session_terminated',rec.last_error);return;
+          }
+          await pause(backoff);backoff=Math.min(2000,Math.ceil(backoff*1.5));
+          continue;
+        }
+        needsActivation=false;
+      }
+      const shot=await this.call(task,{action:'observe',session_id:rec.session_id});
+      if(shot.isError){
+        rec.last_error=shot.structuredContent?.code||'CU_OBSERVE_FAILED';
+        if(rec.last_error==='CU_WINDOW_NOT_FOREGROUND')needsActivation=true;
+        rec.state='recovering';this.persist(rec);
+        await this.service.updateTaskHud?.(rec.session_id,'recovering');
+        if(shot.structuredContent?.task_state==='session_terminated'){
+          this.finish(task,'session_terminated',rec.last_error);return;
+        }
+        await pause(backoff);backoff=Math.min(2000,Math.ceil(backoff*1.5));
+        continue;
+      }
+      rec.state='planning';rec.phase='planning';
+      const meta=shot.structuredContent||{};
+      rec.last_observed=meta.window_bounds||null;
+      this.persist(rec);
+      let prepared;
+      try{
+        prepared=await preparePlannerObservation(shot,{
+          call:input=>this.call(task,input)
+        },rec.session_id,task.abortController.signal);
+      }catch(error){
+        if(TERMINAL.has(rec.state))return;
+        rec.last_error=/^CU_[A-Z_]+$/.test(error.code||'')?error.code:'CU_PLANNER_CAPTURE_UNAVAILABLE';
+        rec.state='recovering';rec.phase='refreshing_capture';this.persist(rec);
+        await pause(backoff);backoff=Math.min(2000,Math.ceil(backoff*1.5));
+        continue;
+      }
+      if(Date.now()-(this.service.session?.observation?.at??0)>=this.decisionMaxAgeMs)
+        continue;
+      const decision=await this.decide(task,prepared);
+      if(!decision||TERMINAL.has(rec.state))return;
+      if(decision.done){
+        // Completion is a decision made only after a real fresh observation;
+        // the runner does not interpret a successful click as task completion.
+        this.finish(task,'succeeded');return;
+      }
+      if(decision.wait){await pause(backoff);continue;}
+      const action={...decision.action,session_id:rec.session_id,
+        ...(['activate','mouse_up'].includes(decision.action.action)?{}:
+          {observation_id:meta.observation_id})};
+      const result=await this.call(task,action);
+      if(result.isError){
+        rec.last_error=result.structuredContent?.code||'CU_ACTION_FAILED';
+        rec.state='recovering';this.persist(rec);
+        if(result.structuredContent?.task_state==='session_terminated'||
+          !this.service.session||this.service.session.id!==rec.session_id){
+          this.finish(task,'session_terminated',rec.last_error);return;
+        }
+        if(result.structuredContent?.recovery_action==='activate')
+          await this.call(task,{action:'activate',session_id:rec.session_id});
+        await pause(backoff);
+        backoff=Math.min(2000,Math.ceil(backoff*1.5));
+      }else{
+        rec.completed_steps++;
+        rec.last_error=null;rec.state='running';this.persist(rec);
+        backoff=this.retryDelayMs;
+      }
+    }
+  }
+}
+module.exports={ComputerUseAgentRunner,TERMINAL,OPERATIONS};

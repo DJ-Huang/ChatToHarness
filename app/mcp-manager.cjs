@@ -7,6 +7,7 @@ const {Client} = require('@modelcontextprotocol/sdk/client/index.js');
 const {StreamableHTTPClientTransport} = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 const {ListToolsResultSchema,CallToolResultSchema,ToolListChangedNotificationSchema,McpError,ErrorCode} = require('@modelcontextprotocol/sdk/types.js');
 const {ManagedStdioTransport,toolEnvironment,boundedMessage,observeTransport,boundedFetch,MAX_MESSAGE_BYTES,startupDiagnostic} = require('./mcp-transport.cjs');
+const {COMPUTER_USE_GUI_RULE}=require('./computer-use-devices.cjs');
 
 /** @typedef {'deny'|'allow'|'ask'} McpToolPolicy */
 /**
@@ -149,7 +150,12 @@ class McpManager extends EventEmitter {
   visibleTools() {
     const result=this.running?[...(this.services?.tools()||[]),...(this.content?.tools()||[])]:[];
     for(const record of this.records.values())if(this.available(record))for(const item of record.tools)if(this.policy(record,item)!=='deny')result.push({...this.content?.decorateTool(record,item.tool)||item.tool,name:item.alias});
-    return result.sort((a,b)=>a.name.localeCompare(b.name));
+    // Descriptive policy on command-capable MCP entry points. They remain
+    // general-purpose for builds/diagnostics; text alone cannot sandbox OS APIs.
+    const commands=/(?:^|__)(?:start_process|interact_with_process|start_task)$/;
+    return result.map(item=>commands.test(item.name)
+      ? {...item,description:`${item.description||''} Computer Use policy: ${COMPUTER_USE_GUI_RULE} See docs/computer-use-policy.md.`}
+      : item).sort((a,b)=>a.name.localeCompare(b.name));
   }
   listTools(cursor) {
     const tools=this.visibleTools();let offset=0;
@@ -382,9 +388,9 @@ class McpManager extends EventEmitter {
     catch(error){history.complete(id,null,error,service?.secretValues||[]);throw error;}
     finally{options.signal?.removeEventListener('abort',cancel);}
   }
-  async dispatch(name,args={}, {signal,onprogress,executionId}={}) {
+  async dispatch(name,args={}, {signal,onprogress,executionId,planner,hostConversationTitle}={}) {
     if(this.content?.has(name)){this.history?.update(executionId,{state:'running',started_at:this.history.now()});return this.running?this.content.call(name,args,{signal,onprogress}):failed('MCP_STOPPED');}
-    if(this.services?.has(name)){this.history?.update(executionId,{state:'running',started_at:this.history.now()});return this.running?this.services.call(name,args,{signal,onprogress}):failed('MCP_STOPPED');}
+    if(this.services?.has(name)){this.history?.update(executionId,{state:'running',started_at:this.history.now()});return this.running?this.services.call(name,args,{signal,onprogress,planner,hostConversationTitle}):failed('MCP_STOPPED');}
     let record,item;
     for(const candidate of this.records.values()){
       const match=candidate.tools.find(value=>value.alias===name);
@@ -461,6 +467,7 @@ class McpManager extends EventEmitter {
   async remove(id) {const record=this.records.get(id);if(record)await this.disconnect(record);this.settings.remove(id);this.projectGrants?.remove(id);this.records.delete(id);this.changed();}
   async stop() {
     ++this.epoch;this.running=false;
+    this.services?.stopComputerUse?.();
     await Promise.allSettled([...this.records.values()].map(record=>this.disconnect(record)));
     await this.broker?.stop();this.changed();
   }

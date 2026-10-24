@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "title_source": "explicit_user",
+  "known_conversation_title": "继续修复 Computer Use 问题",
+  "packaged_app": "D:\\proj\\github\\ChatToHarness\\dist\\conversation-title-20261023\\win-unpacked",
+  "archive_sha256": "f9fe363c7927cd7618b150586b08c880f23641712cd42394becb452c0f495a81",
+  "packaged_base_matches_source": true,
+  "real_mcp": true,
+  "exact_title": true,
+  "reuse_updates_title": true,
+  "hud_labels": [
+    "● ChatToHarness · Computer Use",
+    "聊天：继续修复 Computer Use 问题",
+    "任务：Computer Use atomic drag fixture",
+    "目标：ChatToHarness MCP session recovery fixture · PID 34192",
+    "当前：等待任务规划",
+    "上一步：截取窗口截图 · 完成 · 15:18",
+    "STOP  ·  Esc"
+  ],
+  "closed": true,
+  "rollout": "pending_user_restart_approval"
+}

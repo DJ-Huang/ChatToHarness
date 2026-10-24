@@ -70,3 +70,8 @@ textarea,select{font:inherit}textarea:focus-visible,select:focus-visible,input[t
 .nav-log-group[data-active="true"][data-expanded="true"]::after{background:#c3d5ef}
 @media(prefers-reduced-motion:reduce){.nav-log-group .nav-log-chevron{transition:none}}
 @media(max-width:850px){.nav-log-group .nav-item[data-nav-level="child"]{margin-left:15px;width:calc(100% - 15px);padding-left:9px}.nav-log-group[data-expanded="true"]::after{left:11px}}
+
+/* Explicit native-permission prompt; permission checks never happen automatically through this button. */
+#mcp-computer-use-permission-dialog:not([hidden]){position:fixed;z-index:30;left:50%;top:50%;transform:translate(-50%,-50%);width:min(600px,calc(100vw - 40px));max-height:85vh;overflow:auto;border:1px solid #d4a989;box-shadow:0 12px 55px #26364750;background:#fffdf9}
+#mcp-computer-use-permission-dialog h3{font-size:16px;margin:0 0 10px;color:#614c40}
+#mcp-computer-use-permission-dialog p{font-size:12px;line-height:1.65}

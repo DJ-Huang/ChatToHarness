@@ -48,8 +48,8 @@ function errorResult(error,name,args) {
   return {...response(value), isError: true};
 }
 class HarnessServices {
-  constructor({home, build = {}, versions = {}, runtime = () => ({}), catalog = () => [], mcp = () => ({}), nodePath = process.execPath, processHost, engineEntry, configHome, history} = {}) {
-    Object.assign(this, {home, build, versions, runtime, catalog, mcp, nodePath, processHost, history});
+  constructor({home, build = {}, versions = {}, runtime = () => ({}), catalog = () => [], mcp = () => ({}), computerUse = null, nodePath = process.execPath, processHost, engineEntry, configHome, history} = {}) {
+    Object.assign(this, {home, build, versions, runtime, catalog, mcp, computerUse, nodePath, processHost, history});
     this.edits = new SafeEdits(home);
     this.tasks = new TaskStore({home,nodePath,processHost,engineEntry,configHome});
     this.configure({directories: []});
@@ -61,13 +61,16 @@ class HarnessServices {
     this.contexts = new ProjectContexts({defaultDirectory: this.directories[0] || this.home, allowedDirectories: this.directories.length ? this.directories : [this.home]});
     this.inspector = new ProjectInspector(this.contexts);
   }
-  tools() { return [...TOOLS, ...TASK_TOOLS, ...EDIT_TOOLS]; }
+  tools() { return [...TOOLS, ...TASK_TOOLS, ...EDIT_TOOLS, ...(this.computerUse?.definition() ? [this.computerUse.definition()] : [])]; }
+  stopComputerUse() { this.computerUse?.stop(); }
+  setComputerUseEnabled(enabled) { this.computerUse?.setEnabled(enabled); }
   has(name) { return this.tools().some(tool => tool.name === name); }
   async call(name, args, options = {}) {
     try {
       if (!args || typeof args !== 'object' || Array.isArray(args)) throw fail('INVALID_ARGUMENT', 'Tool arguments must be an object.');
       options.signal?.throwIfAborted();
       if (name === 'get_harness_status') return response(this.status(args));
+      if (name === 'computer_use' && this.computerUse?.definition()) return await this.computerUse.call(require('./computer-use-compat.cjs').withLegacySessionTitle(args), options);
       if (!this.directories.length) throw fail('PATH_NOT_ALLOWED', 'Choose a project folder in the desktop app before using project tools.');
       if (EDIT_TOOLS.some(tool => tool.name === name)) return response(await this.edit(name,args,options));
       if (TASK_TOOLS.some(tool => tool.name === name)) return response(await this.task(name,args,options));
@@ -123,7 +126,7 @@ class HarnessServices {
     return {summary: `ChatToHarness ${this.versions.app || this.build.version || 'unknown'}; connection ${runtime.state || 'unknown'}; tools ${tools_health}; ${catalog.length} available tools.`,
       tools_health,tools_ready,missing_capabilities,
       app: {version: this.versions.app || this.build.version || null, build: this.build}, components: {node: this.versions.node || process.versions.node, tunnel: this.versions.tunnel || null, desktop_commander: this.versions.desktopCommander || null},
-      device: {platform: process.platform, arch: process.arch, os_release: os.release(), name: os.hostname()},
+      device: {platform: process.platform, arch: process.arch, os_release: os.release(), name: os.hostname(), ...(this.computerUse?.status().device?.id ? {computer_use_id:this.computerUse.status().device.id} : {})},
       connection: {state: runtime.state || 'unknown', local_ready: Boolean(runtime.localReady), gateway: 'app-owned', tools_version: mcp.toolsVersion ?? null,...connectionDiagnostics(this.home)},
       capabilities: {project_overview: true, git_reads: true, artifact_return: true, persistent_tasks: true, safe_text_edits: true, automatic_project_context: this.autoProjectContext, shell_is_sandboxed: false},
       desktop_commander: {expected_tools: DC_TOOLS.length, available_tools: DC_TOOLS.filter(name => available.has(name)), missing_tools: DC_TOOLS.filter(name => !available.has(name)), verification: 'Availability only; consult the platform acceptance report for tested behavior.'},
@@ -205,6 +208,6 @@ class HarnessServices {
     } else if (args.preview === true && !value.has_more && offset === 0) content.push({type: 'resource', resource: {uri: pathToFileURL(file).href, mimeType: mime, ...(value.text !== undefined ? {text: value.text} : {blob: value.data})}});
     return response(value, content);
   }
-  dispose() { this.contexts.dispose(); this.inspector.dispose(); }
+  dispose() { this.computerUse?.dispose(); this.contexts.dispose(); this.inspector.dispose(); }
 }
 module.exports = {HarnessServices, DC_TOOLS, TOOLS, tool, project, pagination, readHints, response, errorResult};

@@ -5,6 +5,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
+const {outputDirectory}=require('./output-directory.cjs');
+const outputRoot=outputDirectory(root);
 const version = require('../package.json').version;
 const isWindows = process.platform === 'win32';
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ChatToHarness 安装验收 space '));
@@ -40,7 +42,7 @@ function main() {
   const marker = path.join(state, 'uninstall-preservation.txt');
   fs.writeFileSync(marker, 'Installation and uninstallation must preserve existing user data.\n');
   if (isWindows) {
-    const installer = path.join(root, 'dist', `ChatToHarness-${version}-windows-x64-setup.exe`);
+    const installer = path.join(outputRoot, `ChatToHarness-${version}-windows-x64-setup.exe`);
     const directory = path.join(temporary, '应用 installed');
     // NSIS requires /D last and unquoted, even when the path contains spaces.
     run(installer, ['/S', `/D=${directory}`], { windowsVerbatimArguments: true });
@@ -55,7 +57,7 @@ function main() {
     run(path.join(directory, uninstaller), ['/S', `_?=${directory}`], { windowsVerbatimArguments: true });
     if (fs.existsSync(executable)) throw new Error('NSIS uninstallation left the application executable behind');
   } else {
-    const image = path.join(root, 'dist', `ChatToHarness-${version}-macos-arm64.dmg`);
+    const image = path.join(outputRoot, `ChatToHarness-${version}-macos-arm64.dmg`);
     fs.mkdirSync(mount, { recursive: true });
     run('/usr/bin/hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mount, image]);
     mounted = true;

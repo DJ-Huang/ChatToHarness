@@ -72,6 +72,8 @@ ChatGPT：通过 `@` 选择已连接插件，再描述任务和工程路径。�
 
 ## 开发
 
+Windows 源码预览现提供可选的 [computer use 服务](docs/windows-computer-use.md)：经本机窗口授权后截图、点击和输入。通过 MCP Servers 接入，默认不启用，尚未集成到已发布安装包。
+
 双击 [Dev.command](Dev.command)（Mac）或 [Dev.cmd](Dev.cmd)（Windows），直接运行当前源码；再次启动会先清理旧实例，再运行新代码。已有依赖也可使用 `npm run dev` / `npm start`，无需打包。[开发说明](docs/zh-CN/GUIDE.md#开发时直接运行源码)
 
 使用 Node 24.22.0，在与目标一致的操作系统和架构上构建。

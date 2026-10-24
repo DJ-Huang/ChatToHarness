@@ -231,7 +231,7 @@ process.on('SIGTERM',()=>{fs.writeFileSync(${JSON.stringify(stopped)},'stopped')
   });
   const evidence = JSON.parse(fs.readFileSync(report, 'utf8'));
   assert.deepEqual(evidence.keys, []);
-  assert.equal(evidence.home, process.env.HOME);
+  assert.equal(evidence.home, process.env.HOME || (process.platform==='win32' ? process.env.USERPROFILE : undefined));
   assert.equal(evidence.dcHome, path.join(f.home, 'desktop-commander'));
   assert.equal(evidence.track, '1');
   assert.equal(alive(evidence.pid), false);
@@ -268,7 +268,7 @@ server.listen(0,'127.0.0.1',()=>{const pending=file+'.tmp';fs.writeFileSync(pend
   await waitFor(() => fs.existsSync(manager.healthFile), 'fixture tunnel did not start');
   const evidence = JSON.parse(fs.readFileSync(report, 'utf8'));
   assert.equal(evidence.key, fakeKey);
-  assert.equal(evidence.home, process.env.HOME);
+  assert.equal(evidence.home, process.env.HOME || (process.platform==='win32' ? process.env.USERPROFILE : undefined));
   assert.equal(evidence.args.includes(fakeKey), false);
   assert.equal(evidence.args[evidence.args.indexOf('--control-plane.api-key') + 1], 'env:CONTROL_PLANE_API_KEY');
   const command = evidence.args[evidence.args.indexOf('--mcp.command') + 1];

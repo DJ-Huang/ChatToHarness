@@ -61,7 +61,7 @@ test('macOS PR builds allow only credential-free ad-hoc signing by default', () 
 });
 
 test('package keeps legacy identity and user data while exposing branded native installers', () => {
-  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
   assert.equal(manifest.version, require('../package-lock.json').version);
   assert.equal(manifest.build.appId, 'local.localharness.mac');
   assert.equal(manifest.build.productName, 'ChatToHarness');
@@ -93,6 +93,36 @@ test('resource verification rejects payload changes and mismatched native platfo
     fs.writeFileSync(receiptFile, JSON.stringify({ ...receipt, platform: 'wrong-platform' }));
     assert.throws(() => verifyResources(folder), /平台不匹配/);
   } finally { fs.rmSync(folder, { recursive: true, force: true }); }
+});
+
+test('Mac signed native Computer Use helper is hash-checked before packaging', {skip: process.platform !== 'darwin'}, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-mac-signature-receipt-'));
+  try {
+    const pin = versions.forPlatform();
+    const files = {};
+    for (const name of ['node/' + pin.node.binary, 'tunnel/' + pin.tunnel.binary,
+      'node/' + pin.node.npm,
+      'desktop-commander/node_modules/@wonderwhy-er/desktop-commander/dist/index.js',
+      'computer-use/ChatToHarness.MacComputerUse']) {
+      const target = path.join(root, name);
+      fs.mkdirSync(path.dirname(target), {recursive: true});
+      fs.writeFileSync(target, 'original fixture');
+      files[name] = crypto.createHash('sha256').update('original fixture').digest('hex');
+    }
+    fs.writeFileSync(path.join(root,'bundle.json'), JSON.stringify({
+      platform: process.platform + '-' + process.arch,
+      node: versions.node.version, tunnel: versions.tunnel.version,
+      desktopCommander: versions.desktopCommander.version,
+      nodeArchiveSha256: pin.node.sha256, tunnelArchiveSha256: pin.tunnel.sha256,
+      files
+    }));
+    verifyResources(root);
+    fs.writeFileSync(path.join(root,'computer-use/ChatToHarness.MacComputerUse'), 'code-signed fixture');
+    assert.throws(() => verifyResources(root), /校验失败/);
+    verifyResources(root, {packaged:true});
+    fs.writeFileSync(path.join(root,'desktop-commander/node_modules/@wonderwhy-er/desktop-commander/dist/index.js'), 'tampered');
+    assert.throws(() => verifyResources(root, {packaged:true}), /校验失败/);
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
 });
 
 test('native npm receives only one PATH variable', () => {

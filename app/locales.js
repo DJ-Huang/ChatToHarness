@@ -2,6 +2,24 @@
 // Chinese source messages, English and Japanese translations. Shared by renderer and main.
 (function(root){
   const messages = {
+  "Computer Use 需要系统权限": ["Computer Use requires system permissions", "Computer Use にはシステム権限が必要です"],
+  "权限授予后请重新检查。当前操作已停止，不会自动重放鼠标或键盘输入。": ["After granting permission, check again. The current operation has stopped; mouse and keyboard input will not be replayed.", "権限を許可後に再確認してください。現在の操作は停止し、マウスやキー入力を再実行しません。"],
+  "请求系统授权": ["Request system permission", "システム権限を要求"],
+  "打开屏幕录制设置": ["Open Screen Recording settings", "画面収録設定を開く"],
+  "打开辅助功能设置": ["Open Accessibility settings", "アクセシビリティ設定を開く"],
+  "重新检查": ["Check again", "再確認"],
+  "稍后处理": ["Later", "後で"],
+  "屏幕录制": ["Screen Recording", "画面収録"],
+  "辅助功能": ["Accessibility", "アクセシビリティ"],
+  "缺少系统权限：{permissions}": ["Missing system permissions: {permissions}", "不足しているシステム権限：{permissions}"],
+  "权限检查失败，请重新检查或在系统设置中确认。": ["Permission check failed. Check again or inspect system settings.", "権限確認に失敗しました。再確認するかシステム設定を確認してください。"],
+  "Windows 窗口授权未完成。请再次选择目标窗口并确认授权。": ["Windows window consent was not completed. Select the target window again and approve control.", "Windows のウィンドウ許可が完了していません。対象ウィンドウを選び直し、操作を許可してください。"],
+
+  "启用 Computer Use": ["Enable Computer Use", "Computer Use を有効にする"],
+  "仅注册当前操作系统的桌面控制工具（macOS / Windows），默认关闭。关闭后立即终止正在进行的控制会话并移除工具。启用后可控制当前用户的桌面窗口；仍受系统权限、前台检查及 Esc/STOP 保护。": ["Register only the desktop controller for this OS (macOS / Windows). Off by default. Disabling immediately ends control sessions and removes the tool. Enabling permits controlling desktop windows, subject to OS permissions, foreground checks and Esc/STOP.", "この OS（macOS / Windows）専用のデスクトップ操作ツールのみ登録します。初期値はオフです。無効にすると操作セッションが終了し、ツールが削除されます。有効時は OS の権限、前面ウィンドウの検査と Esc/STOP に従いデスクトップを操作できます。"],
+  "当前设备缺少 Computer Use 原生组件。": ["Computer Use native helper is not available on this device.", "この端末には Computer Use のネイティブコンポーネントがありません。"],
+  "已启用当前系统的 Computer Use；通道连接后自动提供工具。": ["Computer Use is enabled for this OS; the tool will be available when connected.", "この OS の Computer Use が有効です。接続するとツールが公開されます。"],
+  "已关闭：ChatGPT 无法发现或执行 Computer Use。": ["Disabled: ChatGPT cannot discover or invoke Computer Use.", "無効：ChatGPT は Computer Use を検出・実行できません。"],
   "部分工具不可用": ["Some tools are unavailable", "一部のツールを利用できません"],
   "通道状态与工具状态分别检查；部分工具暂时不可用。": ["The channel and tools have separate health checks. Some tools are currently unavailable.", "接続とツールの状態は別々に確認されます。一部のツールは現在利用できません。"],
   "本页帮助": ["Help for this page", "この画面のヘルプ"],

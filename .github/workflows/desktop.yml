@@ -56,6 +56,8 @@ jobs:
         run: |
           node -e "if(process.platform==='darwin' ? process.arch!=='arm64' : process.arch!=='x64')process.exit(1)"
       - run: npm ci --no-audit --no-fund
+      - name: Build native Computer Use helper for tests
+        run: npm run build:computer-use
       - run: npm test
       - name: Build verified native installers
         run: npm run dist

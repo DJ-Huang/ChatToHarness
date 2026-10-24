@@ -22,3 +22,5 @@ Release downloads are fixed by version and SHA-256. npm dependencies are fixed b
 Original third-party license texts are retained; this overview does not replace them.
 
 The MCP SDK is a direct runtime dependency for the application gateway and its downstream clients. Its original license and dependency licenses are retained with the packaged npm dependencies. User-configured MCP servers are separate programs or services: they are not bundled components, and their operators are responsible for their own licenses and access requirements.
+
+Windows computer-use screenshot compression uses sharp 0.35.5 (Apache-2.0), including the Windows native package and its libvips dependency (Apache-2.0 AND LGPL-3.0-or-later). Original notices are retained in `computer-use/node_modules/sharp/LICENSE` and `computer-use/node_modules/@img/sharp-win32-x64/LICENSE`; bundled library notices remain in that package. Upstream: https://github.com/lovell/sharp and https://github.com/libvips/libvips.

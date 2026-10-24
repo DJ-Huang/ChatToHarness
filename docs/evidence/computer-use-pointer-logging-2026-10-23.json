@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "input_backend": "SetCursorPos",
+  "root_cause": "unresolved",
+  "log_verification": {
+    "current_file": "C:\\Users\\littl\\AppData\\Roaming\\ChatToHarness\\logs\\computer-use-pointer\\pointer-events.jsonl",
+    "records": 982,
+    "move_steps": 464,
+    "private_titles_absent": true
+  },
+  "event_counts": {
+    "session_open": 1,
+    "action_begin": 15,
+    "action_complete": 15,
+    "pointer_frame": 459,
+    "move_begin": 6,
+    "move_step": 464,
+    "move_end": 6,
+    "pointer_mismatch": 8,
+    "move_replan": 8
+  },
+  "moves": [
+    {
+      "started_outside": true,
+      "samples": 121,
+      "max_backtrack_px": 0
+    },
+    {
+      "started_outside": true,
+      "samples": 172,
+      "max_backtrack_px": 0
+    },
+    {
+      "started_outside": true,
+      "samples": 251,
+      "max_backtrack_px": 0
+    },
+    {
+      "started_outside": true,
+      "samples": 314,
+      "max_backtrack_px": 0
+    },
+    {
+      "started_outside": true,
+      "samples": 162,
+      "max_backtrack_px": 0
+    },
+    {
+      "started_outside": true,
+      "samples": 159,
+      "max_backtrack_px": 0
+    }
+  ],
+  "native_sha256": "97316318f4721eb568d69cc75accbc2bfdf14f4c3509600d5f8a97af31305055",
+  "source_sha256": "0ddc71dd90e1c316fb33d5e033d9e8eb3d1d2ac90e00ddbb4886b97989cd0ae3",
+  "cleanup_closed": true,
+  "rollout": "installed_native_component_verified",
+  "deployment": {
+    "installed_at_utc": "2026-10-23T08:01:38.0769690Z",
+    "backup": "D:\\proj\\github\\ChatToHarness\\.cache\\hotfix-backups\\pointer-logging-20261023-080137-993",
+    "receipt_sha256": "7431adf495d2e1a523fc91995402a0d0e94df8d99fd256c83d122304032a6114",
+    "installed_native_sha256": "97316318f4721eb568d69cc75accbc2bfdf14f4c3509600d5f8a97af31305055",
+    "app_restarted": false,
+    "app_pids_unchanged": true,
+    "main_application_archive_unchanged": true
+  }
+}

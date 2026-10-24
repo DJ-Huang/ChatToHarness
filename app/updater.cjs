@@ -29,10 +29,17 @@ function version(value) {
   if (!match || match.slice(1).some(part => !Number.isSafeInteger(Number(part)))) throw failure('release');
   return match.slice(1).map(Number);
 }
+// Stable releases remain mandatory; only the locally installed version may
+// be prerelease, so a beta can safely compare against the latest stable build.
+function currentVersion(value) {
+  const match = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(value);
+  if (!match || match.slice(1,4).some(part => !Number.isSafeInteger(Number(part)))) throw failure('release');
+  return { numbers: match.slice(1,4).map(Number), prerelease: Boolean(match[4]) };
+}
 function newer(latest, current) {
-  const a = version(latest), b = version(current);
+  const a = version(latest), parsed = currentVersion(current), b = parsed.numbers;
   for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
-  return false;
+  return parsed.prerelease;
 }
 function assetUrl(asset, tag) {
   const expected = `${RELEASE_ROOT}download/${encodeURIComponent(tag)}/${encodeURIComponent(asset.name)}`;

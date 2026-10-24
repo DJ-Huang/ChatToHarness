@@ -1,0 +1,42 @@
+{
+  "realMcp": true,
+  "recoveredLostOpen": true,
+  "nativeScreenshot": true,
+  "nativeUnicodeInput": true,
+  "closeWithoutId": true,
+  "localHarnessGateway": true,
+  "tool": "windows-computer__computer_use",
+  "defaultAllWindows": true,
+  "authorizationMode": "all_windows",
+  "focusRecovery": true,
+  "minimizedRestore": true,
+  "compression": {
+    "mime_type": "image/webp",
+    "source_byte_length": 7196,
+    "compression": "lossless",
+    "candidates": [
+      {
+        "mime_type": "image/webp",
+        "byte_length": 2108
+      },
+      {
+        "mime_type": "image/png",
+        "byte_length": 5765
+      }
+    ],
+    "byte_length": 2108
+  },
+  "structuredScreenshotFallback": true,
+  "noInputReplay": true,
+  "forcedChunkDelivery": true,
+  "largeScreenshot": {
+    "source_byte_length": 9304486,
+    "byte_length": 8148258,
+    "mime_type": "image/webp",
+    "chunks": 32,
+    "maxResponseBytes": 350988,
+    "sha256": "8e9130bbd5a92b589075976a6deedae5cfcfed617aad72a360b6d8d877bcc31b",
+    "reassembled": true
+  },
+  "pendingConsentCleanup": true
+}

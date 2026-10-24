@@ -119,6 +119,19 @@
       </section>
       <section id="panel-mcp" class="tab-panel" role="tabpanel" aria-labelledby="nav-mcp" hidden>
         <section class="card mcp-card" aria-labelledby="mcp-title"><div class="card-header"><div><h2 id="mcp-title">应用级 MCP 服务</h2><p>在 ChatToHarness 中连接工具服务，所有客户端共用；无需创建 Agent。</p></div><button id="mcp-add" class="button secondary compact-button" type="button">添加服务</button></div>
+          <div class="setting-row mcp-access"><div><label class="checkbox-label" for="mcp-computer-use"><input id="mcp-computer-use" type="checkbox" aria-describedby="mcp-computer-use-help mcp-computer-use-state" /><span>启用 Computer Use</span></label><p id="mcp-computer-use-help">仅注册当前操作系统的桌面控制工具（macOS / Windows），默认关闭。关闭后立即终止正在进行的控制会话并移除工具。启用后可控制当前用户的桌面窗口；仍受系统权限、前台检查及 Esc/STOP 保护。</p><p id="mcp-computer-use-state" class="mcp-caption" role="status" aria-live="polite"></p></div></div>
+          <section id="mcp-computer-use-permission-dialog" class="card mcp-card mcp-permission-dialog" role="dialog" aria-modal="true" aria-labelledby="mcp-computer-use-permission-title" aria-describedby="mcp-computer-use-permission-detail" hidden>
+            <h3 id="mcp-computer-use-permission-title">Computer Use 需要系统权限</h3>
+            <p id="mcp-computer-use-permission-detail" role="status"></p>
+            <p>权限授予后请重新检查。当前操作已停止，不会自动重放鼠标或键盘输入。</p>
+            <div class="mcp-actions">
+              <button type="button" id="mcp-computer-use-request" class="button primary">请求系统授权</button>
+              <button type="button" id="mcp-computer-use-settings-screen" class="button secondary">打开屏幕录制设置</button>
+              <button type="button" id="mcp-computer-use-settings-accessibility" class="button secondary">打开辅助功能设置</button>
+              <button type="button" id="mcp-computer-use-recheck" class="button secondary">重新检查</button>
+              <button type="button" id="mcp-computer-use-permission-dismiss" class="button secondary">稍后处理</button>
+            </div>
+          </section>
           <div class="setting-row mcp-access"><div><label class="checkbox-label" for="mcp-allow-all-tools"><input id="mcp-allow-all-tools" type="checkbox" aria-describedby="mcp-allow-all-tools-help mcp-client-permission-note" /><span>允许所有工具</span></label><p id="mcp-allow-all-tools-help">已启用且受信任的 MCP 服务将放行全部工具，包括以后新增的工具；关闭后恢复逐项权限。切换时，权限受影响的待确认请求或调用会被取消。</p><p id="mcp-client-permission-note">此设置仅管理本机工具权限，ChatGPT 仍可能要求授权。</p></div></div>
           <p id="mcp-policy-summary" class="mcp-caption">先信任服务，再逐项授权工具。新增或变更的工具默认禁用，客户端可能需要刷新工具目录。</p><div id="mcp-server-list" class="mcp-server-list"></div>
         </section>

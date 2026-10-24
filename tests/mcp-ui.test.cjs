@@ -16,6 +16,10 @@ const methods = {
   mcpSetEnabled: 'mcp-set-enabled', mcpTrustServer: 'mcp-trust-server',
   mcpTestServer: 'mcp-test-server', mcpSetToolPolicy: 'mcp-set-tool-policy',
   mcpSetAllowAllTools: 'mcp-set-allow-all-tools',
+  mcpSetComputerUse: 'mcp-set-computer-use',
+  mcpComputerUsePermissions: 'mcp-computer-use-permissions',
+  mcpComputerUseDismissPermissions: 'mcp-computer-use-dismiss-permissions',
+  mcpComputerUseOpenPermissionSettings: 'mcp-computer-use-open-permission-settings',
   mcpPreviewImport: 'mcp-preview-import', mcpCommitImport: 'mcp-commit-import',
   mcpExport: 'mcp-export', mcpResolveApproval: 'mcp-resolve-approval',
 };
@@ -77,7 +81,7 @@ function button(node, label) {
 }
 const initialState = () => ({
   actionEpoch: 0, settings: { tunnelId: '', keySaved: false, directories: [], autoConnect: true, autoProjectContext: true },
-  runtime: { state: 'stopped' }, system: { platform: 'darwin', locale: 'zh-CN' }, mcp: { servers: [], approvals: [] },
+  runtime: { state: 'stopped' }, system: { platform: 'darwin', locale: 'zh-CN' }, mcp: { servers: [], approvals: [], computerUse: { enabled: false, available: true, platform: 'darwin' } },
 });
 const settled = () => new Promise(resolve => setImmediate(resolve));
 async function rendererFixture(state = initialState(), overrides = {}, clipboard) {
@@ -141,7 +145,7 @@ test('renderer and restricted preload agree on MCP methods and exact IPC routes'
   assert.deepEqual(referenced, Object.keys(methods).sort());
   assert.deepEqual(Object.keys(exposed).filter(name => name.startsWith('mcp')).sort(), referenced);
   for (const [method, route] of Object.entries(methods)) {
-    const args = method === 'mcpSetEnabled' ? ['server', true] : method === 'mcpSetAllowAllTools' ? [true] : method === 'mcpExport' ? [] : [{ test: method }];
+    const args = method === 'mcpSetEnabled' ? ['server', true] : ['mcpSetAllowAllTools','mcpSetComputerUse'].includes(method) ? [true] : ['mcpExport','mcpComputerUseDismissPermissions'].includes(method) ? [] : [{ test: method }];
     await exposed[method](...args);
     assert.deepEqual(calls.pop(), ['localharness:' + route, ...args]);
   }
@@ -486,4 +490,79 @@ test('log pages share a labelled group, with nested history icon and accessible 
   await f.node('nav-overview').emit('click');
   assert.equal(groupNode.dataset.active,'false');
   assert.equal(submenu.hidden,true);
+});
+
+test('MCP Computer Use checkbox toggles a persisted platform-local capability without editing MCP servers', async () => {
+  let state = initialState();
+  const updates = [];
+  const fixture = await rendererFixture(state, {
+    async mcpSetComputerUse(enabled) {
+      updates.push(enabled);
+      state = { ...state, mcp: { ...state.mcp, computerUse: { enabled, available: true, platform: 'darwin' } } };
+      return state;
+    },
+  });
+  const toggle=fixture.node('mcp-computer-use');
+  assert.equal(toggle.disabled,false);
+  assert.equal(toggle.checked,false);
+  toggle.checked=true; await toggle.emit('change');
+  assert.deepEqual(updates,[true]);
+  assert.equal(toggle.checked,true);
+  toggle.checked=false; await toggle.emit('change');
+  assert.deepEqual(updates,[true,false]);
+  assert.equal(toggle.checked,false);
+  assert.equal(state.mcp.servers.length,0,'must not add an external MCP server configuration');
+  const unavailable=initialState();
+  unavailable.mcp.computerUse.available=false;
+  const other=await rendererFixture(unavailable);
+  assert.equal(other.node('mcp-computer-use').disabled,true,'missing OS native helper must fail closed');
+});
+
+test('denied Mac TCC grants show an accessible local permission dialog and do not register Computer Use',async()=>{
+ let state=initialState();
+ const requests=[];
+ const initialMcpCount=state.mcp.servers.length;
+ const fixture=await rendererFixture(state,{
+   async mcpSetComputerUse(enabled) {
+     requests.push({enabled});
+     state={...state,mcp:{...state.mcp,computerUse:{
+       platform:'darwin',available:true,enabled:false,registered:false,
+       permissionPromptVisible:true,permission:{granted:false,missing:['screen_recording','accessibility']}
+     }}};
+     return state;
+   },
+   async mcpComputerUsePermissions(request) {
+     requests.push({request});
+     state={...state,mcp:{...state.mcp,computerUse:{
+       platform:'darwin',available:true,enabled:true,registered:true,
+       permissionPromptVisible:false,permission:{granted:true,missing:[]}
+     }}};
+     return state;
+   },
+ });
+ const checkbox=fixture.node('mcp-computer-use');
+ checkbox.checked=true;
+ await checkbox.emit('change');
+ const dialog=fixture.node('mcp-computer-use-permission-dialog');
+ assert.equal(dialog.hidden,false);
+ assert.equal(checkbox.checked,false);
+ assert.match(fixture.node('mcp-computer-use-permission-detail').textContent,/屏幕录制/);
+ assert.match(fixture.node('mcp-computer-use-permission-detail').textContent,/辅助功能/);
+ assert.equal(fixture.node('mcp-computer-use-request').hidden,false);
+ assert.equal(state.mcp.servers.length,initialMcpCount);
+ await fixture.node('mcp-computer-use-request').emit('click');
+ assert.deepEqual(requests,[{enabled:true},{request:true}]);
+ assert.equal(dialog.hidden,true);
+ assert.equal(checkbox.checked,true);
+});
+test('Windows permission dialog cannot expose macOS TCC buttons',async()=>{
+ const state=initialState();
+ state.mcp.computerUse={platform:'win32',available:true,enabled:false,
+   permissionPromptVisible:true,permission:{granted:false,missing:[],code:'CU_CONSENT_DENIED'}};
+ const fixture=await rendererFixture(state);
+ assert.equal(fixture.node('mcp-computer-use-permission-dialog').hidden,false);
+ assert.equal(fixture.node('mcp-computer-use-request').hidden,true);
+ assert.equal(fixture.node('mcp-computer-use-settings-screen').hidden,true);
+ assert.equal(fixture.node('mcp-computer-use-settings-accessibility').hidden,true);
+ assert.match(fixture.node('mcp-computer-use-permission-detail').textContent,/Windows/);
 });

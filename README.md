@@ -54,7 +54,8 @@ For a first read-only check, ask: “Use `get_harness_status` to report the runn
 - Bounded ripgrep searches with line context, pagination and cancellation.
 - Application-owned MCP integrations, version-bound per-tool/project approvals, and optional allow-all for enabled trusted services.
 - Project/build status, Git read-only inspection, AGENTS/Rules/Skills discovery, idempotent background tasks, and safe SHA-checked text editing/undo.
-- Native MCP resources/prompts when supported by the client, plus tool fallbacks for content reads; no built-in GUI automation.
+- Native MCP resources/prompts when supported by the client, plus tool fallbacks for content reads.
+- Experimental built-in Computer Use on Windows x64 and macOS arm64, with authorized-window screenshots and real mouse/keyboard input. It is off on first use; saved enablement settings are retained. To enable it, open **Plugins → Computer Use → Manage** and confirm permissions. macOS requires Screen Recording and Accessibility permissions. Window authorization, user takeover and STOP / Esc remain enforced; GUI planning depends on the connected client. [Setup and usage](docs/en/GUIDE.md)
 - Live logs and execution history with independent execution/transport states, filtering, limited storage and opt-in temporary diagnostics.
 
 - Manual and automatic update checks, with verified installer downloads.
@@ -72,7 +73,7 @@ Folder settings do not sandbox the terminal: commands run with your current user
 
 ## Development
 
-Optional Windows source preview: [computer use setup, permissions and verification](docs/windows-computer-use.md). This standalone MCP service adds locally consented window capture and input; it is not enabled automatically or included in released installers.
+Computer Use development: [Windows native setup and verification](docs/windows-computer-use.md) · [Cross-platform task architecture](docs/computer-use-agent-architecture.md). The built-in plugin is included in the Windows and macOS installers; its experimental status and known limits are recorded in the [v0.8.0 release notes](release-notes/v0.8.0.md).
 
 Double-click [Dev.command](Dev.command) (Mac) or [Dev.cmd](Dev.cmd) (Windows) to run current source. Relaunching cleans up the old instance before loading new code. On Mac, run `./dev.sh` from a terminal. With dependencies ready, `npm run dev` / `npm start` do the same without packaging. [Development guide](docs/en/GUIDE.md#run-source-during-development)
 

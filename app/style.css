@@ -72,6 +72,37 @@ textarea,select{font:inherit}textarea:focus-visible,select:focus-visible,input[t
 @media(max-width:850px){.nav-log-group .nav-item[data-nav-level="child"]{margin-left:15px;width:calc(100% - 15px);padding-left:9px}.nav-log-group[data-expanded="true"]::after{left:11px}}
 
 /* Explicit native-permission prompt; permission checks never happen automatically through this button. */
-#mcp-computer-use-permission-dialog:not([hidden]){position:fixed;z-index:30;left:50%;top:50%;transform:translate(-50%,-50%);width:min(600px,calc(100vw - 40px));max-height:85vh;overflow:auto;border:1px solid #d4a989;box-shadow:0 12px 55px #26364750;background:#fffdf9}
+#mcp-computer-use-permission-dialog[open]{position:fixed;inset:0;margin:auto;color:var(--ink);width:min(600px,calc(100vw - 40px));max-height:85vh;overflow:auto;border:1px solid #d4a989;box-shadow:0 12px 55px #26364750;background:#fffdf9}
 #mcp-computer-use-permission-dialog h3{font-size:16px;margin:0 0 10px;color:#614c40}
 #mcp-computer-use-permission-dialog p{font-size:12px;line-height:1.65}
+
+/* Plugin management and desktop control settings. */
+.plugin-tabs{display:flex;gap:24px;border-bottom:1px solid var(--line);margin-bottom:24px}
+.plugin-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;padding:10px 2px 13px;color:var(--muted);font-weight:550}
+.plugin-tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink)}
+.plugin-card{display:flex;align-items:center;gap:17px;padding:22px;margin-bottom:16px}
+.plugin-icon{width:44px;height:44px;border:1px solid var(--line);border-radius:12px;display:grid;place-items:center;background:#f5f7fa;flex-shrink:0;font-weight:600}
+.plugin-icon svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
+.plugin-copy{flex:1;min-width:0}.plugin-copy h3,.plugin-copy label{display:block;margin:0;font-size:14px;font-weight:600;color:var(--ink);overflow-wrap:anywhere}
+.plugin-copy p,.permission-row p{font-size:12px;line-height:1.7;color:var(--muted);margin:5px 0}.plugin-copy .mcp-caption{margin:0}
+.plugin-copy .setting-tag{font-size:9px;margin-left:8px}.computer-settings{padding:24px;margin-bottom:20px}.computer-settings h2{font-size:14px;margin:0 0 18px}
+.computer-control-row{display:flex;align-items:center;gap:15px}.setting-switch{appearance:none;-webkit-appearance:none;position:relative;flex-shrink:0;width:38px;height:22px;border:0;border-radius:14px;background:#c6cdd5;cursor:pointer;transition:background .16s}
+.setting-switch:before{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;background:white;border-radius:50%;box-shadow:0 1px 3px #0002;transition:transform .16s}
+.setting-switch:checked{background:var(--accent)}.setting-switch:checked:before{transform:translateX(16px)}.setting-switch:focus-visible{outline:3px solid #98b4fa;outline-offset:3px}.setting-switch:disabled{opacity:.45;cursor:default}
+.permission-row{display:flex;align-items:center;gap:15px;padding:17px 0;border-top:1px solid var(--line)}.permission-row>div{flex:1}.permission-row strong{font-size:12px;font-weight:550}.permission-status{font-size:11px;color:#a0785a;white-space:nowrap}.permission-status[data-granted=true]{color:#397b56}
+#mcp-computer-use-permission-dialog::backdrop{background:#1d293b55;backdrop-filter:blur(2px)}
+
+.plugin-management-drawer[open]{position:fixed;inset:0 0 0 auto;margin:0;width:min(600px,calc(100vw - 48px));max-width:none;height:100dvh;max-height:none;display:flex;flex-direction:column;padding:0;border:0;border-left:1px solid var(--line);background:var(--bg);color:var(--ink);box-shadow:-12px 0 60px #16273d25;animation:plugin-drawer-in .18s ease-out}
+.plugin-management-drawer::backdrop{background:#1d293b40}
+.plugin-management-header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:16px;padding:35px 26px 22px;background:var(--paper);border-bottom:1px solid var(--line)}
+.plugin-management-header p{margin:0 0 7px;font-size:11px;color:var(--muted)}.plugin-management-header h2{font-size:22px;line-height:1.4;margin:0;overflow-wrap:anywhere}
+.plugin-management-close{width:32px;height:32px;flex-shrink:0;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--muted);font-size:22px;line-height:1}.plugin-management-close:hover{background:var(--accent-soft);color:var(--ink)}
+.plugin-management-body{min-height:0;overflow:auto;padding:24px;overscroll-behavior:contain}
+.plugin-management-body .computer-settings{padding:22px}.plugin-management-body .computer-control-row .plugin-icon{display:none}
+.plugin-management-body #mcp-editor{margin:0}.plugin-management-body .mcp-form-grid.field-grid{grid-template-columns:1fr}
+@keyframes plugin-drawer-in{from{transform:translateX(100%)}to{transform:translateX(0)}}
+
+.plugin-list-header{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:22px}.plugin-list-header h2{font-size:15px;margin:0 0 6px}.plugin-list-header p{font-size:12px;line-height:1.7;color:var(--muted);margin:0}.plugin-list-actions{display:flex;flex-shrink:0;gap:10px}
+.plugin-add-options{display:grid;gap:16px}.plugin-add-option{display:grid;grid-template-columns:1fr auto;gap:8px;text-align:left;padding:22px;color:var(--ink)}.plugin-add-option strong{font-size:14px}.plugin-add-option span{font-size:12px;line-height:1.7;color:var(--muted)}.plugin-add-option>span:last-child{grid-column:2;grid-row:1/3;align-self:center;font-size:20px}.plugin-add-option:hover{border-color:#b6c9eb;background:#fcfdff}
+#plugin-mcp-overview .mcp-server{background:var(--paper);padding:22px}#plugin-management-error{margin-bottom:18px}.plugin-management-body .plugin-tabs{gap:22px}
+@media(max-width:1000px){.plugin-list-header{align-items:flex-start;flex-direction:column}.plugin-list-actions{align-self:flex-end}}

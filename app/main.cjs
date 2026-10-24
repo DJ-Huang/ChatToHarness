@@ -226,6 +226,16 @@ function registerIPC(){
       else preferences.setComputerUseEnabled(false);
     });
   }));
+  bind('mcp-computer-use-permission-status',mcp(()=>{
+    const epoch=computerUseIntentEpoch;
+    return action(async()=>{
+      const permission=await computerUse.checkPermissions();
+      if(epoch===computerUseIntentEpoch&&!permission.granted&&computerUse.enabled){
+        computerUse.setEnabled(false);
+        permissionRequired(permission);
+      }
+    });
+  }));
   bind('mcp-computer-use-permissions',mcp(request=>{
     if(typeof request!=='boolean')throw new Error('MCP_INVALID_CONFIG');
     const epoch=++computerUseIntentEpoch;

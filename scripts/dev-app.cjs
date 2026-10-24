@@ -16,7 +16,7 @@ function prepareDevelopmentApp({root,binary,platform=process.platform,run=execFi
   const source=path.resolve(binary,'../../..');
   const info=path.join('Contents','Info.plist');
   const stat=fs.statSync(binary);
-  const key=crypto.createHash('sha256').update(JSON.stringify({revision:2,product,binary,
+  const key=crypto.createHash('sha256').update(JSON.stringify({revision:3,product,binary,appId:manifest.build.appId,
     version:manifest.devDependencies.electron,size:stat.size,mtime:stat.mtimeMs}))
     .update(fs.readFileSync(path.join(source,info))).digest('hex').slice(0,24);
   const cache=path.join(root,'.cache','dev-electron');
@@ -34,6 +34,11 @@ function prepareDevelopmentApp({root,binary,platform=process.platform,run=execFi
     fs.cpSync(source,staged,{recursive:true,verbatimSymlinks:true,mode:fs.constants.COPYFILE_FICLONE});
     const options={stdio:'pipe',timeout:120000};
     for(const name of ['CFBundleName','CFBundleDisplayName'])run('/usr/bin/plutil',['-replace',name,'-string',product,path.join(staged,info)],options);
+    const identifier=(manifest.build.appId || 'local.chattoharness')+'.dev';
+    if(!/^[A-Za-z0-9.-]+$/.test(identifier))throw new Error('Invalid development app identifier.');
+    run('/usr/bin/plutil',['-replace','CFBundleIdentifier','-string',identifier,path.join(staged,info)],options);
+    for(const [name,value] of Object.entries({NSScreenCaptureUsageDescription:'ChatToHarness uses screen recording to view the app windows you allow.',NSAccessibilityUsageDescription:'ChatToHarness uses accessibility to control the app windows you allow and respond to Esc.'}))
+      run('/usr/bin/plutil',['-replace',name,'-string',value,path.join(staged,info)],options);
     run('/usr/bin/codesign',['--force','--deep','--sign','-',staged],options);
     run('/usr/bin/codesign',['--verify','--deep','--strict',staged],options);
     fs.writeFileSync(path.join(temporary,'ready.json'),JSON.stringify({key})+'\n');

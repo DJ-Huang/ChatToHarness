@@ -17,6 +17,7 @@ const methods = {
   mcpTestServer: 'mcp-test-server', mcpSetToolPolicy: 'mcp-set-tool-policy',
   mcpSetAllowAllTools: 'mcp-set-allow-all-tools',
   mcpSetComputerUse: 'mcp-set-computer-use',
+  mcpComputerUsePermissionStatus: 'mcp-computer-use-permission-status',
   mcpComputerUsePermissions: 'mcp-computer-use-permissions',
   mcpComputerUseDismissPermissions: 'mcp-computer-use-dismiss-permissions',
   mcpComputerUseOpenPermissionSettings: 'mcp-computer-use-open-permission-settings',
@@ -51,6 +52,8 @@ function documentFixture() {
     appendChild(child) { this.children.push(child); return child; }
     append(...children) { this.children.push(...children); }
     replaceChildren(...children) { this._text = ''; this.children = children; }
+    showModal() { this.open = true; }
+    close() { this.open = false; }
     focus() {}
   }
   for (const match of html.matchAll(/<([a-z][\w-]*)\b([^<>]*\bid="([^"]+)"[^<>]*)>/g)) {
@@ -145,7 +148,7 @@ test('renderer and restricted preload agree on MCP methods and exact IPC routes'
   assert.deepEqual(referenced, Object.keys(methods).sort());
   assert.deepEqual(Object.keys(exposed).filter(name => name.startsWith('mcp')).sort(), referenced);
   for (const [method, route] of Object.entries(methods)) {
-    const args = method === 'mcpSetEnabled' ? ['server', true] : ['mcpSetAllowAllTools','mcpSetComputerUse'].includes(method) ? [true] : ['mcpExport','mcpComputerUseDismissPermissions'].includes(method) ? [] : [{ test: method }];
+    const args = method === 'mcpSetEnabled' ? ['server', true] : ['mcpSetAllowAllTools','mcpSetComputerUse'].includes(method) ? [true] : ['mcpExport','mcpComputerUseDismissPermissions','mcpComputerUsePermissionStatus'].includes(method) ? [] : [{ test: method }];
     await exposed[method](...args);
     assert.deepEqual(calls.pop(), ['localharness:' + route, ...args]);
   }
@@ -157,6 +160,7 @@ test('renderer and restricted preload agree on MCP methods and exact IPC routes'
 
 test('a newly saved MCP service is disabled and saving does not connect or trust it', async () => {
   const fixture = await rendererFixture();
+  await fixture.node('plugin-add-mcp').emit('click');
   await fixture.node('mcp-add').emit('click');
   fixture.node('mcp-id').value = 'example'; fixture.node('mcp-name').value = 'Example';
   fixture.node('mcp-command').value = 'example-server';
@@ -183,6 +187,7 @@ test('allow all tools shows saved permissions and restores individual controls w
     },
   });
   const toggle = fixture.node('mcp-allow-all-tools');
+  await button(fixture.node('plugin-installed-list'), '管理').emit('click');
   const policySelect = () => descendants(fixture.node('mcp-server-list')).find(node => node.tagName === 'SELECT');
   assert.equal(toggle.checked, false);
   assert.equal(policySelect().disabled, false);
@@ -236,6 +241,7 @@ test('untrusted services show the effective platform target before trust and con
     command: 'base-command', args: ['base'], platforms: { darwin: { command: '/native/server', args: ['native'] } } };
   state.mcp.servers = [server];
   const fixture = await rendererFixture(state);
+  await button(fixture.node('plugin-installed-list'), '管理').emit('click');
   await button(fixture.node('mcp-server-list'), '启用').emit('click');
   assert.equal(fixture.calls.length, 0); assert.equal(fixture.node('mcp-trust').hidden, false);
   assert.match(fixture.node('mcp-trust-target').textContent, /\/native\/server/);
@@ -258,6 +264,7 @@ test('approval content is plain text and stays actionable on other pages during 
     mcpTestServer() { return new Promise(resolve => { finishTest = () => resolve(state); }); },
     async mcpResolveApproval(input) { resolutions.push(input); return { ...state, mcp: { ...state.mcp, approvals: [] } }; },
   });
+  await button(fixture.node('plugin-installed-list'), '管理').emit('click');
   const connecting = button(fixture.node('mcp-server-list'), '测试连接').emit('click');
   await fixture.node('nav-help').emit('click');
   assert.equal(fixture.node('panel-mcp').hidden, true); assert.equal(fixture.node('mcp-approvals').hidden, false);
@@ -544,7 +551,7 @@ test('denied Mac TCC grants show an accessible local permission dialog and do no
  checkbox.checked=true;
  await checkbox.emit('change');
  const dialog=fixture.node('mcp-computer-use-permission-dialog');
- assert.equal(dialog.hidden,false);
+ assert.equal(dialog.open,true);
  assert.equal(checkbox.checked,false);
  assert.match(fixture.node('mcp-computer-use-permission-detail').textContent,/屏幕录制/);
  assert.match(fixture.node('mcp-computer-use-permission-detail').textContent,/辅助功能/);
@@ -552,7 +559,7 @@ test('denied Mac TCC grants show an accessible local permission dialog and do no
  assert.equal(state.mcp.servers.length,initialMcpCount);
  await fixture.node('mcp-computer-use-request').emit('click');
  assert.deepEqual(requests,[{enabled:true},{request:true}]);
- assert.equal(dialog.hidden,true);
+ assert.equal(dialog.open,false);
  assert.equal(checkbox.checked,true);
 });
 test('Windows permission dialog cannot expose macOS TCC buttons',async()=>{
@@ -560,9 +567,58 @@ test('Windows permission dialog cannot expose macOS TCC buttons',async()=>{
  state.mcp.computerUse={platform:'win32',available:true,enabled:false,
    permissionPromptVisible:true,permission:{granted:false,missing:[],code:'CU_CONSENT_DENIED'}};
  const fixture=await rendererFixture(state);
- assert.equal(fixture.node('mcp-computer-use-permission-dialog').hidden,false);
+ assert.equal(fixture.node('mcp-computer-use-permission-dialog').open,true);
  assert.equal(fixture.node('mcp-computer-use-request').hidden,true);
  assert.equal(fixture.node('mcp-computer-use-settings-screen').hidden,true);
  assert.equal(fixture.node('mcp-computer-use-settings-accessibility').hidden,true);
  assert.match(fixture.node('mcp-computer-use-permission-detail').textContent,/Windows/);
+});
+
+
+test('plugin management selects only the requested server and retains its config draft across state updates', async () => {
+  const state = initialState();
+  state.mcp.servers = ['alpha', 'beta'].map(id => ({id,name:id,enabled:false,trusted:false,transport:'stdio',command:id+'-server',tools:[{name:'write',policy:'deny'}]}));
+  const f = await rendererFixture(state);
+  assert.doesNotMatch(html, /data-plugin-tab=/, 'there is one plugin list, with no second MCP catalog');
+  assert.equal(f.node('plugin-installed-list').children.length,2);
+  assert.equal(f.calls.length,0);
+  await button(f.node('plugin-installed-list').children[1],'管理').emit('click');
+  assert.equal(f.node('plugin-management-drawer').open,true);
+  assert.equal(f.node('plugin-management-title').textContent,'beta');
+  const visible = f.node('mcp-server-list').children.filter(row=>!row.hidden);
+  assert.equal(visible.length,1);
+  assert.match(visible[0].textContent,/beta-server/);
+  assert.equal(f.calls.length,0,'opening management never connects or grants trust');
+  const policy = descendants(visible[0]).find(node=>node.tagName==='SELECT');
+  policy.value='ask';await policy.emit('change');
+  assert.equal(f.calls.at(-1).method,'mcpSetToolPolicy');
+  assert.equal(f.calls.at(-1).args[0].serverId,'beta');
+  await f.node('plugin-mcp-tab-config').emit('click');
+  f.node('mcp-name').value='Unsaved beta';f.node('mcp-env').value='{"PRIVATE":"draft"}';
+  f.update({...state,mcp:{...state.mcp,servers:state.mcp.servers.map(s=>({...s,phase:'stopped'}))}});
+  assert.equal(f.node('mcp-name').value,'Unsaved beta','background state cannot replace an edit');
+  assert.equal(f.node('plugin-management-title').textContent,'beta');
+  await f.node('plugin-management-close').emit('click');
+  assert.equal(f.node('plugin-management-drawer').open,false);
+  assert.equal(f.node('mcp-env').value,'{}','closing clears an unsaved secret');
+  assert.equal(f.node('panel-mcp').hidden,false);
+});
+
+test('plugin add choices and global permissions remain separate from per-plugin management', async () => {
+  const f = await rendererFixture();
+  await f.node('plugin-add-mcp').emit('click');
+  assert.equal(f.node('plugin-add-options').hidden,false);
+  assert.equal(f.node('mcp-editor').hidden,true);
+  await f.node('plugin-import').emit('click');
+  assert.equal(f.node('plugin-import-settings').hidden,false);
+  assert.equal(f.node('plugin-global-settings').hidden,true);
+  await f.node('plugin-management-close').emit('click');
+  await f.node('plugin-settings').emit('click');
+  assert.equal(f.node('plugin-global-settings').hidden,false);
+  assert.equal(f.node('plugin-computer-use-settings').hidden,true);
+  await f.node('plugin-management-close').emit('click');
+  await f.node('plugin-computer-use-manage').emit('click');
+  assert.equal(f.node('plugin-computer-use-settings').hidden,false);
+  assert.equal(f.node('plugin-global-settings').hidden,true);
+  assert.equal(f.calls.length,0,'navigation cannot change permission or enable control');
 });

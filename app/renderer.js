@@ -24,6 +24,10 @@
   let operationSequence = 0;
   let actionEpoch = null;
   let activeTab = 'overview';
+  let mcpManagementTab = 'overview';
+  let activePluginManagement = null;
+  let pluginRenderKey = '';
+  let permissionReturnFocus = null;
   let updatePending = false;
   let updatePreferencePending = false;
   let updateError = '';
@@ -43,7 +47,7 @@
     logs: ['实时日志', '持续查看本机连接、工具调用与异常日志。'],
     connection: ['连接配置', '为这个工作空间建立一条安全通道。'],
     directories: ['工作目录', '选择协作范围，自动交付工程规范。'],
-    mcp: ['MCP Servers', '配置本应用的工具服务，再通过安全通道提供给客户端。'],
+    mcp: ['插件', '连接工具，管理 AI 可以使用的能力。'],
     history: ['执行记录', '按需查看本机工具执行与响应写入状态。'],
     help: ['接入与帮助', '连接客户端，开始第一次本机工具调用。'],
   };
@@ -129,6 +133,7 @@
     if (!Object.hasOwn(pages, name)) return;
     if (name === 'history') setLogMenuExpanded(true);
     else if (name !== 'logs') setLogMenuExpanded(false);
+    if (name !== 'mcp' && byId('plugin-management-drawer').open) closeMcpEditor();
     activeTab = name;
     // Keep the logs category highlighted for either of its two pages.
     byId('nav-log-group').dataset.active = String(name === 'logs' || name === 'history');
@@ -320,12 +325,96 @@
     details.append(make('summary', '', t(label)), make('pre', 'code-example', JSON.stringify(value, null, 2)));
     return details;
   }
+  function openPluginManagement(kind) {
+    showTab('mcp');
+    activePluginManagement = kind;
+    renderPluginManagementView();
+    renderPluginManagementTitle();
+    const drawer = byId('plugin-management-drawer');
+    if (!drawer.open) drawer.showModal();
+  }
+  function renderPluginManagementView() {
+    const mcp = activePluginManagement === 'mcp';
+    const existing = mcp && Boolean(mcpEditorId);
+    byId('plugin-computer-use-settings').hidden = activePluginManagement !== 'computer-use';
+    byId('plugin-add-options').hidden = activePluginManagement !== 'add';
+    byId('plugin-import-settings').hidden = activePluginManagement !== 'import';
+    byId('plugin-global-settings').hidden = activePluginManagement !== 'settings';
+    byId('plugin-mcp-tabs').hidden = !existing;
+    byId('plugin-mcp-overview').hidden = !existing || mcpManagementTab !== 'overview';
+    byId('mcp-editor').hidden = !mcp || (existing && mcpManagementTab !== 'config');
+    for (const tab of ['overview', 'config']) {
+      const button = byId('plugin-mcp-tab-' + tab);
+      button.setAttribute('aria-selected', String(tab === mcpManagementTab));
+      button.tabIndex = tab === mcpManagementTab ? 0 : -1;
+    }
+  }
+  function showMcpManagementTab(name, focus = false) {
+    if (!['overview', 'config'].includes(name)) return;
+    mcpManagementTab = name;
+    renderPluginManagementView();
+    if (focus) byId('plugin-mcp-tab-' + name).focus();
+  }
+  function renderPluginManagementTitle() {
+    const titles = {add: '添加插件', import: '导入配置', settings: '插件设置'};
+    byId('plugin-management-title').textContent = activePluginManagement === 'mcp'
+      ? (mcpEditorId ? mcpServer(mcpEditorId)?.name || mcpEditorId : t('接入 MCP 服务'))
+      : activePluginManagement === 'computer-use' ? 'Computer Use' : t(titles[activePluginManagement] || '插件管理');
+  }
+  function mcpPhaseLabel(server) {
+    const phases = {disabled:'已停用',stopped:'已停止',connecting:'连接中',starting:'连接中',connected:'已连接',ready:'已连接',reconnecting:'重连中',failed:'连接异常',error:'连接异常',untrusted:'等待信任',disconnected:'未连接'};
+    return phases[server.phase] || (server.enabled ? '未连接' : '已停用');
+  }
+  function renderPlugins(servers, cu) {
+    renderPluginManagementTitle();
+    byId('plugin-computer-use-state').textContent = t(!cu.available ? '组件不可用' : cu.enabled ? '已启用' : '已关闭');
+    byId('computer-system-permissions').hidden = cu.platform !== 'darwin';
+    const permission = cu.permission;
+    for (const [id, name] of [['screen', 'screen_recording'], ['accessibility', 'accessibility']]) {
+      const status = byId('computer-permission-' + id);
+      const known = permission && (permission.granted || permission.missing?.length);
+      const granted = known && !permission.missing?.includes(name);
+      status.textContent = t(!known ? '尚未检查' : granted ? '已授权' : '未授权');
+      status.dataset.granted = String(Boolean(granted));
+    }
+    const key = JSON.stringify({locale, pending:mcpPending, servers: servers.map(s => [s.id, s.name, s.enabled, s.phase, s.tools?.length])});
+    if (key === pluginRenderKey) return;
+    pluginRenderKey = key;
+    const list = byId('plugin-installed-list');
+    list.replaceChildren();
+    for (const server of servers) {
+      const card = make('article', 'card plugin-card');
+      const copy = make('div', 'plugin-copy');
+      const title = make('h3', '', server.name || server.id);
+      title.append(make('span', 'setting-tag', 'MCP'));
+      const status = make('span', 'mcp-server-status', t(mcpPhaseLabel(server)));
+      status.dataset.phase = server.phase || 'disabled';
+      copy.append(title, make('p', '', t('通过 MCP 连接')), status);
+      const button = make('button', 'button secondary compact-button', t('管理'));
+      button.type = 'button';
+      button.id = 'plugin-manage-' + server.id;
+      button.disabled = Boolean(mcpPending);
+      button.setAttribute('aria-haspopup', 'dialog');
+      button.setAttribute('aria-controls', 'plugin-management-drawer');
+      card.dataset.pluginId = server.id;
+      button.addEventListener('click', () => openMcpEditor(mcpServer(server.id), 'overview'));
+      card.append(make('div', 'plugin-icon', 'M'), copy, button);
+      list.append(card);
+    }
+  }
+
   function renderMcp() {
     const servers = mcpServers();
     const allowAllTools = currentState?.mcp?.allowAllTools === true;
     const installing = ['downloading', 'verifying', 'installing'].includes(currentState?.updates?.phase);
     const busy = Boolean(mcpPending) || installing || !initialized;
     const cu = currentState?.mcp?.computerUse || {};
+    if (activePluginManagement === 'mcp' && mcpEditorId && !mcpServer(mcpEditorId)) closeMcpEditor();
+    renderPlugins(servers, cu);
+    byId('plugin-management-error').textContent = actionError ? t(actionError) : '';
+    byId('plugin-management-error').hidden = !actionError;
+    byId('plugin-permission-policy').hidden = !allowAllTools;
+    byId('plugin-permission-policy').textContent = t('已开启允许所有工具。下方逐项权限在关闭此开关后生效。');
     byId('mcp-computer-use').checked = computerUsePendingValue === null ? cu.enabled === true : computerUsePendingValue;
     byId('mcp-computer-use').disabled = busy || (cu.available !== true && cu.enabled !== true);
     byId('mcp-computer-use-state').textContent = t(cu.available !== true
@@ -334,7 +423,14 @@
       : '已关闭：ChatGPT 无法发现或执行 Computer Use。');
     const permission=cu.permission||{};
     const prompt=byId('mcp-computer-use-permission-dialog');
-    prompt.hidden=cu.permissionPromptVisible!==true;
+    if (cu.permissionPromptVisible === true && !prompt.open) {
+      openPluginManagement('computer-use');
+      permissionReturnFocus = document.activeElement;
+      prompt.showModal();
+    } else if (cu.permissionPromptVisible !== true && prompt.open) {
+      prompt.close();
+      permissionReturnFocus?.focus?.();
+    }
     const missing=Array.isArray(permission.missing)?permission.missing:[];
     const title=missing.map(x=>x==='screen_recording'?t('屏幕录制'):x==='accessibility'?t('辅助功能'):x).join('、');
     byId('mcp-computer-use-permission-detail').textContent=cu.platform==='darwin'
@@ -347,32 +443,34 @@
     for(const id of ['mcp-computer-use-request','mcp-computer-use-settings-screen',
       'mcp-computer-use-settings-accessibility','mcp-computer-use-recheck',
       'mcp-computer-use-permission-dismiss'])byId(id).disabled=busy;
+    byId('computer-permissions-check').disabled = busy;
+    document.querySelectorAll('[data-permission-settings]').forEach(button => { button.disabled = busy; });
     byId('mcp-allow-all-tools').checked = allowAllTools;
     byId('mcp-allow-all-tools').disabled = busy;
     byId('mcp-policy-summary').textContent = t(allowAllTools
-      ? '已开启允许所有工具。下方逐项权限在关闭此开关后生效。'
+      ? '已开启允许所有工具。各插件保存的逐项权限在关闭此开关后生效。'
       : '先信任服务，再逐项授权工具。新增或变更的工具默认禁用，客户端可能需要刷新工具目录。');
-    for (const id of ['mcp-add', 'mcp-save', 'mcp-cancel', 'mcp-import-preview', 'mcp-export', 'mcp-import-confirm', 'mcp-trust-confirm', 'mcp-trust-cancel']) byId(id).disabled = busy;
+    for (const id of ['plugin-add-mcp', 'plugin-import', 'mcp-add', 'mcp-save', 'mcp-cancel', 'mcp-import-preview', 'mcp-export', 'mcp-import-confirm', 'mcp-trust-confirm', 'mcp-trust-cancel']) byId(id).disabled = busy;
     byId('mcp-import-text').disabled = busy;
     byId('mcp-import-preview').disabled = busy || !byId('mcp-import-text').value.trim();
     byId('mcp-id').disabled = busy || Boolean(mcpEditorId);
     for (const id of ['mcp-name', 'mcp-transport', 'mcp-timeout', 'mcp-command', 'mcp-args', 'mcp-cwd', 'mcp-env', 'mcp-url', 'mcp-headers', 'mcp-platforms']) byId(id).disabled = busy;
-    byId('mcp-nav-count').textContent = String(servers.length);
+    byId('mcp-nav-count').textContent = String(servers.length + (cu.available ? 1 : 0));
     byId('mcp-editor-title').textContent = t(mcpEditorId ? '编辑 MCP 服务' : '添加 MCP 服务');
     byId('mcp-save').textContent = t(mcpPending === 'save' ? '正在保存…' : '保存服务');
-    const key = JSON.stringify([servers, allowAllTools, locale, mcpPending, initialized, installing]);
+    const key = JSON.stringify([servers, allowAllTools, locale, mcpPending, initialized, installing, mcpEditorId]);
     if (key !== mcpRenderKey) {
       mcpRenderKey = key;
       const list = byId('mcp-server-list');
       list.replaceChildren();
-      if (!servers.length) list.append(make('div', 'empty-folders', t('尚未添加 MCP 服务。添加服务或导入配置后，先测试连接再授权工具。')));
-      const phases = { disabled: '已停用', stopped: '已停止', connecting: '连接中', starting: '连接中', connected: '已连接', ready: '已连接', reconnecting: '重连中', failed: '连接异常', error: '连接异常', untrusted: '等待信任', disconnected: '未连接' };
+
       for (const server of servers) {
         const item = make('article', 'mcp-server');
+        item.hidden = server.id !== mcpEditorId;
         const heading = make('div', 'mcp-server-heading');
         const name = make('div', 'mcp-server-copy');
         name.append(make('h3', '', server.name || server.id), make('span', 'mcp-server-id', server.id));
-        const status = make('span', 'mcp-server-status', t(phases[server.phase] || (server.enabled ? '未连接' : '已停用')));
+        const status = make('span', 'mcp-server-status', t(mcpPhaseLabel(server)));
         status.dataset.phase = server.phase || 'disabled';
         heading.append(name, status);
         item.append(heading, make('pre', 'mcp-target', mcpTarget(server)));
@@ -424,7 +522,7 @@
         item.append(tools); list.append(item);
       }
     }
-    const trustServer = mcpTrustRequest && mcpServer(mcpTrustRequest.id);
+    const trustServer = mcpTrustRequest && mcpTrustRequest.id === mcpEditorId && mcpServer(mcpTrustRequest.id);
     byId('mcp-trust').hidden = !trustServer;
     if (trustServer) {
       byId('mcp-trust-target').textContent = (trustServer.name || trustServer.id) + '\n' + mcpTarget(trustServer);
@@ -487,7 +585,12 @@
     }
     mcpPerform(action, () => action === 'test' ? api.mcpTestServer(server.id) : api.mcpSetEnabled(server.id, true));
   }
-  function openMcpEditor(server = null) {
+  function openMcpEditor(server = null, section = 'config') {
+    showTab('mcp');
+    if (server && mcpEditorId === server.id && activePluginManagement === 'mcp') {
+      showMcpManagementTab(section);
+      return;
+    }
     mcpEditorId = server?.id || null;
     byId('mcp-id').value = server?.id || '';
     byId('mcp-name').value = server?.name || '';
@@ -502,10 +605,19 @@
     byId('mcp-platforms').value = JSON.stringify(server?.platforms || {}, null, 2);
     byId('mcp-editor').hidden = false;
     updateMcpTransport(); renderMcp();
-    byId('mcp-editor').scrollIntoView?.({ block: 'nearest' });
-    byId(server ? 'mcp-name' : 'mcp-id').focus();
+    mcpManagementTab = section;
+    openPluginManagement('mcp');
+    if (section === 'config') byId(server ? 'mcp-name' : 'mcp-id').focus();
   }
   function closeMcpEditor() {
+    const drawer = byId('plugin-management-drawer');
+    const wasOpen = drawer.open;
+    const returnId = mcpEditorId;
+    if (wasOpen) drawer.close();
+    activePluginManagement = null;
+    mcpTrustRequest = null;
+    renderPluginManagementView();
+    if (wasOpen && returnId) byId('plugin-manage-' + returnId)?.focus();
     byId('mcp-editor').hidden = true; mcpEditorId = null;
     // Newly entered secrets must not remain in a hidden editor after save/cancel.
     for (const id of ['mcp-env', 'mcp-headers']) byId(id).value = '{}';
@@ -708,6 +820,38 @@
     actionMessage = '已清除通道标识与密钥，工作目录设置已保留。';
   }));
   byId('open-logs').addEventListener('click', () => perform('logs', () => api.openLogs()));
+  document.querySelectorAll('[data-mcp-management-tab]').forEach(button => {
+    button.addEventListener('click', () => showMcpManagementTab(button.dataset.mcpManagementTab));
+    button.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      showMcpManagementTab(event.key === 'Home' ? 'overview' : event.key === 'End' ? 'config' : mcpManagementTab === 'overview' ? 'config' : 'overview', true);
+    });
+  });
+  byId('plugin-add-mcp').addEventListener('click', () => openPluginManagement('add'));
+  byId('plugin-import').addEventListener('click', () => openPluginManagement('import'));
+  byId('plugin-settings').addEventListener('click', () => openPluginManagement('settings'));
+  byId('plugin-computer-use-manage').addEventListener('click', () => openPluginManagement('computer-use'));
+  byId('plugin-management-close').addEventListener('click', closeMcpEditor);
+  byId('plugin-management-drawer').addEventListener('cancel', event => {
+    event.preventDefault();
+    closeMcpEditor();
+  });
+  byId('plugin-management-drawer').addEventListener('click', event => {
+    const drawer = byId('plugin-management-drawer');
+    if (event.target !== drawer) return;
+    const bounds = drawer.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) closeMcpEditor();
+  });
+  byId('computer-permissions-check').addEventListener('click', () =>
+    mcpPerform('computer-use-check', () => api.mcpComputerUsePermissionStatus()));
+  document.querySelectorAll('[data-permission-settings]').forEach(button => {
+    button.addEventListener('click', () => mcpPerform('computer-use-settings', () => api.mcpComputerUseOpenPermissionSettings(button.dataset.permissionSettings)));
+  });
+  byId('mcp-computer-use-permission-dialog').addEventListener('cancel', event => {
+    event.preventDefault();
+    mcpPerform('computer-use-dismiss', () => api.mcpComputerUseDismissPermissions());
+  });
   byId('mcp-add').addEventListener('click', () => openMcpEditor());
   byId('mcp-computer-use').addEventListener('change', event => {
     // Capture the intended value before mcpPerform re-renders the current state.
@@ -727,7 +871,7 @@
   byId('mcp-computer-use-permission-dismiss').addEventListener('click', () =>
     mcpPerform('computer-use-dismiss',()=>api.mcpComputerUseDismissPermissions()));
   const showComputerPermissions=()=>{
-    showTab('mcp');
+    openPluginManagement('computer-use');
     const dialog=byId('mcp-computer-use-permission-dialog');
     dialog.scrollIntoView?.({block:'nearest'});
     byId('mcp-computer-use-recheck').focus();

@@ -14,7 +14,7 @@ Install the service using its official guide and obtain its launch command, argu
 
 ## Steps
 
-1. Open MCP Servers and choose Add server.
+1. Open Plugins, choose Add plugin, then Connect an MCP server.
 2. Enter a stable service ID and display name. The ID cannot change after saving; my_tools is an example.
 3. Choose stdio and copy the command and arguments from the service guide. Use [] for no arguments and a separate string for each argument.
 4. Fill an optional working directory and environment variables. Put keys in the dedicated fields, not command arguments.
@@ -32,6 +32,14 @@ The service appears in the list. Saving alone does not authorize tools or prove 
 ## If it does not work
 
 If the command cannot be found, check installation and its absolute path. Keep arguments with spaces as individual entries. Services run as your user and are not confined by the folder allowlist. The screenshot command is an example, not an installable service.
+
+## Computer Use
+
+Computer Use and external plugins share one plugin list, labelled Built-in and MCP. Select Manage to open the right-side panel within Plugins, where you can turn Allow computer control on or off and check system permissions. Closing the panel returns to the plugin list. External plugins provide Overview & permissions and Connection settings. Import from Add plugin → Import configuration; the global MCP permission switch and export are in Plugin settings.
+
+On macOS, Screen Recording and Accessibility are required. Check permissions only reads their status; it does not enable control. Missing permissions bring up the authorization dialog when enabling control. Grants depend on the actual app and launch context; a development check does not establish permission for the installed app.
+
+Run `./dev.sh` from the repository root for the same development launch flow as `Start.sh --dev`.
 
 ## Next steps
 

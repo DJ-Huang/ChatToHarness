@@ -14,9 +14,9 @@
 
 ## 操作步骤
 
-1. Mac：下载对应 Apple 芯片的 .dmg，打开后将应用拖入“应用程序”，再从那里启动。
-2. Windows：下载 x64 的 -setup.exe，按安装向导选择位置并完成安装。
-3. 对照同一 Release 的 SHA256SUMS.txt 核对下载文件，阅读该版本签名说明。
+1. 从官方 Release 下载适合当前系统的安装包：Mac 选择 Apple 芯片的 .dmg，Windows 选择 x64 的 -setup.exe。
+2. 打开安装包前，对照同一 Release 的 SHA256SUMS.txt 核对下载文件，并阅读该版本签名说明。
+3. 校验通过后再安装。Mac：打开 .dmg，将应用拖入“应用程序”。Windows：运行 -setup.exe，按安装向导选择位置并完成安装。
 4. 打开应用，确认出现“概览”“连接配置”“工作目录”等入口。
 
 ![安装 ChatToHarness](../images/help/zh-CN/install.svg)

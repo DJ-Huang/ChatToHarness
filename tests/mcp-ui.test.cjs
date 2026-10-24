@@ -35,7 +35,7 @@ function documentFixture() {
       this.dataset = {}; this.value = ''; this.checked = false; this.hidden = false;
       this.disabled = false; this.children = []; this._text = '';
     }
-    set textContent(value) { this._text = String(value); this.children = []; }
+    set textContent(value) { this._text = String(value); for (const child of this.children) child.parentElement = null; this.children = []; }
     get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
     set innerHTML(_value) { throw new Error('Untrusted content must not use innerHTML'); }
     set outerHTML(_value) { throw new Error('Untrusted content must not use outerHTML'); }
@@ -49,9 +49,12 @@ function documentFixture() {
     }
     setAttribute(name, value) { this.attributes[name] = value; }
     removeAttribute(name) { delete this.attributes[name]; }
-    appendChild(child) { this.children.push(child); return child; }
-    append(...children) { this.children.push(...children); }
-    replaceChildren(...children) { this._text = ''; this.children = children; }
+    appendChild(child) {
+      if (child.parentElement) child.parentElement.children = child.parentElement.children.filter(item => item !== child);
+      this.children.push(child); child.parentElement = this; return child;
+    }
+    append(...children) { for (const child of children) this.appendChild(child); }
+    replaceChildren(...children) { this._text = ''; for (const child of this.children) child.parentElement = null; this.children = []; this.append(...children); }
     showModal() { this.open = true; }
     close() { this.open = false; }
     focus() {}
@@ -621,4 +624,29 @@ test('plugin add choices and global permissions remain separate from per-plugin 
   assert.equal(f.node('plugin-computer-use-settings').hidden,false);
   assert.equal(f.node('plugin-global-settings').hidden,true);
   assert.equal(f.calls.length,0,'navigation cannot change permission or enable control');
+});
+
+
+test('pending local approvals stay inside the active drawer and return globally without authorizing on close', async () => {
+  const state = initialState();
+  state.mcp.servers = [{id:'example',name:'Example',enabled:true,trusted:true,transport:'stdio',command:'server',tools:[]}];
+  const f = await rendererFixture(state);
+  const approval={id:'pending-one',serverId:'example',serverName:'Example',toolName:'write',arguments:{path:'sample.txt'},expiresAt:Date.now()+60000};
+  await button(f.node('plugin-installed-list'),'管理').emit('click');
+  f.update({...state,mcp:{...state.mcp,approvals:[approval]}});
+  assert.equal(f.node('mcp-approvals').parentElement,f.node('plugin-management-approvals'));
+  assert.equal(f.node('mcp-approvals').hidden,false);
+  const allow=button(f.node('mcp-approval-list'),'允许此次调用');
+  assert.equal(allow.disabled,false);
+  await f.node('plugin-management-close').emit('click');
+  assert.equal(f.node('mcp-approvals').parentElement,f.node('mcp-approvals-home'));
+  assert.equal(f.node('mcp-approvals').hidden,false);
+  assert.equal(f.calls.length,0,'closing the drawer must never resolve a pending approval');
+  await f.node('plugin-computer-use-manage').emit('click');
+  assert.equal(f.node('mcp-approvals').parentElement,f.node('plugin-management-approvals'));
+  assert.equal(button(f.node('mcp-approval-list'),'允许此次调用'),allow,'moving the live approval preserves its action');
+  await allow.emit('click');
+  assert.equal(f.calls.at(-1).method,'mcpResolveApproval');
+  assert.equal(f.calls.at(-1).args[0].id,'pending-one');
+  assert.equal(f.calls.at(-1).args[0].allow,true);
 });

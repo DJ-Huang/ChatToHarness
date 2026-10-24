@@ -332,6 +332,7 @@
     renderPluginManagementTitle();
     const drawer = byId('plugin-management-drawer');
     if (!drawer.open) drawer.showModal();
+    placeMcpApprovals();
   }
   function renderPluginManagementView() {
     const mcp = activePluginManagement === 'mcp';
@@ -531,7 +532,13 @@
     if (mcpImportDraft) renderMcpImport();
     renderMcpApprovals();
   }
+  function placeMcpApprovals() {
+    const target=byId(byId('plugin-management-drawer').open?'plugin-management-approvals':'mcp-approvals-home');
+    const approvals=byId('mcp-approvals');
+    if(approvals.parentElement!==target)target.append(approvals);
+  }
   function renderMcpApprovals() {
+    placeMcpApprovals();
     const approvals = currentState?.mcp?.approvals || [];
     byId('mcp-approvals').hidden = !approvals.length;
     const key = JSON.stringify([approvals, locale, [...mcpApprovalPending]]);
@@ -614,6 +621,7 @@
     const wasOpen = drawer.open;
     const returnId = mcpEditorId;
     if (wasOpen) drawer.close();
+    placeMcpApprovals();
     activePluginManagement = null;
     mcpTrustRequest = null;
     renderPluginManagementView();

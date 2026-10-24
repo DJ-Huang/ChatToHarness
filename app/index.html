@@ -39,7 +39,7 @@
     <main>
       <header class="page-header"><div><div id="page-eyebrow" class="eyebrow">WORKSPACE CONSOLE</div><h1 id="page-title">工作空间概览</h1><p id="page-description">将 AI 对话连接到本机执行环境。</p></div><button class="text-button" type="button" data-external="docs-page"><span>本页帮助</span> ↗</button><div id="status-badge" class="status-badge" role="status"><span class="status-dot"></span><span id="status-label">正在载入</span></div></header>
       <div id="error-banner" class="error-banner" role="alert" hidden><span class="error-symbol" aria-hidden="true">!</span><span id="error-message"></span></div>
-      <section id="mcp-approvals" class="card mcp-approvals" aria-labelledby="mcp-approvals-title" hidden><h2 id="mcp-approvals-title">等待本机确认</h2><p class="mcp-caption">核对服务、工具和参数后再允许执行。关闭窗口不会自动允许。</p><div id="mcp-approval-list" aria-live="polite"></div></section>
+      <div id="mcp-approvals-home"><section id="mcp-approvals" class="card mcp-approvals" aria-labelledby="mcp-approvals-title" hidden><h2 id="mcp-approvals-title">等待本机确认</h2><p class="mcp-caption">核对服务、工具和参数后再允许执行。关闭窗口不会自动允许。</p><div id="mcp-approval-list" aria-live="polite"></div></section></div>
       <form id="settings-form" novalidate>
         <section id="panel-overview" class="tab-panel" role="tabpanel" aria-labelledby="nav-overview">
           <div class="connection-hero card"><div class="hero-copy"><div class="hero-kicker"><span class="mini-dot"></span>安全通道</div><h2 id="overview-headline">准备连接你的工作空间</h2><p id="runtime-description">添加工作目录或 MCP 服务，保存连接配置，即可开始。</p><div class="hero-actions"><button id="reconnect" class="button primary" type="button"><span id="reconnect-label">连接通道</span><span aria-hidden="true">↗</span></button><button class="button secondary" type="button" data-navigate="connection">连接配置</button><button id="stop" class="text-button" type="button">停止连接</button></div></div><div class="route-visual" aria-label="客户端通过安全通道调用本机工具"><span class="route-node route-client"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v10H9l-4 4V5Z"/><path d="M9 9h6m-6 3h4"/></svg><span>客户端</span></span><span class="route-line"><span></span></span><span class="route-node route-host"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="12" rx="2"/><path d="M8 20h8m-4-4v4m-5-9 2 2 3-4"/></svg><span>本机工具</span></span></div></div>
@@ -128,6 +128,7 @@
         <dialog id="plugin-management-drawer" class="plugin-management-drawer" aria-labelledby="plugin-management-title">
           <header class="plugin-management-header"><div><p>插件管理</p><h2 id="plugin-management-title">Computer Use</h2></div><button id="plugin-management-close" class="plugin-management-close" type="button" aria-label="关闭插件管理" title="关闭插件管理">×</button></header>
           <div class="plugin-management-body">
+            <div id="plugin-management-approvals"></div>
             <p id="plugin-management-error" class="error-banner" role="alert" hidden></p>
             <section id="plugin-add-options" class="plugin-add-options" hidden>
               <button id="mcp-add" class="card plugin-add-option" type="button"><strong>接入 MCP 服务</strong><span>通过 MCP 连接本机或远程工具。</span><span aria-hidden="true">→</span></button>

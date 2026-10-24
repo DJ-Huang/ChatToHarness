@@ -31,6 +31,8 @@ jobs:
           node -e "if(process.platform==='darwin' ? process.arch!=='arm64' : process.arch!=='x64')process.exit(1)"
       - run: npm ci --no-audit --no-fund
       - run: node scripts/release.cjs check
+      - name: Build native Computer Use helper for tests
+        run: npm run build:computer-use
       - run: npm test
       - run: node scripts/build-site.cjs --fixture tests/fixtures/no-releases.json
       - name: Package native application

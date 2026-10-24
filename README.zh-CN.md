@@ -54,7 +54,8 @@ ChatGPT：通过 `@` 选择已连接插件，再描述任务和工程路径。�
 - 有上限的 ripgrep 搜索，支持行上下文、分页和取消。
 - 应用级 MCP 扩展、按项目／工具记忆授权，以及仅针对已启用且受信任服务的可选全工具放行。
 - 实际构建／连接状态、Git 只读检查、AGENTS／规则／Skills 索引、幂等后台任务、安全 SHA 文本编辑及撤销。
-- 支持客户端协商后的原生 MCP 资源／提示词及只读工具回退；不内置 GUI 自动化。
+- 支持客户端协商后的原生 MCP 资源／提示词及只读工具回退。
+- Windows x64 与 macOS arm64 内置实验性 Computer Use，支持已授权窗口的截图及真实鼠标、键盘输入。首次使用默认关闭，已保存的开关状态继续沿用；需要启用时，在**插件 → Computer Use → 管理**中确认权限。macOS 需要屏幕录制与辅助功能权限。保留窗口授权、用户接管和 STOP / Esc；GUI 规划能力取决于接入的客户端。[设置与使用](docs/zh-CN/GUIDE.md)
 - 实时日志与执行记录，区分本机执行和回传状态，支持筛选、总量限制和临时详细诊断。
 
 - 手动及自动检查更新，安装包通过完整性校验后才打开。
@@ -72,7 +73,7 @@ ChatGPT：通过 `@` 选择已连接插件，再描述任务和工程路径。�
 
 ## 开发
 
-Windows 源码预览现提供可选的 [computer use 服务](docs/windows-computer-use.md)：经本机窗口授权后截图、点击和输入。通过 MCP Servers 接入，默认不启用，尚未集成到已发布安装包。
+Computer Use 开发资料：[Windows 原生设置与验证](docs/windows-computer-use.md) · [跨平台任务架构](docs/computer-use-agent-architecture.md)。Windows 和 macOS 安装包已包含内置插件；实验状态及已知限制见 [v0.8.0 发布说明](release-notes/v0.8.0.md)。
 
 双击 [Dev.command](Dev.command)（Mac）或 [Dev.cmd](Dev.cmd)（Windows），直接运行当前源码；再次启动会先清理旧实例，再运行新代码。Mac 终端可运行 `./dev.sh`。已有依赖也可使用 `npm run dev` / `npm start`，无需打包。[开发说明](docs/zh-CN/GUIDE.md#开发时直接运行源码)
 

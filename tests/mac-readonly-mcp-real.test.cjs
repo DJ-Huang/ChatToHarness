@@ -17,7 +17,7 @@ test('real Mac MCP read-only session captures authorized app while rejecting inp
  const windows=native(String(process.pid),'list_windows','0').windows;
  const target=windows?.find(w=>w.title==='ChatToHarness');
  if(!target) return t.skip('The ChatToHarness app window is not visible');
- const svc=new MacComputerUse({platform:'darwin',authorizationMode:'all_windows',helperPath:helper});
+ const svc=new MacComputerUse({platform:'darwin',deviceId:'cu-11111111-1111-4111-8111-111111111111',authorizationMode:'all_windows',helperPath:helper});
  t.after(()=>svc.stop());
  const opening=await svc.call({action:'open_session',window_id:target.window_id});
  assert.equal(opening.isError,undefined,JSON.stringify(opening.structuredContent));

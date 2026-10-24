@@ -73,7 +73,7 @@ ChatGPT：`@` で接続済みプラグインを選び、タスクとプロジェ
 
 ## 開発
 
-Computer Use 開発資料：[Windows ネイティブ設定と検証](docs/windows-computer-use.md) · [共通タスクアーキテクチャ](docs/computer-use-agent-architecture.md)。Windows と macOS のインストーラーに内蔵プラグインを含みます。実験機能の制限は [v0.8.0 リリースノート](release-notes/v0.8.0.md) を参照してください。
+Computer Use 開発資料：[Windows ネイティブ設定と検証](docs/windows-computer-use.md) · [共通タスクアーキテクチャ](docs/computer-use-agent-architecture.md)。Windows と macOS のインストーラーに内蔵プラグインを含みます。実験機能の制限は [v0.8.1 リリースノート](release-notes/v0.8.1.md) を参照してください。
 
 [Dev.command](Dev.command)（Mac）または [Dev.cmd](Dev.cmd)（Windows）で現在のソースを直接実行します。再実行時は旧インスタンスを終了してから新コードを読み込みます。依存関係があれば `npm run dev` / `npm start` も使え、パッケージ作成は不要です。[開発ガイド](docs/ja/GUIDE.md#開発時にソースを直接実行)
 

@@ -73,7 +73,7 @@ Folder settings do not sandbox the terminal: commands run with your current user
 
 ## Development
 
-Computer Use development: [Windows native setup and verification](docs/windows-computer-use.md) · [Cross-platform task architecture](docs/computer-use-agent-architecture.md). The built-in plugin is included in the Windows and macOS installers; its experimental status and known limits are recorded in the [v0.8.0 release notes](release-notes/v0.8.0.md).
+Computer Use development: [Windows native setup and verification](docs/windows-computer-use.md) · [Cross-platform task architecture](docs/computer-use-agent-architecture.md). The built-in plugin is included in the Windows and macOS installers; its experimental status and known limits are recorded in the [v0.8.1 release notes](release-notes/v0.8.1.md).
 
 Double-click [Dev.command](Dev.command) (Mac) or [Dev.cmd](Dev.cmd) (Windows) to run current source. Relaunching cleans up the old instance before loading new code. On Mac, run `./dev.sh` from a terminal. With dependencies ready, `npm run dev` / `npm start` do the same without packaging. [Development guide](docs/en/GUIDE.md#run-source-during-development)
 

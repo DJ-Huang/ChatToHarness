@@ -94,7 +94,7 @@ test('native pending-session permission denial surfaces before any MCP polling o
    stop(){this.closed=true},
    request(){throw new Error('No input may be sent');}
  };
- const controller=new MacComputerUse({platform:'darwin',connect:()=>native,
+ const controller=new MacComputerUse({platform:'darwin',deviceId:'cu-11111111-1111-4111-8111-111111111111',connect:()=>native,
    onPermissionDenied:code=>codes.push(code)});
  const result=await controller.call({action:'open_session',session_title:'Computer Use 测试会话'});
  assert.equal(result.structuredContent.state,'initializing');

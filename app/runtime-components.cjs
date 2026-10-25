@@ -8,7 +8,7 @@ const {Script} = require('node:vm');
 // Standalone Node cannot load helpers from Electron's asar. Keep one explicit
 // deployment manifest, and verify the copied dependency graph before launch.
 const RUNTIME_COMPONENTS = Object.freeze({
-  builtin: Object.freeze(['platform.cjs','project-context.cjs','project-search.cjs','tool-recovery.cjs','mcp-proxy.cjs','mcp-launch.cjs']),
+  builtin: Object.freeze(['platform.cjs','project-context.cjs','project-search.cjs','tool-recovery.cjs','mcp-limits.cjs','mcp-proxy.cjs','mcp-launch.cjs']),
   gateway: Object.freeze(['mcp-gateway-stdio.cjs']),
   diagnostics: Object.freeze(['diagnostic-writer.cjs','diagnostic-worker.cjs','diagnostic-storage.cjs','diagnostic-budget.cjs','durable-files.cjs','tool-recovery.cjs'])
 });

@@ -234,7 +234,7 @@ class McpManager extends EventEmitter {
     if(record.phase==='ready'){if(!testing||this.settings.get(id).enabled)record.testing=false;return;}
     clearTimeout(record.retryTimer);
     const generation=++record.generation,epoch=this.epoch;
-    record.phase='connecting';record.error='';record.startupError=null;record.testing=testing&&record.id!==BUILTIN&&!this.settings.get(id).enabled;record.terminalError='';record.controller=new AbortController();this.logConnection(record,'connecting');this.changed();
+    record.phase='connecting';record.error='';record.startupError=null;record.testing=testing&&record.id!==BUILTIN&&!this.settings.get(id).enabled;record.terminalError='';record.recoverOversize=false;record.controller=new AbortController();this.logConnection(record,'connecting');this.changed();
     record.connecting=this.open(record,generation,epoch).finally(()=>{record.connecting=null;});
     return record.connecting;
   }
@@ -265,7 +265,7 @@ class McpManager extends EventEmitter {
         if(transport.startupError){
           record.startupError=transport.startupError;record.terminalError=transport.startupError.code;
         }else if(/MCP_(MESSAGE_TOO_LARGE|PROTOCOL_INVALID)/.test(error.message)){
-          record.terminalError=errorCode(error);void client.close();
+          record.recoverOversize=errorCode(error)==='MCP_MESSAGE_TOO_LARGE'&&(record.recoverOversize||record.phase==='ready');record.terminalError=errorCode(error);void client.close();
         }else if(config.transport==='streamable-http'&&record.client===client&&!record.stopping&&!record.controller.signal.aborted){
           // The SDK reports a dropped SSE stream through onerror without
           // onclose. Reinitialize the connection, never the interrupted call.
@@ -305,7 +305,8 @@ class McpManager extends EventEmitter {
     }finally{clearTimeout(timer);}
   }
   retry(record) {
-    if(this.closed||!this.running||record.testing||record.error==='MCP_STOPPED'||['MCP_AUTH_REQUIRED','MCP_PROTOCOL_UNSUPPORTED','MCP_PROTOCOL_INVALID','MCP_MESSAGE_TOO_LARGE','MCP_SECRET_MISSING','MCP_TRUST_REQUIRED','MCP_INVALID_CONFIG','MCP_TOOL_NAME_CONFLICT','MCP_MODULE_NOT_FOUND','MCP_FILE_NOT_FOUND','MCP_ACCESS_DENIED','MCP_COMPONENT_INVALID'].includes(record.error))return;
+    if(this.closed||!this.running||record.testing||record.error==='MCP_STOPPED'||['MCP_AUTH_REQUIRED','MCP_PROTOCOL_UNSUPPORTED','MCP_PROTOCOL_INVALID','MCP_SECRET_MISSING','MCP_TRUST_REQUIRED','MCP_INVALID_CONFIG','MCP_TOOL_NAME_CONFLICT','MCP_MODULE_NOT_FOUND','MCP_FILE_NOT_FOUND','MCP_ACCESS_DENIED','MCP_COMPONENT_INVALID'].includes(record.error))return;
+    if(record.error==='MCP_MESSAGE_TOO_LARGE'&&!record.recoverOversize)return;
     if(record.id!==BUILTIN){try{if(!this.settings.get(record.id).enabled||!this.settings.isTrusted(record.id))return;}catch{return;}}
     record.phase='reconnecting';clearTimeout(record.retryTimer);
     const epoch=this.epoch,delayMs=[1000,3000,10000,30000][Math.min(record.attempts++,3)];
@@ -315,6 +316,7 @@ class McpManager extends EventEmitter {
   }
   async failConnection(record,error) {
     if(record.failing)return record.failing;
+    record.recoverOversize=errorCode(error)==='MCP_MESSAGE_TOO_LARGE'&&(record.recoverOversize||record.phase==='ready');
     record.terminalError=errorCode(error);
     record.failing=Promise.resolve(record.client?.close()).catch(()=>{}).finally(()=>{record.failing=null;});
     return record.failing;

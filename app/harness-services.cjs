@@ -1,5 +1,6 @@
 'use strict';
 const fs = require('node:fs/promises');
+const {MAX_ARTIFACT_BYTES, FILE_CHUNK_BYTES, MAX_FILE_CHUNK_BYTES, IMAGE_PREVIEW_BYTES, PREVIEW_CHUNK_BYTES, MAX_TEXT_CHUNK_BYTES} = require('./mcp-limits.cjs');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
@@ -40,7 +41,7 @@ const TOOLS = [
   tool('get_project_overview', 'Project overview', 'Read a bounded directory summary, Git status, AGENTS and on-demand rule/skill indexes in one call.', {project_path: project, depth: {type: 'integer', minimum: 1, maximum: 3}, target_paths: {type: 'array', items: {type: 'string'}, maxItems: 128}, task: {type: 'string', maxLength: 4096}}, ['project_path']),
   tool('get_execution_summary', 'Project execution summary', 'Preferred for ChatToHarness tool/error logs: read project execution states, durations, error reasons and saved result references without locating log files. Use state:errors for failures; include_connection:true adds bounded application-wide connection events filtered by since. state/tool filter execution records only. Commands, arguments and full output are excluded; use the original task_id to inspect work without replaying it.', {project_path:project,state:{type:'string',enum:['all','errors','received','waiting_approval','submitted','running','cancelling','succeeded','failed','unknown','interrupted','needs_context','needs_arguments']},tool:{type:'string',maxLength:256},since:{type:'string',description:'ISO date-time lower bound for when a request was received.'},include_connection:{type:'boolean',description:'Include bounded app connection/reconnect events, with no raw log access. These events are application-wide, not project execution records.'},cursor:{type:'string'},limit:{type:'integer',minimum:1,maximum:50,default:10}}, ['project_path']),
   ...['status', 'diff', 'log'].map(kind => tool(`git_${kind}`, `Git ${kind}`, `Read project-scoped Git ${kind} without a shell. Result pages use a five-minute immutable snapshot. Diff defaults to unstaged changes; log covers up to 100 commits.`, {project_path: project, paths: {type: 'array', items: {type: 'string'}, maxItems: 64}, ...(kind === 'diff' ? {staged: {type: 'boolean'}} : {}), ...pagination}, ['project_path'])),
-  tool('get_file_result', 'File result', 'Read an authorized artifact as a SHA-256 fingerprint, size and bounded text/base64 page. Set preview:true explicitly to deliver a native image or embedded resource; default reads do not attach files. Use the exact returned path for subsequent pages.', {project_path: project, path: {type: 'string'}, offset: {type: 'integer', minimum: 0}, length: {type: 'integer', minimum: 1, maximum: 65536}, preview: {type: 'boolean'}}, ['project_path', 'path'])
+  tool('get_file_result', 'File result', 'Read an authorized artifact up to 64 MiB as SHA-256 and exact byte pages. Omit length for a binary page up to 5 MiB, returning fitting files in one call without text-result paging. Explicit binary length is at most 5 MiB; text defaults to 32 KiB, max 512 KiB. Previews default to a small 32 KiB byte page (max 512 KiB, including explicit length) to keep native media plus metadata within the wire budget. Set preview:true for a bounded native preview; large images use a derived JPEG up to 512 KiB. Use preview:false and omit length for exact original byte pages without re-encoding. Decode each Base64 chunk separately, concatenate by next_offset and verify SHA-256. Default reads do not attach files. Use the exact returned path for subsequent pages.', {project_path: project, path: {type: 'string'}, offset: {type: 'integer', minimum: 0}, length: {type: 'integer', minimum: 1, maximum: MAX_FILE_CHUNK_BYTES}, preview: {type: 'boolean'}}, ['project_path', 'path'])
 ];
 function response(value, content = []) { return {content: [{type: 'text', text: value.summary || JSON.stringify(value)}, ...content], structuredContent: value}; }
 function errorResult(error,name,args) {
@@ -183,28 +184,63 @@ class HarnessServices {
     if (!inside(root, file)) throw fail('TARGET_OUTSIDE_PROJECT', 'The artifact is outside the selected project.');
     const stat = await fs.stat(file);
     if (!stat.isFile()) throw fail('FILE_REQUIRED', 'Choose a regular file.');
-    const length = integer(args.length, 32768, 65536), offset = args.offset ?? 0;
+    const extension = path.extname(file).toLowerCase();
+    const textual = /^\.(txt|md|markdown|cjs|mjs|js|ts|tsx|jsx|yml|yaml|html|css|csv|tsv|log|xml|sh|ps1|ini|toml|rs|py|json)$/.test(extension);
+    const length = integer(args.length, textual || args.preview === true ? PREVIEW_CHUNK_BYTES : FILE_CHUNK_BYTES, textual || args.preview === true ? MAX_TEXT_CHUNK_BYTES : MAX_FILE_CHUNK_BYTES), offset = args.offset ?? 0;
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > stat.size) throw fail('INVALID_ARGUMENT', 'offset is a byte position within the file.');
     const handle = await fs.open(file, 'r');
     let buffer, digest;
     try {
-      if (stat.size > 64 * 1024 * 1024) throw fail('FILE_TOO_LARGE', 'Artifact preview is limited to 64 MiB; use the Desktop Commander file tools for larger files.');
-      const hash = crypto.createHash('sha256'), scratch = Buffer.alloc(65536); let at = 0;
-      for (;;) { signal?.throwIfAborted(); const {bytesRead} = await handle.read(scratch, 0, scratch.length, at); if (!bytesRead) break; if (at + bytesRead > 64 * 1024 * 1024) throw fail('FILE_CHANGED', 'The artifact grew beyond the preview limit while being read.'); hash.update(scratch.subarray(0, bytesRead)); at += bytesRead; }
-      digest = hash.digest('hex');
-      buffer = Buffer.alloc(Math.min(length, stat.size - offset)); await handle.read(buffer, 0, buffer.length, offset);
+      if (stat.size > MAX_ARTIFACT_BYTES) throw fail('FILE_TOO_LARGE', 'Artifacts are limited to 64 MiB; export a smaller separate artifact before reading.');
+      buffer = Buffer.alloc(Math.min(length, stat.size - offset));
+      for(let at=0;at<buffer.length;) {
+        signal?.throwIfAborted();const {bytesRead}=await handle.read(buffer,at,buffer.length-at,offset+at);
+        if(!bytesRead)throw fail('FILE_CHANGED','The artifact ended before the requested byte range.');at+=bytesRead;
+      }
+      const hash=crypto.createHash('sha256');
+      if(offset===0&&buffer.length===stat.size)hash.update(buffer);
+      else {
+        const scratch=Buffer.alloc(1024*1024);let at=0;
+        for(;;){signal?.throwIfAborted();const {bytesRead}=await handle.read(scratch,0,scratch.length,at);if(!bytesRead)break;
+          if(at+bytesRead>MAX_ARTIFACT_BYTES)throw fail('FILE_CHANGED','The artifact grew beyond the preview limit while being read.');
+          hash.update(scratch.subarray(0,bytesRead));at+=bytesRead;}
+      }
+      digest=hash.digest('hex');
       const after = await handle.stat(); if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ino !== stat.ino) throw fail('FILE_CHANGED', 'The file changed during preview. Read it again to obtain a consistent result.');
     } finally { await handle.close(); }
-    const extension = path.extname(file).toLowerCase();
     const mime = ({'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.json': 'application/json'})[extension] || (/^\.(txt|md|markdown|cjs|mjs|js|ts|tsx|jsx|yml|yaml|html|css|csv|tsv|log|xml|sh|ps1|ini|toml|rs|py)$/.test(extension) ? 'text/plain' : 'application/octet-stream');
     const value = {summary: `${path.basename(file)}; ${stat.size} bytes; bytes ${offset}–${offset + buffer.length}.`, path: file, mime_type: mime, size: stat.size, sha256: digest, offset, encoding: 'base64', data: buffer.toString('base64'), has_more: offset + buffer.length < stat.size, next_offset: offset + buffer.length};
+    value.length=buffer.length;value.eof=!value.has_more;
+    value.chunk_sha256=crypto.createHash('sha256').update(buffer).digest('hex');
+    if(value.has_more){value.next_tool='get_file_result';value.next_arguments={project_path:root,path:file,offset:value.next_offset,...(args.length===undefined?{}:{length}),preview:false};}
     const content = [];
     if (mime === 'text/plain' || mime === 'application/json') {
       try { if (!buffer.includes(0)) value.text = new TextDecoder('utf-8', {fatal: true}).decode(buffer); } catch { /* Byte pages can split a UTF-8 sequence; exact base64 bytes remain available. */ }
     }
-    if (args.preview === true && offset === 0 && mime.startsWith('image/') && stat.size <= 512 * 1024) {
+    if (args.preview === true && offset === 0 && mime.startsWith('image/')) {
       const image = await fs.readFile(file); if (crypto.createHash('sha256').update(image).digest('hex') !== digest) throw fail('FILE_CHANGED', 'The image changed while being prepared.');
-      content.push({type: 'image', mimeType: mime, data: image.toString('base64')});
+      if(image.length<=IMAGE_PREVIEW_BYTES)content.push({type:'image',mimeType:mime,data:image.toString('base64')});
+      else {
+        try {
+          const sharp=require('sharp');let preview,info;
+          // This is explicitly a derived display preview, never replacement original data.
+          for(const [width,quality] of [[1600,80],[1200,60],[800,45]]) {
+            signal?.throwIfAborted();
+            ({data:preview,info}=await sharp(image,{limitInputPixels:64*1024*1024,failOn:'error'}).rotate()
+              .resize({width,height:width,fit:'inside',withoutEnlargement:true}).flatten({background:'#ffffff'})
+              .jpeg({quality}).timeout({seconds:10}).toBuffer({resolveWithObject:true}));
+            if(preview.length<=IMAGE_PREVIEW_BYTES)break;
+          }
+          signal?.throwIfAborted();
+          if(preview.length>IMAGE_PREVIEW_BYTES)throw Error('Preview exceeds its budget');
+          value.preview={derived:true,mime_type:'image/jpeg',byte_length:preview.length,width:info.width,height:info.height,
+            sha256:crypto.createHash('sha256').update(preview).digest('hex')};
+          content.push({type:'image',mimeType:'image/jpeg',data:preview.toString('base64')});
+        } catch(error) {
+          signal?.throwIfAborted();value.preview_unavailable=true;
+          value.preview_message='A bounded preview could not be generated. Original bytes remain available through get_file_result.';
+        }
+      }
     } else if (args.preview === true && !value.has_more && offset === 0) content.push({type: 'resource', resource: {uri: pathToFileURL(file).href, mimeType: mime, ...(value.text !== undefined ? {text: value.text} : {blob: value.data})}});
     return response(value, content);
   }

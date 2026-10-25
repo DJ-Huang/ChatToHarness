@@ -5,7 +5,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {spawnManaged, stopTree, developmentEnvironment} = require('./platform.cjs');
 
-const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
+const {MAX_MESSAGE_BYTES} = require('./mcp-limits.cjs');
 const MAX_STARTUP_STDERR_BYTES = 8192;
 const STARTUP_DIAGNOSTICS = {
   MCP_MODULE_NOT_FOUND: 'A required service module is missing. Repair or reinstall the service components.',

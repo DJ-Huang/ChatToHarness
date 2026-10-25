@@ -1,11 +1,13 @@
 'use strict';
 const path = require('node:path');
 const os = require('node:os');
+const fs = require('node:fs/promises');
+const {MAX_MESSAGE_BYTES, INLINE_IMAGE_BYTES, MAX_ARTIFACT_BYTES, MAX_FILE_CHUNK_BYTES} = require('./mcp-limits.cjs');
 const {StringDecoder} = require('node:string_decoder');
 const {SEARCH_TOOL} = require('./project-search.cjs');
 const {inside} = require('./project-context.cjs');
 const {guidanceRetry,scopeRecovery,DIAGNOSTIC_WORKFLOW} = require('./tool-recovery.cjs');
-const WORKFLOW = 'ChatToHarness: local file, search and terminal tools. search_project returns bounded matches with 1-based lines; read_file offsets are 0-based. Reads include optional project guidance and diagnostics. get_project_context discovers optional project skills, loads selected rule/skill bodies and reports matching guidance. A write with newly discovered guidance returns contexts and delivery tokens without execution; a subsequent request can include those tokens. File access uses desktop folder settings. Terminal context_paths describe project scope and do not sandbox the shell. Forwarded timeouts have unknown execution state; mutations are not replayed by the server. '+DIAGNOSTIC_WORKFLOW;
+const WORKFLOW = 'ChatToHarness: local file, search and terminal tools. search_project returns bounded matches with 1-based lines; read_file text offsets are 0-based. Local images above 1 MiB return a manifest: use get_file_result preview:true for a bounded preview or its byte chunks for the original. Native binary bytes occur only in top-level content; structured content_index values reference those blocks. Reads include optional project guidance and diagnostics. get_project_context discovers optional project skills, loads selected rule/skill bodies and reports matching guidance. A write with newly discovered guidance returns contexts and delivery tokens without execution; a subsequent request can include those tokens. File access uses desktop folder settings. Terminal context_paths describe project scope and do not sandbox the shell. Forwarded timeouts have unknown execution state; mutations are not replayed by the server. '+DIAGNOSTIC_WORKFLOW;
 const TOKEN_DESCRIPTION = 'Optional delivered-context tokens. If a write returns fresh guidance, read it and merge retry_patch into the original arguments for an explicit retry.';
 const FILE_TOOLS = new Set(['read_file','read_multiple_files','write_file','write_pdf','create_directory','list_directory','move_file','get_file_info','edit_block']);
 const SEARCH_TOOLS = new Set(['start_search','get_more_search_results','stop_search','list_searches']);
@@ -25,12 +27,19 @@ function hasId(message){return Object.prototype.hasOwnProperty.call(message,'id'
 function object(value){return value&&typeof value==='object'&&!Array.isArray(value);}
 // A structured-first client must not receive project guidance in place of the
 // actual tool output. Mirror public content without promoting client-only _meta.
-// Keep native blocks untouched so multimodal-capable clients can still render them.
+// Native bytes occur once in top-level content. Structured mirrors refer to its indices.
+function mirrorBlock(block, content_index) {
+  if (['image','audio'].includes(block.type) && typeof block.data === 'string') return {type:block.type,mimeType:block.mimeType,content_index};
+  if (block.type === 'resource' && typeof block.resource?.blob === 'string') {
+    const {blob,...resource}=block.resource;return {type:block.type,resource,content_index};
+  }
+  return block;
+}
 function projectResult(result,contexts=[]){
   const content=Array.isArray(result.content)?result.content:[];
   const upstream=result.structuredContent;
   const data=object(upstream)?upstream:{};
-  const mirror={content,isError:result.isError===true};
+  const mirror={content:content.map(mirrorBlock),isError:result.isError===true};
   if(upstream!==undefined&&(!object(upstream)||Object.hasOwn(data,'_harness_result')||Object.hasOwn(data,'project_contexts'))){
     mirror.upstream_structured_content=upstream;
   }
@@ -38,11 +47,15 @@ function projectResult(result,contexts=[]){
     content:contexts.length?[...content,{type:'text',text:JSON.stringify({project_contexts:contexts})}]:content,
     structuredContent:{...data,_harness_result:mirror,project_contexts:contexts}};
 }
-function projectResultSchema(schema={}){
-  return {...schema,type:'object',properties:{...schema.properties,
-    _harness_result:{type:'object',description:'Original public MCP result, including native content blocks and the error flag. Inspect this instead of treating project guidance as the tool output.',
+function projectResultSchema(schema={},imageManifest=false){
+  const original= {...schema,type:'object',properties:{...schema.properties,
+    _harness_result:{type:'object',description:'Original tool output and error flag. Binary blocks use content_index references into top-level content to avoid duplicating bytes. Inspect this instead of treating project guidance as the tool output.',
       properties:{content:{type:'array',items:{type:'object'}},isError:{type:'boolean'},upstream_structured_content:{}},required:['content','isError']},
     project_contexts:{type:'array',items:{type:'object'}}}};
+  if(!imageManifest)return original;
+  return {type:'object',properties:original.properties,...(original.$defs?{$defs:original.$defs}:{}),anyOf:[original,
+    {type:'object',properties:{delivery:{const:'chunked'},path:{type:'string'},size:{type:'integer'},next_tool:{const:'get_file_result'},next_arguments:{type:'object'}},
+      required:['delivery','path','size','next_tool','next_arguments']}]};
 }
 function failure(code,message,details={}){
   const result={code,message,operation_executed:false,execution_state:'not_started',...details};
@@ -116,7 +129,13 @@ class McpProxy{
     let forwarded=message,binding;
     if(message.method==='tools/call'){
       const operation=this.beginLocal(message);
-      try{if(GATED_TOOLS.has(name))binding=await this.validateCall(name,args,{signal:operation.controller.signal});}
+      try{
+        if(GATED_TOOLS.has(name))binding=await this.validateCall(name,args,{signal:operation.controller.signal});
+        if(name==='read_file') {
+          const manifest=await this.imageManifest(args,binding,operation.controller.signal);
+          if(manifest){if(!operation.cancelled)await this.reply(message.id,projectResult({content:[{type:'text',text:manifest.summary}],structuredContent:manifest},binding?.contexts||[]));return;}
+        }
+      }
       catch(error){if(!operation.cancelled)await this.reply(message.id,this.contextFailure(error,name,args));return;}
       finally{this.endLocal(message,operation);}
       if(operation.cancelled||this.closed)return;
@@ -144,6 +163,25 @@ class McpProxy{
       },timeout);timer.unref?.();this.pending.set(key,{method:message.method,name,binding,timer,handle:args?.pid??args?.sessionId});
     }
     return this.sendServer(forwarded);
+  }
+  async imageManifest(args,binding,signal) {
+    if(args.isUrl||/^https?:\/\//i.test(args.path||'')||!binding?.paths?.length||!/\.(png|jpe?g|gif|webp|bmp)$/i.test(args.path||''))return null;
+    // Authorization and project checks have already run; resolve again before stat.
+    const logical=binding.paths[0];let file,stat;
+    try{file=this.contexts.authorize?await this.contexts.authorize(logical,true):logical;stat=await fs.stat(file);}
+    catch(error){if(['ENOENT','ENOTDIR','CONTEXT_PATH_MISSING'].includes(error.code))return null;throw error;}
+    signal?.throwIfAborted();
+    if(args.project_path&&this.contexts.resolveProject){
+      const root=await this.contexts.resolveProject(args.project_path);
+      if(!inside(root,file))throw Object.assign(new Error('The explicit project does not contain the image.'),{code:'TARGET_OUTSIDE_PROJECT'});
+    }
+    if(!stat.isFile()||stat.size<=INLINE_IMAGE_BYTES)return null;
+    const project_path=args.project_path||binding.contexts?.[0]?.project_path||path.dirname(file);
+    const next_arguments={project_path,path:file,preview:true};
+    return {summary:`Image file: ${file}; ${stat.size} bytes. Read get_file_result with preview:true for a bounded preview; use byte chunks for the original.`,
+      path:file,size:stat.size,delivery:'chunked',inline_limit:INLINE_IMAGE_BYTES,max_file_bytes:MAX_ARTIFACT_BYTES,max_chunk_bytes:MAX_FILE_CHUNK_BYTES,
+      next_tool:'get_file_result',next_arguments,original_arguments:{project_path,path:file,preview:false},
+      instructions:'For exact original bytes use original_arguments with preview:false and OMIT length (up to 5 MiB per response); fitting originals return in one call. preview:true stays a small derived display preview for large images. This minimizes calls without changing the original file. read_file image offsets are not byte ranges. For chunked files, decode each Base64 chunk separately, concatenate in offset order and verify the full SHA-256. Files above max_file_bytes require a smaller separate artifact.'};
   }
   loadHint(targets){return {next_tool:'get_project_context',default_project_path:this.defaultDirectory,target_paths:targets,instructions:'Supplied contexts contain fresh guidance and delivery tokens for a subsequent request. get_project_context also accepts an explicit task project. The original operation did not execute.'};}
   contextFailure(error,name,args){
@@ -239,7 +277,7 @@ class McpProxy{
     const properties={...tool.inputSchema?.properties,project_path:{type:'string',description:'Optional explicit project scope. Every local target must be inside it and within desktop-authorized folders.'},project_context_tokens:{type:'array',items:{type:'string'},maxItems:128,description:TOKEN_DESCRIPTION}};
     if(TERMINAL_TOOLS.has(tool.name))properties.context_paths={type:'array',items:{type:'string'},maxItems:128,description:'Related project paths. start_process defaults to [project_path] when omitted with an explicit absolute project_path; otherwise declare this field. Explicit values take precedence; [] is for ordinary system diagnostics. This only supplies guidance and changes neither shell cwd nor access.'};
     const brief={
-      read_file:'Read authorized local files or HTTP(S) URLs. Text offset is 0-based (negative means tail), length limits lines. Supports PDF, images, DOCX and spreadsheets; sheet/range select workbook cells. Reads include optional project guidance. For ChatToHarness logs use get_execution_summary or get_harness_status, without guessing OS log paths.',
+      read_file:'Read authorized local files or HTTP(S) URLs. Text offset is 0-based (negative means tail), length limits text lines. Local images above 1 MiB return a manifest; use get_file_result preview:true for a bounded preview or byte chunks for the exact original. Supports PDF, images, DOCX and spreadsheets; sheet/range select workbook cells. Reads include optional project guidance. For ChatToHarness logs use get_execution_summary or get_harness_status, without guessing OS log paths.',
       read_multiple_files:'Read multiple authorized local files in one call, returning each path and content. Individual read errors do not stop other files. PNG, JPEG, GIF and WebP retain native image content.',
       write_file:'Write or append an authorized file. Prefer apply_project_edit for UTF-8 project text with checksum and undo protection. Text uses string content; Excel (.xlsx/.xls/.xlsm) uses JSON 2D arrays or sheet-name maps. New DOCX accepts Markdown headings; edit existing DOCX with edit_block. Use write_pdf for PDF.',
       write_pdf:'Create PDFs from Markdown, HTML/CSS, inline SVG and images, or modify an existing PDF with delete/insert operations. Use a new filename in outputPath; modifications preserve the source and require a different outputPath. Page indexes are 0-based; inserts accept markdown or sourcePdfPath. Force page breaks with <div style="page-break-before: always;"></div>. All source and output paths must be authorized.',
@@ -264,7 +302,7 @@ class McpProxy{
     const scopeSchema=this.enabled&&tool.name==='start_process'
       ? {allOf:[...(tool.inputSchema?.allOf||[]),{anyOf:[{required:['context_paths']},{required:['project_path']}]}]} : {};
     return {...tool,description:brief[tool.name]||tool.description,inputSchema:{...tool.inputSchema,type:'object',properties,...scopeSchema},annotations,
-      outputSchema:projectResultSchema(tool.outputSchema)};
+      outputSchema:projectResultSchema(tool.outputSchema,tool.name==='read_file')};
   }
   dispose(){
     if(this.closed)return;this.closed=true;
@@ -282,7 +320,14 @@ function wireProtocol({clientInput,clientOutput,serverInput,serverOutput,proxy,o
   function writer(output,source) {
     return message=>new Promise((resolve,reject)=>{
       if (closed || output.destroyed || output.writableEnded) return reject(new Error('MCP transport is closed'));
-      const data=JSON.stringify(message)+'\n';
+      let data=JSON.stringify(message)+'\n';
+      // The upstream frame may be valid yet too large for the public transport.
+      // Fail delivery of this completed call, leaving other requests and the peer alive.
+      if(output===clientOutput&&hasId(message)&&object(message.result)&&Buffer.byteLength(data)>MAX_MESSAGE_BYTES) {
+        data=JSON.stringify({jsonrpc:'2.0',id:message.id,result:failure('MCP_MESSAGE_TOO_LARGE','The result exceeds the 8 MiB wire budget.',
+          {operation_executed:true,execution_state:'completed',result_omitted:true,
+            next_action:'Do not replay the original operation. Inspect its saved tasks or file artifacts; use get_file_result byte chunks for images.'})})+'\n';
+      }
       if (!output.write(data,error=>error ? reject(error) : resolve())) {
         source.pause();output.once('drain',()=>{if(!closed)source.resume();});
       }

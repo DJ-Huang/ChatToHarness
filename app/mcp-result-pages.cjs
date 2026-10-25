@@ -109,10 +109,12 @@ class McpResultPages {
   }
   async deliver(result,source,{explicitFiles=false,knownBuiltin=false,capture=false,preserveOriginal=false,onSaved=()=>{}}={}) {
     if(!result||typeof result!=='object')return result;
-    const projected=project(result);
-    const inline=(explicitFiles||!projected.files.length)&&Buffer.byteLength(JSON.stringify(result))<=INLINE_BYTES;
+    // Already-bounded binary pages keep their original format. Avoid projecting
+    // and serializing their Base64 twice before saving the unchanged snapshot.
+    const projected=preserveOriginal?null:project(result);
+    const inline=!preserveOriginal&&(explicitFiles||!projected.files.length)&&Buffer.byteLength(JSON.stringify(result))<=INLINE_BYTES;
     // An explicit artifact preview retains the existing native delivery format.
-    const original=inline||explicitFiles&&projected.files.length||preserveOriginal;
+    const original=preserveOriginal||inline||explicitFiles&&projected.files.length;
     if(original&&!capture)return result;
     const result_id=`result_${crypto.randomBytes(16).toString('hex')}`;
     const record={version:1,result_id,source,result,created_at:new Date(this.cache.clock()).toISOString()};

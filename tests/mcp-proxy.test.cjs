@@ -182,12 +182,12 @@ test('structured output preserves native fields, media, schemas and tool error f
     const original=structuredClone(upstream);
     await f.proxy.server({jsonrpc:'2.0',id:'read',result:upstream});
     const result=f.client.at(-1).result;
-    assert.deepEqual(result.structuredContent._harness_result.content,upstream.content);
+    assert.deepEqual(result.structuredContent._harness_result.content,[upstream.content[0],{type:'image',mimeType:'image/png',content_index:1},...upstream.content.slice(2)]);
     assert.equal(result.structuredContent._harness_result.isError,isError);
     assert.deepEqual(result.structuredContent.details,upstream.structuredContent.details);
     assert.deepEqual(result.content,upstream.content);assert.equal(result.isError,isError);assert.deepEqual(result._meta,upstream._meta);
     assert.deepEqual(upstream,original);assert.deepEqual(tool,originalTool);
-    assert.deepEqual(schema.required,['details']);assert.equal(schema.additionalProperties,false);
+    assert.deepEqual(schema.anyOf[0].required,['details']);assert.equal(schema.anyOf[0].additionalProperties,false);
     assert.equal(schema.properties._harness_result.type,'object');
     assert.equal(new AjvJsonSchemaValidator().getValidator(schema)(result.structuredContent).valid,true);
   }

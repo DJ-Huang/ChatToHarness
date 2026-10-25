@@ -66,6 +66,7 @@ function createFixtureServer({
     incrementFile(countFile);
     const args = request.params.arguments || {};
     if (toolName === 'echo') {
+      if(args.oversized_result)return {content:[],structuredContent:{body:'x'.repeat(9*1024*1024)}};
       const value = reply({ arguments: args, calls, server: name });
       value.content.push({ type: 'image', data: SMALL_PNG, mimeType: 'image/png' });
       return value;

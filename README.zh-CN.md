@@ -28,7 +28,7 @@
 
 ![Computer Use 管理：电脑控制开关与 macOS 系统权限](docs/images/help/zh-CN/computer-use.png)
 
-在已授权窗口中查看截图，再由接入的客户端执行点击、输入、滚动或拖动。从**插件 → Computer Use → 管理**检查权限并主动开启内置功能，支持 Windows x64 与 macOS arm64；按 **Esc / STOP** 可结束控制。[设置与使用](docs/zh-CN/GUIDE.md)
+在已授权窗口中查看截图，再由接入的客户端执行点击、输入、滚动或拖动。从**插件 → Computer Use → 管理**检查权限并主动开启内置功能，支持 Windows x64 与 macOS arm64；按 **Esc / STOP** 可结束控制。[设置与使用](docs/zh-CN/local-services.md#computer-use)
 
 *macOS 界面演示，使用隔离数据：控制关闭、权限尚未检查，未执行真实桌面输入。*
 
@@ -63,7 +63,7 @@ ChatGPT：通过 `@` 选择已连接插件，再描述任务和工程路径。�
 - 应用级 MCP 扩展、按项目／工具记忆授权，以及仅针对已启用且受信任服务的可选全工具放行。
 - 实际构建／连接状态、Git 只读检查、AGENTS／规则／Skills 索引、幂等后台任务、安全 SHA 文本编辑及撤销。
 - 支持客户端协商后的原生 MCP 资源／提示词及只读工具回退。
-- Windows x64 与 macOS arm64 内置实验性 Computer Use，支持已授权窗口的截图及真实鼠标、键盘输入。首次使用默认关闭，已保存的开关状态继续沿用；需要启用时，在**插件 → Computer Use → 管理**中确认权限。macOS 需要屏幕录制与辅助功能权限。保留窗口授权、用户接管和 STOP / Esc；GUI 规划能力取决于接入的客户端。[设置与使用](docs/zh-CN/GUIDE.md)
+- Windows x64 与 macOS arm64 内置实验性 Computer Use，支持已授权窗口的截图及真实鼠标、键盘输入。首次使用默认关闭，已保存的开关状态继续沿用；需要启用时，在**插件 → Computer Use → 管理**中确认权限。macOS 需要屏幕录制与辅助功能权限。保留窗口授权、用户接管和 STOP / Esc；GUI 规划能力取决于接入的客户端。[设置与使用](docs/zh-CN/local-services.md#computer-use)
 - 实时日志与执行记录，区分本机执行和回传状态，支持筛选、总量限制和临时详细诊断。
 
 - 手动及自动检查更新，安装包通过完整性校验后才打开。

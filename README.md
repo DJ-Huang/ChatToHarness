@@ -28,7 +28,7 @@ A desktop console for connecting supported AI clients to local files, terminals,
 
 ![Computer Use management: desktop-control switch and macOS permissions](docs/images/help/en/computer-use.png)
 
-Observe an authorized window, then click, type, scroll or drag through the connected client. Open **Plugins → Computer Use → Manage** to check permissions and enable the built-in feature. It supports Windows x64 and macOS arm64; **Esc / STOP** ends control. [Setup and usage](docs/en/GUIDE.md)
+Observe an authorized window, then click, type, scroll or drag through the connected client. Open **Plugins → Computer Use → Manage** to check permissions and enable the built-in feature. It supports Windows x64 and macOS arm64; **Esc / STOP** ends control. [Setup and usage](docs/en/local-services.md#computer-use)
 
 *macOS interface demonstration with isolated data: control is off, permissions are not checked, and no live desktop input is performed.*
 
@@ -63,7 +63,7 @@ For a first read-only check, ask: “Use `get_harness_status` to report the runn
 - Application-owned MCP integrations, version-bound per-tool/project approvals, and optional allow-all for enabled trusted services.
 - Project/build status, Git read-only inspection, AGENTS/Rules/Skills discovery, idempotent background tasks, and safe SHA-checked text editing/undo.
 - Native MCP resources/prompts when supported by the client, plus tool fallbacks for content reads.
-- Experimental built-in Computer Use on Windows x64 and macOS arm64, with authorized-window screenshots and real mouse/keyboard input. It is off on first use; saved enablement settings are retained. To enable it, open **Plugins → Computer Use → Manage** and confirm permissions. macOS requires Screen Recording and Accessibility permissions. Window authorization, user takeover and STOP / Esc remain enforced; GUI planning depends on the connected client. [Setup and usage](docs/en/GUIDE.md)
+- Experimental built-in Computer Use on Windows x64 and macOS arm64, with authorized-window screenshots and real mouse/keyboard input. It is off on first use; saved enablement settings are retained. To enable it, open **Plugins → Computer Use → Manage** and confirm permissions. macOS requires Screen Recording and Accessibility permissions. Window authorization, user takeover and STOP / Esc remain enforced; GUI planning depends on the connected client. [Setup and usage](docs/en/local-services.md#computer-use)
 - Live logs and execution history with independent execution/transport states, filtering, limited storage and opt-in temporary diagnostics.
 
 - Manual and automatic update checks, with verified installer downloads.

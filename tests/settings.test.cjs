@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { Settings, SettingsError } = require('../app/settings.cjs');
+const {normalizeProxy}=require('../app/proxy-config.cjs');
 
 const originalTunnel = 'tunnel_' + 'a'.repeat(32);
 const replacementTunnel = 'tunnel_' + 'b'.repeat(32);
@@ -37,13 +38,39 @@ function fixture(t) {
   return { root, folder, directory, file: path.join(directory, 'settings.json'), safeStorage, make };
 }
 
+test('system proxy defaults off, survives reload and validates its input', t=>{
+  const f=fixture(t),settings=f.make();
+  assert.equal(settings.public().useSystemProxy,false);
+  settings.save({useSystemProxy:true});
+  assert.equal(f.make().public().useSystemProxy,true);
+  assert.throws(()=>settings.save({useSystemProxy:'yes'}),{code:'INVALID_INPUT'});
+  const legacy=JSON.parse(fs.readFileSync(f.file,'utf8'));delete legacy.useSystemProxy;delete legacy.proxy;
+  fs.writeFileSync(f.file,JSON.stringify(legacy));
+  assert.equal(f.make().public().useSystemProxy,false);
+});
+
+test('manual proxy settings persist independently and invalid input never overwrites them',t=>{
+  const f=fixture(t),settings=f.make();
+  const proxy={mode:'manual',type:'socks5',host:'127.0.0.1',port:1080,bypass:['localhost','192.168.0.0/16']};
+  settings.save({proxy});
+  assert.deepEqual(f.make().public().proxy,{...normalizeProxy(proxy),passwordSaved:false});
+  const before=fs.readFileSync(f.file,'utf8');
+  assert.throws(()=>settings.save({proxy:{...proxy,port:99999}}),{code:'INVALID_PROXY_SETTINGS'});
+  assert.equal(fs.readFileSync(f.file,'utf8'),before);
+  const exposed=settings.public();exposed.proxy.bypass.push('*');
+  assert.deepEqual(settings.public().proxy,{...normalizeProxy(proxy),passwordSaved:false});
+  const legacy=JSON.parse(before);delete legacy.proxy;legacy.useSystemProxy=true;
+  fs.writeFileSync(f.file,JSON.stringify(legacy));
+  assert.equal(f.make().public().proxy.mode,'system');
+});
+
 test('credentials are encrypted, preserved, replaced and cleared without entering public state', (t) => {
   const f = fixture(t);
   const settings = f.make();
-  assert.deepEqual(settings.public(), { tunnelId: '', directories: [f.folder], autoConnect: true, autoProjectContext: true, keySaved: false });
+  assert.deepEqual(settings.public(), { tunnelId: '', directories: [f.folder], autoConnect: true, useSystemProxy: false, proxy:{...normalizeProxy(),passwordSaved:false}, autoProjectContext: true, keySaved: false });
   assert.equal(settings.getKey(), '');
   const publicState = settings.save({ tunnelId: originalTunnel, apiKey: 'runtime-first-secret' });
-  assert.deepEqual(Object.keys(publicState).sort(), ['autoConnect', 'autoProjectContext', 'directories', 'keySaved', 'tunnelId']);
+  assert.deepEqual(Object.keys(publicState).sort(), ['autoConnect', 'autoProjectContext', 'directories', 'keySaved', 'proxy', 'tunnelId', 'useSystemProxy']);
   assert.equal(publicState.keySaved, true);
   assert.equal(settings.getKey(), 'runtime-first-secret');
   assert.equal(fs.readFileSync(f.file, 'utf8').includes('runtime-first-secret'), false);
@@ -55,9 +82,37 @@ test('credentials are encrypted, preserved, replaced and cleared without enterin
   const publicDirectories = settings.public().directories;
   publicDirectories.push('/');
   assert.deepEqual(settings.public().directories, [f.folder]);
-  assert.deepEqual(settings.clearCredentials(), { tunnelId: '', directories: [f.folder], autoConnect: false, autoProjectContext: true, keySaved: false });
+  assert.deepEqual(settings.clearCredentials(), { tunnelId: '', directories: [f.folder], autoConnect: false, useSystemProxy: false, proxy:{...normalizeProxy(),passwordSaved:false}, autoProjectContext: true, keySaved: false });
   assert.equal(f.make().getKey(), '');
   assert.equal(JSON.stringify(settings.public()).includes('encryptedKey'), false);
+});
+
+test('proxy password encryption, session-only storage, endpoint binding and clearing are independent of the runtime key',t=>{
+  const f=fixture(t),settings=f.make();
+  const proxy={mode:'manual',type:'socks5',host:'127.0.0.1',port:1080,authEnabled:true,username:'proxy-user',rememberPassword:true,bypass:[]};
+  settings.save({proxy,proxyPassword:'synthetic-proxy-password'});
+  assert.equal(settings.public().proxy.passwordSaved,true);
+  assert.equal(f.make().getProxyPassword(),'synthetic-proxy-password');
+  assert.ok(!JSON.stringify(settings.public()).includes('synthetic-proxy-password'));
+  assert.ok(!fs.readFileSync(f.file,'utf8').includes('synthetic-proxy-password'));
+  settings.save({proxy:{...proxy,rememberPassword:false}});
+  assert.equal(settings.getProxyPassword(),'synthetic-proxy-password');
+  assert.equal(f.make().getProxyPassword(),'');
+  assert.equal(JSON.parse(fs.readFileSync(f.file,'utf8')).encryptedProxyPassword,'');
+  settings.save({proxy:{...proxy,rememberPassword:false,port:1081}});
+  assert.equal(settings.getProxyPassword(),'','changing endpoint must not reuse old credentials');
+  settings.save({proxy,proxyPassword:'replacement-password'});
+  settings.save({proxy,clearProxyPassword:true});
+  assert.equal(f.make().getProxyPassword(),'');assert.equal(settings.public().proxy.passwordSaved,false);
+});
+
+test('proxy password encryption failure preserves settings and session credentials',t=>{
+  const f=fixture(t),settings=f.make();
+  const proxy={mode:'manual',authEnabled:true,username:'fixture',rememberPassword:false};
+  settings.save({proxy,proxyPassword:'session-only-password'});
+  const before=fs.readFileSync(f.file,'utf8');f.safeStorage.available=false;
+  assert.throws(()=>settings.save({proxy:{...proxy,rememberPassword:true}}),{code:'ENCRYPTION_UNAVAILABLE'});
+  assert.equal(fs.readFileSync(f.file,'utf8'),before);assert.equal(settings.getProxyPassword(),'session-only-password');
 });
 
 test('failed encryption and unavailable keychain preserve the old file and safe errors', (t) => {
@@ -98,7 +153,7 @@ test('invalid settings are rejected before writes, directories canonicalize and 
   const f = fixture(t);
   const settings = f.make();
   const alias = path.join(f.root, 'folder alias');
-  fs.symlinkSync(f.folder, alias, 'dir');
+  require('./link-fixture.cjs').directoryLink(f.folder, alias);
   assert.deepEqual(settings.save({ directories: [f.folder, alias, path.join(f.folder, '..', path.basename(f.folder))] }).directories, [f.folder]);
   const original = fs.readFileSync(f.file);
   for (const input of [
@@ -138,16 +193,16 @@ test('symbolic links and hard links cannot redirect configuration reads or write
   const settings = f.make();
   const outside = path.join(f.root, 'outside.json');
   fs.writeFileSync(outside, 'unchanged');
-  fs.symlinkSync(outside, f.file);
+  const removeLink = require('./link-fixture.cjs').fileLink(t, outside, f.file);
   assert.throws(f.make, { code: 'UNSAFE_STORAGE' });
   assert.throws(() => settings.save({ directories: [f.folder] }), { code: 'UNSAFE_STORAGE' });
   assert.equal(fs.readFileSync(outside, 'utf8'), 'unchanged');
-  fs.unlinkSync(f.file);
+  removeLink();
   fs.linkSync(outside, f.file);
   assert.throws(f.make, { code: 'UNSAFE_STORAGE' });
   fs.unlinkSync(f.file);
   fs.rmdirSync(f.directory);
-  fs.symlinkSync(f.folder, f.directory, 'dir');
+  require('./link-fixture.cjs').directoryLink(f.folder, f.directory);
   assert.throws(f.make, { code: 'UNSAFE_STORAGE' });
 });
 

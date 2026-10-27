@@ -47,6 +47,8 @@ jobs:
         run: node scripts/tunnel-smoke.cjs
       - name: Packaged application and isolated channel acceptance
         run: node scripts/ui-smoke.cjs
+      - name: Packaged proxy settings, authentication and credential persistence
+        run: node scripts/proxy-ui-smoke.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

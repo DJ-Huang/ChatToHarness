@@ -12,6 +12,17 @@
   const tunnelInput = byId('tunnel-id');
   const keyInput = byId('api-key');
   const autoConnectInput = byId('auto-connect');
+  const proxyModeInput = byId('proxy-mode');
+  const proxyTypeInput = byId('proxy-type');
+  const proxyHostInput = byId('proxy-host');
+  const proxyPortInput = byId('proxy-port');
+  const proxyBypassInput = byId('proxy-bypass');
+  const proxyUsernameInput=byId('proxy-username'),proxyPasswordInput=byId('proxy-password');
+  const proxyLocalInput=byId('proxy-bypass-local'),proxyLanInput=byId('proxy-bypass-lan');
+  const proxyModes=['direct','system','manual'].map(mode=>byId('proxy-mode-'+mode));
+  const proxyInputs = [proxyModeInput,...proxyModes,proxyTypeInput,proxyHostInput,proxyPortInput,proxyBypassInput,proxyUsernameInput,proxyPasswordInput,proxyLocalInput,proxyLanInput];
+  let proxyClearPassword=false,proxyTestResult=null,proxyDefaults=[];
+  const proxyTestMessages={PROXY_TEST_AUTH_FAILED:'代理认证失败，请检查用户名和密码。',PROXY_TEST_TIMEOUT:'连接测试超时。',PROXY_TEST_DNS_FAILED:'无法解析服务器地址。',PROXY_TEST_TLS_FAILED:'TLS 证书验证失败，请检查代理或目标证书。',PROXY_TEST_TARGET_FAILED:'代理已响应，但测试目标返回异常。',PROXY_TEST_INVALID_URL:'测试地址必须是有效的 HTTP 或 HTTPS 地址。',PROXY_TEST_BUSY:'已有连接测试正在进行。',PROXY_PASSWORD_REQUIRED:'请填写代理密码，或重新输入已保存的密码。'};
   const autoProjectContextInput = byId('auto-project-context');
   let currentState = null;
   let initialized = false;
@@ -46,6 +57,7 @@
     overview: ['工作空间概览', '将 AI 对话连接到本机执行环境。'],
     logs: ['实时日志', '持续查看本机连接、工具调用与异常日志。'],
     connection: ['连接配置', '为这个工作空间建立一条安全通道。'],
+    proxy: ['代理设置', '配置安全通道使用的代理。'],
     directories: ['工作目录', '选择协作范围，自动交付工程规范。'],
     mcp: ['插件', '连接工具，管理 AI 可以使用的能力。'],
     history: ['执行记录', '按需查看本机工具执行与响应写入状态。'],
@@ -70,16 +82,24 @@
     authorizing: '等待系统凭据授权', starting: '正在建立安全连接', ready: '工作空间已准备就绪',
     reconnecting: '正在恢复安全连接', failed: '连接需要你的关注',
   };
+  const proxyValue = () => ({mode:proxyModeInput.value,type:proxyTypeInput.value,host:proxyHostInput.value.trim(),port:Number(proxyPortInput.value),bypass:[...new Set(proxyBypassInput.value.split(/[\s,;]+/).filter(Boolean).map(value=>value.toLowerCase()))],authEnabled:Boolean(proxyUsernameInput.value||proxyPasswordInput.value),username:proxyUsernameInput.value,rememberPassword:true,bypassLocal:proxyLocalInput.checked,bypassLan:proxyLanInput.checked});
+  const savedProxy = settings => {const p=settings.proxy||{};return {mode:p.mode||(settings.useSystemProxy===true?'system':'direct'),type:p.type||'http',host:p.host||'127.0.0.1',port:p.port||7890,bypass:p.bypass||[],authEnabled:p.authEnabled===true,username:p.username||'',rememberPassword:p.rememberPassword===true,bypassLocal:p.bypassLocal!==false,bypassLan:p.bypassLan!==false};};
+  const proxyPayload = () => ({proxy:proxyValue(),...(proxyPasswordInput.value?{proxyPassword:proxyPasswordInput.value}:{}),...(proxyClearPassword?{clearProxyPassword:true}:{})});
+  function fillProxy(proxy){
+    proxyModeInput.value=proxy.mode;proxyTypeInput.value=proxy.type;proxyHostInput.value=proxy.host;proxyPortInput.value=String(proxy.port);proxyBypassInput.value=proxy.bypass.join('\n');
+    proxyUsernameInput.value=proxy.username;proxyLocalInput.checked=proxy.bypassLocal;proxyLanInput.checked=proxy.bypassLan;
+    proxyPasswordInput.value='';proxyPasswordInput.type='password';byId('proxy-show-password').setAttribute('aria-pressed','false');byId('proxy-show-password').setAttribute('aria-label',t('显示密码'));byId('proxy-show-password').setAttribute('title',t('显示密码'));proxyClearPassword=false;proxyTestResult=null;
+  }
   const values = () => ({
-    tunnelId: tunnelInput.value.trim(), directories: [...directories], autoConnect: autoConnectInput.checked,
+    tunnelId: tunnelInput.value.trim(), directories: [...directories], autoConnect: autoConnectInput.checked, proxy:proxyValue(),
     autoProjectContext: autoProjectContextInput.checked,
   });
   const settingsFingerprint = () => JSON.stringify(values());
   const savedFingerprint = (settings) => JSON.stringify({
     tunnelId: settings.tunnelId || '', directories: [...(settings.directories || [])],
-    autoConnect: settings.autoConnect !== false, autoProjectContext: settings.autoProjectContext !== false,
+    autoConnect: settings.autoConnect !== false, proxy:savedProxy(settings), autoProjectContext: settings.autoProjectContext !== false,
   });
-  const isDirty = () => settingsFingerprint() !== baseline || keyInput.value.length > 0;
+  const isDirty = () => settingsFingerprint() !== baseline || keyInput.value.length > 0 || proxyPasswordInput.value.length>0 || proxyClearPassword;
   const workspaceDirty = () => JSON.stringify({ directories, autoProjectContext: autoProjectContextInput.checked }) !==
     JSON.stringify({ directories: currentState?.settings?.directories || [], autoProjectContext: currentState?.settings?.autoProjectContext !== false });
   const safeMessage = (error) => typeof error?.message === 'string' && error.message.trim()
@@ -134,14 +154,15 @@
     if (name === 'history') setLogMenuExpanded(true);
     else if (name !== 'logs') setLogMenuExpanded(false);
     if (name !== 'mcp' && byId('plugin-management-drawer').open) closeMcpEditor();
+    if(activeTab==='proxy'&&name!=='proxy'){proxyPasswordInput.value='';proxyPasswordInput.type='password';byId('proxy-show-password').setAttribute('aria-pressed','false');byId('proxy-show-password').setAttribute('aria-label',t('显示密码'));byId('proxy-show-password').setAttribute('title',t('显示密码'));}
     activeTab = name;
     // Keep the logs category highlighted for either of its two pages.
     byId('nav-log-group').dataset.active = String(name === 'logs' || name === 'history');
     if(name==='history')void loadHistory();
     if(name==='logs')void loadLiveLogs(true);
-    for (const tab of tabNames) byId('panel-' + tab).hidden = tab !== name;
+    for (const tab of [...tabNames, 'proxy']) byId('panel-' + tab).hidden = tab !== name;
     document.querySelectorAll('[data-tab]').forEach((button) => {
-      const selected = button.dataset.tab === name;
+      const selected = button.dataset.tab === (name === 'proxy' ? 'connection' : name);
       button.className = 'nav-item' + (selected ? ' selected' : '');
       button.setAttribute('aria-selected', String(selected));
       button.setAttribute('tabindex', selected ? '0' : '-1');
@@ -149,6 +170,8 @@
     });
     byId('page-title').textContent = t(pages[name][0]);
     byId('page-description').textContent = t(pages[name][1]);
+    byId('page-description').hidden=name==='proxy';
+    byId('back-to-connection').hidden=name!=='proxy';
   }
 
   function renderDirectories() {
@@ -225,6 +248,7 @@
       tunnelInput.value = settings.tunnelId || '';
       directories = Array.isArray(settings.directories) ? [...settings.directories] : [];
       autoConnectInput.checked = settings.autoConnect !== false;
+      fillProxy(savedProxy(settings));
       autoProjectContextInput.checked = settings.autoProjectContext !== false;
       baseline = settingsFingerprint();
       initialized = true;
@@ -255,6 +279,15 @@
     byId('workspace-save-indicator').textContent = initialized && workspaceDirty() ? t('有未保存的更改') : directories.length ? t('设置已保存') : t('未启用文件工具');
     byId('workspace-save-indicator').className = `save-indicator${workspaceDirty() ? ' dirty' : ''}`;
     byId('save-connect').disabled = locked;
+    byId('proxy-save').disabled = locked;
+    byId('proxy-reset-bypass').disabled = locked;
+    byId('proxy-test').disabled=locked;byId('proxy-cancel').disabled=Boolean(pending);
+    proxyModes.forEach((input,index)=>{input.checked=['direct','system','manual'][index]===proxyModeInput.value;});
+    byId('proxy-manual-fields').hidden = proxyModeInput.value !== 'manual';
+    byId('proxy-system-hint').hidden=proxyModeInput.value!=='system';
+    byId('proxy-show-password').disabled=locked;byId('proxy-test-url').disabled=locked;
+    byId('proxy-test-result').textContent=pending==='proxy-test'?t('正在测试连接…'):proxyTestResult?.ok?t('连接成功（HTTP {status}，{ms} 毫秒，{route}）。',{status:proxyTestResult.status,ms:proxyTestResult.elapsedMs,route:t(proxyTestResult.route==='proxy'?'通过代理':'直连')}):proxyTestResult?t(proxyTestMessages[proxyTestResult.code]||'代理连接失败，请检查服务器和端口。'):'';
+    byId('proxy-save-indicator').textContent = JSON.stringify(proxyValue())===JSON.stringify(savedProxy(currentState?.settings||{}))&&!proxyPasswordInput.value&&!proxyClearPassword?t('配置已保存'):t('有未保存的更改');
     byId('save-connect-label').textContent = pending === 'save' || state === 'starting' ? t('正在连接…') : t('保存并连接');
     byId('save-workspace').disabled = locked;
     byId('check-connection').disabled = locked;
@@ -265,7 +298,7 @@
     byId('stop').disabled = (!active && !mcpActive && !['save', 'check', 'reconnect'].includes(pending)) || pending === 'stop';
     byId('clear-credentials').disabled = locked || (!keySaved && !currentState?.settings?.tunnelId && !keyInput.value);
     byId('add-directory').disabled = Boolean(pending) || installing || !initialized;
-    [tunnelInput, keyInput, autoConnectInput, autoProjectContextInput].forEach((input) => { input.disabled = installing || ['save', 'workspace', 'clear'].includes(pending); });
+    [tunnelInput, keyInput, autoConnectInput, ...proxyInputs, autoProjectContextInput].forEach((input) => { input.disabled = installing || ['save', 'proxy', 'proxy-test', 'workspace', 'clear'].includes(pending); });
     document.querySelectorAll('.remove-directory').forEach(button => { button.disabled = Boolean(pending) || installing; });
     byId('action-message').textContent = t(actionMessage);
     const error = actionError || (state === 'failed' ? runtime.error : '') || (toolsDegraded ? '通道状态与工具状态分别检查；部分工具暂时不可用。' : '') || '';
@@ -738,6 +771,7 @@
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     if (pending) return;
+    if(activeTab==='proxy'){void saveProxySettings();return;}
     tunnelInput.removeAttribute('aria-invalid');
     keyInput.removeAttribute('aria-invalid');
     if (!tunnelInput.value.trim()) {
@@ -758,6 +792,7 @@
     }
     perform('save', async (checkpoint) => {
       const settings = values();
+      Object.assign(settings,proxyPayload());
       if (keyInput.value.trim()) settings.apiKey = keyInput.value.trim();
       const submittedDraft = settingsFingerprint();
       const savedState = await api.saveSettings(settings);
@@ -969,12 +1004,43 @@
   api?.onShowUpdates?.(showUpdates);
   document.querySelectorAll('[data-external]').forEach((button) => {
     button.addEventListener('click', () => {
-      Promise.resolve(api.openExternal(button.dataset.external === 'docs-page' ? 'docs-' + activeTab : button.dataset.external)).catch((error) => {
+      Promise.resolve(api.openExternal(button.dataset.external === 'docs-page' ? 'docs-' + (activeTab === 'proxy' ? 'connection' : activeTab) : button.dataset.external)).catch((error) => {
         actionError = safeMessage(error);
         render();
       });
     });
   });
+  function saveProxySettings(){return perform('proxy', async checkpoint => {
+    const savedState=await api.saveSettings(proxyPayload());
+    checkpoint();
+    if(savedState?.settings){
+      baseline=savedFingerprint(savedState.settings);
+      fillProxy(savedProxy(savedState.settings));
+    }
+    actionMessage='代理设置已保存，请重新连接。';
+    return savedState;
+  });}
+  byId('proxy-save').addEventListener('click', saveProxySettings);
+  byId('proxy-reset-bypass').addEventListener('click', () => perform('proxy', async checkpoint => {
+    const defaults=await api.getProxyDefaults();checkpoint();proxyDefaults=defaults;proxyBypassInput.value=defaults.join('\n');proxyLocalInput.checked=true;proxyLanInput.checked=true;proxyTestResult=null;
+  }));
+  byId('proxy-test').addEventListener('click', () => perform('proxy-test',async checkpoint=>{
+    proxyTestResult=await api.testProxy({...proxyPayload(),target:byId('proxy-test-url').value.trim()});checkpoint();
+  }));
+  function cancelProxy(){fillProxy(savedProxy(currentState?.settings||{}));actionError='';actionMessage='';showTab('connection');byId('open-proxy-settings').focus();render();}
+  byId('proxy-cancel').addEventListener('click',cancelProxy);
+  byId('proxy-show-password').addEventListener('click',()=>{const show=proxyPasswordInput.type==='password';proxyPasswordInput.type=show?'text':'password';byId('proxy-show-password').setAttribute('aria-pressed',String(show));byId('proxy-show-password').setAttribute('aria-label',t(show?'隐藏密码':'显示密码'));byId('proxy-show-password').setAttribute('title',t(show?'隐藏密码':'显示密码'));});
+  proxyPasswordInput.addEventListener('input',()=>{proxyClearPassword=proxyPasswordInput.value.length===0;proxyTestResult=null;});
+  proxyModes.forEach(input=>input.addEventListener('input',()=>{proxyModeInput.value=input.value;}));
+  function toggleProxyDefaults(rules,enabled){const current=proxyBypassInput.value.split(/[\s,;]+/).filter(Boolean).filter(rule=>!rules.includes(rule));proxyBypassInput.value=[...new Set([...current,...(enabled?rules:[])])].join('\n');}
+  proxyLocalInput.addEventListener('input',()=>toggleProxyDefaults(['localhost','.localhost','.local','127.0.0.0/8','::1'],proxyLocalInput.checked));
+  proxyLanInput.addEventListener('input',()=>toggleProxyDefaults(proxyDefaults.filter(rule=>!['localhost','.localhost','.local','127.0.0.0/8','::1'].includes(rule)),proxyLanInput.checked));
+  byId('open-proxy-settings').addEventListener('click', () => {
+    showTab('proxy');
+    byId('page-title').focus();
+    if(typeof api.getProxyDefaults==='function')void api.getProxyDefaults().then(defaults=>{proxyDefaults=defaults;}).catch(()=>{});
+  });
+  byId('back-to-connection').addEventListener('click', cancelProxy);
   document.querySelectorAll('[data-tab]').forEach((button) => {
     button.addEventListener('click', () => {
       if (button.dataset.tab === 'logs') {
@@ -999,7 +1065,7 @@
       }
       // A collapsed submenu must never be reachable via roving tabindex.
       const visibleTabs = tabNames.filter(tab => tab !== 'history' || logMenuExpanded);
-      let index = visibleTabs.indexOf(activeTab);
+      let index = visibleTabs.indexOf(activeTab === 'proxy' ? 'connection' : activeTab);
       if (event.key === 'ArrowDown') index = (index + 1) % visibleTabs.length;
       else if (event.key === 'ArrowUp') index = (index + visibleTabs.length - 1) % visibleTabs.length;
       else if (event.key === 'Home') index = 0;
@@ -1174,8 +1240,9 @@
     }
     render();
   });
-  [tunnelInput, keyInput, autoConnectInput, autoProjectContextInput].forEach((input) => {
+  [tunnelInput, keyInput, autoConnectInput, ...proxyInputs, autoProjectContextInput].forEach((input) => {
     input.addEventListener('input', () => {
+      if(proxyInputs.includes(input))proxyTestResult=null;
       input.removeAttribute('aria-invalid');
       actionMessage = '';
       render();

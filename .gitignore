@@ -12,6 +12,9 @@ dist/
 *.pfx
 *.pem
 *.key
+# Public localhost TLS fixtures for proxy tests, never used for app signing.
+!tests/fixtures/proxy-test-cert.pem
+!tests/fixtures/proxy-test-key.pem
 settings.json
 auth-token
 coverage/

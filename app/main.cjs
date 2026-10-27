@@ -1,5 +1,5 @@
 'use strict';
-const {app,BrowserWindow,ipcMain,Menu,Tray,nativeImage,dialog,shell,safeStorage,net}=require('electron');
+const {app,BrowserWindow,ipcMain,Menu,Tray,nativeImage,dialog,shell,safeStorage,net,session}=require('electron');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
@@ -55,7 +55,7 @@ function executionToLog(row){
     state:row.state,delivery:row.delivery,error_code:row.error_code||undefined,
     execution_state:row.execution_state,recovery_kind:row.recovery_kind,exit_code:Number.isInteger(row.exit_code)?row.exit_code:undefined});
 }
-function state(){return {diagnostics:diagnosticWriter?.status()||{state:diagnosticError?'unavailable':'starting',error_code:diagnosticError},settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:{...(mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false}),computerUse:{...(computerUse?.status()||{enabled:false,available:false,registered:false,platform}),permissionPromptVisible}},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
+function state(){return {diagnostics:diagnosticWriter?.status()||{state:diagnosticError?'unavailable':'starting',error_code:diagnosticError},settings:settings?settings.public():{tunnelId:'',directories:[],autoConnect:true,useSystemProxy:false,autoProjectContext:true,keySaved:false},runtime:fatal?{state:'failed',error:fatal,localReady:false,toolsCount:0}:runtime?.status()||{state:'unconfigured',error:'',localReady:false,toolsCount:0},mcp:{...(mcpManager?.status()||{servers:[],approvals:[],toolsVersion:0,allowAllTools:false}),computerUse:{...(computerUse?.status()||{enabled:false,available:false,registered:false,platform}),permissionPromptVisible}},versions,updates:updater?.status()||{current:versions.app,phase:'idle',automatic:preferences?.autoCheckUpdates!==false},actionEpoch,system:{platform,locale},testMode};}
 function publish(){const value=state();if(window&&!window.isDestroyed())window.webContents.send('localharness:state',value);refreshTray();}
 function show(){if(quitting)return;if(!window||window.isDestroyed())createWindow();if(window.isMinimized())window.restore();window.show();window.focus();}
 function restart(){
@@ -113,7 +113,7 @@ function connect(){return action(async checkpoint=>{
   let key;
   try{key=settings.getKey();}catch(error){runtime.update({state:'failed',error:error.message});throw error;}
   checkpoint();
-  try{return await runtime.connect(settings.public(),key);}
+  try{const proxy=settings.public().proxy;return await runtime.connect(settings.public(),key,proxy.mode==='manual'&&proxy.authEnabled?settings.getProxyPassword():undefined);}
   catch(error){checkpoint();runtime.update({state:'failed',error:error.message});throw error;}
 });}
 async function stopConnection(){
@@ -172,8 +172,24 @@ function registerIPC(){
   });
   bind('update-install',installUpdate);
   bind('update-release',async()=>{const url=updater?.status().releaseUrl;if(url)await shell.openExternal(url);});
-  bind('save-settings',input=>action(async()=>{const before=JSON.stringify(settings.public());settings.save(input);if(before!==JSON.stringify(settings.public())||input?.apiKey?.trim())await runtime.disconnect();}));
+  bind('save-settings',input=>action(async()=>{const before=JSON.stringify(settings.public());settings.save(input);if(before!==JSON.stringify(settings.public())||input?.apiKey?.trim()||input?.proxyPassword?.length||input?.clearProxyPassword===true)await runtime.disconnect();}));
   bind('connect',connect);
+  bind('proxy-defaults',()=>require('./proxy-config.cjs').defaultBypass());
+  let proxyTestBusy=false;
+  bind('proxy-test',async input=>{
+    if(proxyTestBusy)return {ok:false,code:'PROXY_TEST_BUSY'};
+    proxyTestBusy=true;
+    try{
+      const {normalizeProxy}=require('./proxy-config.cjs');
+      const config=normalizeProxy(input?.proxy);
+      if(input?.proxyPassword!==undefined&&(typeof input.proxyPassword!=='string'||Buffer.byteLength(input.proxyPassword)>4096||/[\r\n\0]/.test(input.proxyPassword)))throw new Error('代理密码格式无效。');
+      const password=input?.clearProxyPassword?'':typeof input?.proxyPassword==='string'&&input.proxyPassword?input.proxyPassword:config.mode==='manual'&&config.authEnabled?settings.getProxyPassword(config):undefined;
+      return await require('./proxy-test.cjs').testProxy({config,password,target:input?.target,resolveSystemProxy:async target=>{
+        const proxySession=session.fromPartition('proxy-test');await proxySession.setProxy({mode:'system'});
+        return require('./system-proxy.cjs').proxyURL(await proxySession.resolveProxy(target));
+      }});
+    }finally{proxyTestBusy=false;}
+  });
   bind('disconnect',stopConnection);
   bind('check',()=>action(()=>runtime.check(settings.public())));
   bind('clear-credentials',()=>action(async checkpoint=>{await runtime.disconnect();checkpoint();settings.clearCredentials();}));
@@ -306,7 +322,11 @@ else{
       await diagnosticWriter.ready.catch(error=>{diagnosticError=sanitize(error?.code||'DIAGNOSTICS_UNAVAILABLE',120);});
       history=new ExecutionHistory(home,{writer:diagnosticWriter,version:app.getVersion(),onChange:executionToLog});
       await history.ready;
-      runtime=new RuntimeManager({home,resources,log,tunnelScript});runtime.on('state',publish);
+      runtime=new RuntimeManager({home,resources,log,tunnelScript,resolveSystemProxy:async()=>{
+        const proxySession=session.fromPartition('system-proxy');
+        await proxySession.setProxy({mode:'system'});
+        return require('./system-proxy.cjs').proxyURL(await proxySession.resolveProxy('https://api.openai.com'));
+      }});runtime.on('state',publish);
       const {McpSettings}=require('./mcp-settings.cjs');
       const {McpManager}=require('./mcp-manager.cjs');
       const {McpGateway}=require('./mcp-gateway.cjs');

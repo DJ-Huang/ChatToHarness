@@ -6,6 +6,7 @@ const http = require('node:http');
 const {EventEmitter} = require('node:events');
 const {bundledPaths, defaultShell, developmentEnvironment, tunnelCommand, spawnManaged, stopTree} = require('./platform.cjs');
 const {prepareRuntimeComponents,componentFailure} = require('./runtime-components.cjs');
+const {normalizeProxy,selectProxy,effectiveBypass}=require('./proxy-config.cjs');
 
 const ERRORS = {
   binary:'应用组件不完整，请重新安装应用，或使用一键启动入口准备组件。',
@@ -54,8 +55,9 @@ function healthRequest(base, suffix) {
 }
 
 class RuntimeManager extends EventEmitter {
-  constructor({home, resources, launcherSource=path.join(__dirname,'mcp-launch.cjs'), paths, probe, tunnelScript, gateway, log=()=>{}}) {
-    super();this.home=home;this.log=log;this.launcherSource=launcherSource;
+  constructor({home, resources, launcherSource=path.join(__dirname,'mcp-launch.cjs'), paths, probe, tunnelScript, gateway, resolveSystemProxy=async()=>null, log=()=>{}}) {
+    // Resolve only when explicitly enabled; never expose proxy details in public state.
+    super();this.home=home;this.log=log;this.launcherSource=launcherSource;this.resolveSystemProxy=resolveSystemProxy;
     this.paths=paths||bundledPaths(resources);this.tunnelScript=tunnelScript;
     this.gateway=gateway;this.gatewayLauncher=path.join(home,'mcp-gateway-stdio.cjs');
     this.localHome=path.join(home,'desktop-commander');this.launcher=path.join(home,'mcp-launch.cjs');
@@ -145,10 +147,11 @@ class RuntimeManager extends EventEmitter {
   async check(settings) {
     const generation=++this.generation,wasRunning=Boolean(this.desired);this.update({state:'checking',error:''});
     try{const toolsCount=await this.probe(settings);if(generation!==this.generation||this.closed)return this.status();this.update({localReady:true,toolsCount,state:wasRunning?'starting':'stopped',error:''});if(wasRunning)await this.monitor();return this.status();}
-    catch(error){if(generation!==this.generation||this.closed)return this.status();this.desired=null;await this.stopProcess();if(generation!==this.generation||this.closed)return this.status();this.update({state:'failed',error:error.message,localReady:false,toolsCount:0});throw error;}
+    catch(error){if(generation!==this.generation||this.closed)return this.status();const bridge=this.proxyBridge;this.proxyBridge=null;this.desired=null;await this.stopProcess();await bridge?.close();if(generation!==this.generation||this.closed)return this.status();this.update({state:'failed',error:error.message,localReady:false,toolsCount:0});throw error;}
   }
-  async connect(settings,key) {
+  async connect(settings,key,proxyPassword) {
     const generation=++this.generation;
+    const oldBridge=this.proxyBridge;this.proxyBridge=null;await oldBridge?.close();
     this.clearRetry();
     this.desired=null;this.cancelProbe?.();await this.stopProcess();if(this.probeChild)await stopTree(this.probeChild);
     if(generation!==this.generation||this.closed)return this.status();
@@ -156,10 +159,19 @@ class RuntimeManager extends EventEmitter {
     if(!key||/[\r\n\0]/.test(key))throw new Error(ERRORS.key);
     this.update({state:'checking',error:'',localReady:false,toolsCount:0});
     try{
+      const proxy=normalizeProxy(settings.proxy,settings.useSystemProxy===true);
+      const systemProxy=await selectProxy(proxy,this.resolveSystemProxy,'https://api.openai.com',proxyPassword);
+      let transportProxy=systemProxy;
+      if(systemProxy?.startsWith('socks5:')){
+        const bridge=await require('./socks-proxy-bridge.cjs').startSocksBridge(systemProxy);
+        if(this.closed||generation!==this.generation){await bridge.close();return this.status();}
+        this.proxyBridge=bridge;transportProxy=bridge.url;
+      }
+      if(this.closed||generation!==this.generation)return this.status();
       const toolsCount=await this.probe(settings);if(this.closed||generation!==this.generation)return this.status();
-      this.desired={settings:{...settings,directories:[...settings.directories]},key};this.attempts=0;this.retryAt=0;this.recoveryStartedAt=null;this.readySince=null;
+      this.desired={settings:{...settings,proxy,directories:[...settings.directories]},key,systemProxy,transportProxy};this.attempts=0;this.retryAt=0;this.recoveryStartedAt=null;this.readySince=null;
       this.update({localReady:true,toolsCount,state:'starting',error:''});this.launch();
-    } catch(error){if(generation!==this.generation||this.closed)return this.status();this.desired=null;this.update({state:'failed',error:error.message,localReady:false});throw error;}
+    } catch(error){if(generation!==this.generation||this.closed)return this.status();this.desired=null;const bridge=this.proxyBridge;this.proxyBridge=null;await bridge?.close();this.update({state:'failed',error:error.message,localReady:false});throw error;}
     return this.status();
   }
   launch() {
@@ -170,9 +182,14 @@ class RuntimeManager extends EventEmitter {
     this.healthFile=path.join(this.home,`tunnel-health-${process.pid}-${++this.launchId}`);
     const env=this.childEnvironment(settings);env.CONTROL_PLANE_API_KEY=key;
     if(this.gateway)Object.assign(env,this.gateway.environment());
-    env.NO_PROXY=env.no_proxy=[env.NO_PROXY||env.no_proxy||'','127.0.0.1','localhost','::1'].filter(Boolean).join(',');
+    // Explicit application choice takes precedence over inherited shell proxies.
+    for(const name of Object.keys(env))if(/^(https?|all|no)_proxy$/i.test(name))delete env[name];
+    env.NO_PROXY=env.no_proxy=this.desired.systemProxy?effectiveBypass(settings.proxy).join(','):'*';
+    const transportProxy=this.desired.transportProxy||this.desired.systemProxy;
+    const authenticated=transportProxy&&Boolean(new URL(transportProxy).username);
+    if(authenticated)env.CONTROL_PLANE_HTTP_PROXY=transportProxy;
     const command=tunnelCommand(this.gateway?[this.paths.node,this.gatewayLauncher]:[this.paths.node,this.launcher,this.paths.desktopCommander,String(process.pid)]);
-    const args=['run','--control-plane.tunnel-id',settings.tunnelId,'--control-plane.api-key','env:CONTROL_PLANE_API_KEY','--control-plane.initial-poll-timeout','1s','--mcp.command',command,'--mcp.stdio-send-initialized-notification','--health.listen-addr','127.0.0.1:0','--health.url-file',this.healthFile,'--log.format','json','--log.level','info'];
+    const args=['run',...(transportProxy?['--control-plane.http-proxy',authenticated?'env:CONTROL_PLANE_HTTP_PROXY':transportProxy]:[]),'--control-plane.tunnel-id',settings.tunnelId,'--control-plane.api-key','env:CONTROL_PLANE_API_KEY','--control-plane.initial-poll-timeout','1s','--mcp.command',command,'--mcp.stdio-send-initialized-notification','--health.listen-addr','127.0.0.1:0','--health.url-file',this.healthFile,'--log.format','json','--log.level','info'];
     const child=spawnManaged(this.tunnelScript?this.paths.node:this.paths.tunnel,this.tunnelScript?[this.tunnelScript,...args]:args,{processHost:this.paths.processHost,cwd:settings.directories[0]||this.home,env,stdio:['ignore','pipe','pipe']});
     this.process=child;this.startedAt=Date.now();
     child.once('error',()=>{if(this.process===child){this.processError='process';void this.monitor();}});
@@ -212,7 +229,7 @@ class RuntimeManager extends EventEmitter {
       if(generation!==this.generation||!this.desired)return;
       const code=Object.hasOwn(ERRORS,error.message)?error.message:'network';
       if(['key','permission','tunnel'].includes(code)){
-        this.desired=null;this.clearRetry();await this.stopProcess();if(generation!==this.generation||this.closed)return;this.update({state:'failed',error:ERRORS[code]});
+        const bridge=this.proxyBridge;this.proxyBridge=null;this.desired=null;this.clearRetry();await this.stopProcess();await bridge?.close();if(generation!==this.generation||this.closed)return;this.update({state:'failed',error:ERRORS[code]});
       }else{
         this.readySince=null;this.recoveryStartedAt??=Date.now();
         await this.stopProcess();if(generation!==this.generation||!this.desired||this.closed)return;
@@ -225,7 +242,7 @@ class RuntimeManager extends EventEmitter {
   }
   clearRetry(){clearTimeout(this.retryTimer);this.retryTimer=null;}
   async stopProcess(){const child=this.process,file=this.healthFile;this.process=null;try{fs.unlinkSync(file);}catch{}await stopTree(child);try{fs.unlinkSync(file);}catch{}}
-  async disconnect(){const generation=++this.generation;this.desired=null;this.clearRetry();this.readySince=null;this.cancelProbe?.();await this.stopProcess();if(this.probeChild)await stopTree(this.probeChild);await this.gateway?.stop();if(generation===this.generation)this.update({state:'stopped',error:''});return this.status();}
+  async disconnect(){const generation=++this.generation;const bridge=this.proxyBridge;this.proxyBridge=null;this.desired=null;this.clearRetry();this.readySince=null;this.cancelProbe?.();await this.stopProcess();await bridge?.close();if(this.probeChild)await stopTree(this.probeChild);await this.gateway?.stop();if(generation===this.generation)this.update({state:'stopped',error:''});return this.status();}
   async close(){this.closed=true;clearInterval(this.timer);await this.disconnect();await this.gateway?.close();}
 }
 module.exports={RuntimeManager,ERRORS,reason,cleanEnvironment,shellQuote,stopTree,healthRequest,reconnectDelay};

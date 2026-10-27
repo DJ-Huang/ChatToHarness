@@ -106,3 +106,74 @@ textarea,select{font:inherit}textarea:focus-visible,select:focus-visible,input[t
 .plugin-add-options{display:grid;gap:16px}.plugin-add-option{display:grid;grid-template-columns:1fr auto;gap:8px;text-align:left;padding:22px;color:var(--ink)}.plugin-add-option strong{font-size:14px}.plugin-add-option span{font-size:12px;line-height:1.7;color:var(--muted)}.plugin-add-option>span:last-child{grid-column:2;grid-row:1/3;align-self:center;font-size:20px}.plugin-add-option:hover{border-color:#b6c9eb;background:#fcfdff}
 #plugin-mcp-overview .mcp-server{background:var(--paper);padding:22px}#plugin-management-error{margin-bottom:18px}.plugin-management-body .plugin-tabs{gap:22px}
 @media(max-width:1000px){.plugin-list-header{align-items:flex-start;flex-direction:column}.plugin-list-actions{align-self:flex-end}}
+.connection-options{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap}.connection-options>div{flex:1 1 220px;min-width:0}.connection-options .checkbox-label{align-items:flex-start}.connection-options .checkbox-label input{flex-shrink:0}.connection-options p{max-width:32em}.proxy-settings-link{flex-shrink:0;padding:2px 0}
+.proxy-mode-field{max-width:430px}.proxy-manual-fields{display:grid;grid-template-columns:140px minmax(0,1fr) 110px;gap:18px;margin-top:22px}.proxy-bypass-field{margin:26px 0 20px}.proxy-bypass-field textarea{width:100%;resize:vertical;min-height:170px;border:1px solid var(--line);border-radius:7px;padding:12px;color:var(--ink);background:var(--paper);font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7}.proxy-mode-field select,.proxy-manual-fields select{width:100%;height:40px;padding:0 10px;border:1px solid var(--line);border-radius:7px;background:var(--paper);color:var(--ink)}@media(max-width:850px){.proxy-manual-fields{grid-template-columns:1fr}.proxy-bypass-field .label-row{flex-wrap:wrap;gap:10px}}
+.proxy-manual-fields .field>label{display:block;margin-bottom:8px}.proxy-manual-fields input[type=number]{display:block;width:100%;min-width:0;height:40px;border:1px solid var(--line);border-radius:7px;padding:0 10px;background:var(--paper);color:var(--ink)}
+.proxy-mode-group{border:0;padding:0;margin:0;display:grid;gap:16px}.proxy-mode-group legend{font-size:12px;font-weight:600;margin-bottom:18px}.proxy-mode-group input[type=radio]{accent-color:var(--accent);flex-shrink:0}.proxy-mode-group .field-hint{margin:-8px 0 0 24px}.proxy-manual-section{margin:20px 0 0 24px;padding:20px;border:1px solid var(--line);border-radius:8px;background:#fbfcfe}.proxy-manual-section .proxy-manual-fields{margin-top:0}.proxy-auth-section{border-top:1px solid var(--line);margin-top:22px;padding-top:20px}#proxy-auth-fields>.field-grid{margin-top:20px}.proxy-auth-options,.proxy-bypass-options{display:flex;align-items:center;gap:22px;flex-wrap:wrap;margin-top:18px}.proxy-bypass-options{margin-top:28px}.proxy-test-section{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px;margin-top:24px}.proxy-test-section .field{min-width:0}.proxy-test-section input[type=url]{display:block;width:100%;height:40px;margin-top:9px;border:1px solid var(--line);border-radius:7px;padding:0 10px;color:var(--ink);background:var(--paper)}#proxy-test-result{grid-column:1/-1;margin:0;overflow-wrap:anywhere}.proxy-manual-fields input[type=text]{margin-top:0!important}.proxy-auth-options .checkbox-label,.proxy-bypass-options .checkbox-label{margin:0}@media(max-width:850px){.proxy-manual-section{margin-left:0;padding:16px}.proxy-test-section{grid-template-columns:1fr}.proxy-test-section button{justify-self:start}}
+.proxy-mode-options{display:flex;align-items:center;gap:28px;flex-wrap:wrap}.proxy-mode-options .checkbox-label{margin:0}.proxy-auth-section #proxy-auth-fields>.field-grid{margin-top:0}.proxy-bypass-heading{display:flex;align-items:baseline;gap:14px;flex:1;min-width:0}.proxy-bypass-heading>label{flex-shrink:0}.proxy-bypass-heading .field-hint{margin:0;line-height:1.6}.proxy-bypass-field>.label-row{align-items:baseline;gap:16px;margin-bottom:8px}.proxy-bypass-field #proxy-reset-bypass{flex-shrink:0}.page-header #back-to-connection{margin-left:auto;flex-shrink:0}@media(max-width:850px){.proxy-mode-options{gap:16px}.proxy-bypass-heading{flex-wrap:wrap;gap:6px}.proxy-auth-section .field-grid{grid-template-columns:1fr 1fr}}@media(max-width:600px){.proxy-auth-section .field-grid{grid-template-columns:1fr}}
+
+
+/* Compact two-row proxy configuration */
+.proxy-manual-section {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+.proxy-manual-row {
+  display: grid;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+.proxy-connection-row {
+  grid-template-columns: minmax(200px, .8fr) minmax(300px, 1.1fr) minmax(155px, .6fr);
+}
+.proxy-credentials-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.proxy-manual-section .proxy-inline-field {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+}
+.proxy-manual-section .proxy-inline-field > label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.proxy-manual-section .proxy-inline-field > input,
+.proxy-manual-section .proxy-inline-field > select,
+.proxy-manual-section .proxy-inline-field > .password-field {
+  width: 100%;
+  min-width: 0;
+}
+.proxy-manual-section .proxy-inline-field > input,
+.proxy-manual-section .proxy-inline-field > select {
+  height: 42px;
+}
+.proxy-manual-section .proxy-password-field .password-field {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .proxy-manual-section { padding: 14px; }
+  .proxy-manual-row { gap: 12px; }
+  .proxy-manual-section .proxy-inline-field { gap: 8px; }
+  .proxy-connection-row {
+    grid-template-columns: minmax(180px, .8fr) minmax(260px, 1.1fr) minmax(140px, .6fr);
+  }
+}
+@media (max-width: 720px) {
+  .proxy-connection-row,
+  .proxy-credentials-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

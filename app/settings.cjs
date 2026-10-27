@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const {normalizeProxy,credentialIdentity}=require('./proxy-config.cjs');
 
 const CONFIG_NAME = 'settings.json';
 const MAX_CONFIG_BYTES = 128 * 1024;
@@ -116,25 +117,29 @@ class Settings {
     let descriptor;
     try {
       if (!this._assertConfigurationFile()) {
-        return { schema: 1, tunnelId: '', encryptedKey: '', directories: defaultDirectory ? directories([defaultDirectory]) : [], autoConnect: true, autoProjectContext: true };
+        return { schema: 1, tunnelId: '', encryptedKey: '', directories: defaultDirectory ? directories([defaultDirectory]) : [], autoConnect: true, useSystemProxy: false, proxy:normalizeProxy(), autoProjectContext: true };
       }
       descriptor = fs.openSync(this.file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
       const info = fs.fstatSync(descriptor);
       if (!info.isFile() || info.nlink !== 1 || info.size > MAX_CONFIG_BYTES) throw new Error('invalid file');
       const saved = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
       if (!saved || typeof saved !== 'object' || Array.isArray(saved) || saved.schema !== 1 ||
-          typeof saved.autoConnect !== 'boolean' || typeof saved.encryptedKey !== 'string' ||
+          typeof saved.autoConnect !== 'boolean' || (has(saved, 'useSystemProxy') && typeof saved.useSystemProxy !== 'boolean') || typeof saved.encryptedKey !== 'string' ||
           saved.encryptedKey.length > 64 * 1024 ||
           (has(saved, 'autoProjectContext') && typeof saved.autoProjectContext !== 'boolean')) throw new Error('invalid configuration');
       const ciphertext = saved.encryptedKey;
       if (ciphertext && (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(ciphertext) ||
           Buffer.from(ciphertext, 'base64').toString('base64') !== ciphertext)) throw new Error('invalid ciphertext');
+      if(has(saved,'encryptedProxyPassword')&&(typeof saved.encryptedProxyPassword!=='string'||saved.encryptedProxyPassword.length>65536||Buffer.from(saved.encryptedProxyPassword,'base64').toString('base64')!==saved.encryptedProxyPassword))throw new Error('invalid proxy ciphertext');
       return {
         schema: 1,
         tunnelId: validateTunnel(saved.tunnelId, true),
         encryptedKey: ciphertext,
         directories: savedDirectories(saved.directories),
         autoConnect: saved.autoConnect,
+        useSystemProxy: saved.useSystemProxy === true,
+        proxy: normalizeProxy(saved.proxy,saved.useSystemProxy===true),
+        encryptedProxyPassword: typeof saved.encryptedProxyPassword==='string'?saved.encryptedProxyPassword:'',
         autoProjectContext: saved.autoProjectContext !== false,
       };
     } catch (error) {
@@ -151,6 +156,8 @@ class Settings {
       tunnelId: saved.tunnelId,
       directories: [...saved.directories],
       autoConnect: saved.autoConnect,
+      useSystemProxy: saved.proxy.mode === 'system',
+      proxy: {...saved.proxy,bypass:[...saved.proxy.bypass],passwordSaved:Boolean(saved.encryptedProxyPassword||this._sessionProxyPassword)},
       autoProjectContext: saved.autoProjectContext,
       keySaved: saved.encryptedKey !== '',
     };
@@ -177,6 +184,15 @@ class Settings {
     }
   }
 
+  getProxyPassword(config=this._configuration.proxy) {
+    if(credentialIdentity(config)!==credentialIdentity(this._configuration.proxy))return '';
+    if(this._sessionProxyPassword)return this._sessionProxyPassword;
+    if(!this._configuration.encryptedProxyPassword)return '';
+    this._assertEncryption();
+    try{return this.safeStorage.decryptString(Buffer.from(this._configuration.encryptedProxyPassword,'base64'));}
+    catch{throw failure('代理密码无法解密，请重新输入。','PROXY_DECRYPTION_FAILED');}
+  }
+
   save(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
       throw failure('配置内容无效，请重新填写。', 'INVALID_INPUT');
@@ -184,6 +200,33 @@ class Settings {
     const next = { ...this._configuration,
       directories: directories(has(input, 'directories') ? input.directories : this._configuration.directories) };
     if (has(input, 'tunnelId')) next.tunnelId = validateTunnel(input.tunnelId);
+    if (has(input, 'useSystemProxy')) {
+      if (typeof input.useSystemProxy !== 'boolean') throw failure('系统代理设置无效。', 'INVALID_INPUT');
+      next.useSystemProxy = input.useSystemProxy;
+      next.proxy = normalizeProxy({...next.proxy,mode:input.useSystemProxy?'system':'direct'});
+    }
+    if(has(input,'proxy')){
+      next.proxy=normalizeProxy(input.proxy);
+      next.useSystemProxy=next.proxy.mode==='system';
+    }
+    let sessionProxyPassword=this._sessionProxyPassword||'';
+    if(has(input,'proxy')||has(input,'proxyPassword')||input.clearProxyPassword===true){
+      const changed=credentialIdentity(next.proxy)!==credentialIdentity(this._configuration.proxy);
+      let password=changed||input.clearProxyPassword===true||input.proxyPassword||!next.proxy.authEnabled?'':this.getProxyPassword(next.proxy);
+      if(input.clearProxyPassword===true)password='';
+      if(has(input,'proxyPassword')){
+        if(typeof input.proxyPassword!=='string'||Buffer.byteLength(input.proxyPassword)>4096||/[\r\n\0]/.test(input.proxyPassword))throw failure('代理密码格式无效。','INVALID_PROXY_PASSWORD');
+        if(input.proxyPassword)password=input.proxyPassword;
+      }
+      if(next.proxy.type==='socks5'&&Buffer.byteLength(password)>255)throw failure('SOCKS5 密码不能超过 255 字节。','INVALID_PROXY_PASSWORD');
+      if(!next.proxy.authEnabled)password='';
+      next.encryptedProxyPassword='';sessionProxyPassword=password;
+      if(password&&next.proxy.rememberPassword){
+        this._assertEncryption();
+        try{const encrypted=this.safeStorage.encryptString(password);if(!Buffer.isBuffer(encrypted)||!encrypted.length)throw new Error();next.encryptedProxyPassword=encrypted.toString('base64');sessionProxyPassword='';}
+        catch{throw failure('代理密码无法加密，原配置已保留。','PROXY_ENCRYPTION_FAILED');}
+      }
+    }
     if (has(input, 'autoConnect')) {
       if (typeof input.autoConnect !== 'boolean') throw failure('自动连接设置无效。', 'INVALID_INPUT');
       next.autoConnect = input.autoConnect;
@@ -208,6 +251,7 @@ class Settings {
     }
     this._write(next);
     this._configuration = next;
+    this._sessionProxyPassword=sessionProxyPassword;
     return this.public();
   }
 

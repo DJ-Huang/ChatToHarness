@@ -49,7 +49,8 @@ test('image delivery: large local reads return manifests after scope checks; sma
   await f.proxy.client(call(1,{path:large,project_path:f.project,offset:0,length:1}));
   const manifest=f.sent.at(-1).result.structuredContent;
   assert.equal(f.forwarded.length,0);assert.equal(manifest.delivery,'chunked');assert.equal(manifest.size,INLINE_IMAGE_BYTES+1);
-  assert.deepEqual(manifest.next_arguments,{project_path:f.project,path:large,preview:true});
+  // Authorization returns a canonical file path (Windows temp can use an 8.3 alias).
+  assert.deepEqual(manifest.next_arguments,{project_path:f.project,path:await fs.promises.realpath(large),preview:true});
   const tool=f.proxy.decorateTool({name:'read_file',inputSchema:{type:'object'},outputSchema:{type:'object',properties:{old:{type:'string'}},required:['old'],additionalProperties:false}});
   assert.equal(new AjvJsonSchemaValidator().getValidator(tool.outputSchema)(manifest).valid,true);
   await f.proxy.client(call(2,{path:small}));assert.equal(f.forwarded.length,1);
@@ -176,5 +177,5 @@ test('image delivery: previews stay lightweight when the exact original fits one
   const excessive=await f.services.call('get_file_result',{project_path:f.project,path:file,preview:true,length:MAX_FILE_CHUNK_BYTES});
   assert.equal(excessive.structuredContent.code,'INVALID_ARGUMENT','Do not combine a full Base64 page with a full native original.');
   await f.proxy.client(call('manifest',{path:file,project_path:f.project}));
-  assert.deepEqual(f.sent.at(-1).result.structuredContent.original_arguments,{project_path:f.project,path:file,preview:false});
+  assert.deepEqual(f.sent.at(-1).result.structuredContent.original_arguments,{project_path:f.project,path:await fs.promises.realpath(file),preview:false});
 });

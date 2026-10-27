@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { McpProxy } = require('../app/mcp-proxy.cjs');
+const { AjvJsonSchemaValidator } = require('@modelcontextprotocol/sdk/validation/ajv');
 const project = path.resolve(path.sep, 'synthetic-project');
 const guidance = [{ project_path: project, agents: [], project_context_token: 'delivered' }];
 function fixture({ contexts = guidance, enabled = true } = {}) {
@@ -37,17 +38,31 @@ test('structured-first clients receive file text rather than guidance alone', as
   assert.deepEqual(result.content[0], content[0]);
 });
 
-test('mixed native image/audio/resource blocks survive both result representations', async () => {
+test('mixed native blocks survive once and structured references resolve to the originals', async () => {
   const content = [
     { type: 'text', text: 'artifact preview' },
     { type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=', annotations: { audience: ['user'] } },
     { type: 'audio', mimeType: 'audio/wav', data: 'UklGRg==' },
     { type: 'resource', resource: { uri: 'fixture://result', mimeType: 'text/plain', text: '中文产物' } },
     { type: 'resource_link', uri: 'fixture://large', name: 'large result' },
+    { type: 'resource', resource: { uri: 'fixture://binary', mimeType: 'application/octet-stream', blob: 'YmluYXJ5' } },
   ];
   const result = await relay({ content });
   assert.deepEqual(result.content.slice(0, content.length), content);
-  assert.deepEqual(modelResult(result)._harness_result.content, content);
+  const mirror = modelResult(result)._harness_result.content;
+  assert.deepEqual(mirror, [content[0],
+    { type: 'image', mimeType: 'image/png', content_index: 1 },
+    { type: 'audio', mimeType: 'audio/wav', content_index: 2 },
+    content[3], content[4],
+    { type: 'resource', resource: { uri: 'fixture://binary', mimeType: 'application/octet-stream' }, content_index: 5 },
+  ]);
+  // References retain the full native block, including annotations, without
+  // reintroducing the Base64 duplication that caused oversized MCP responses.
+  assert.deepEqual(mirror.map(block => Number.isInteger(block.content_index)
+    ? result.content[block.content_index] : block), content);
+  for (const bytes of [content[1].data, content[2].data, content[5].resource.blob]) {
+    assert.equal(JSON.stringify(result).split(bytes).length - 1, 1);
+  }
 });
 
 test('upstream structured fields survive and client-only metadata is not promoted', async () => {
@@ -115,8 +130,17 @@ test('wrapping does not mutate upstream content, result metadata, or schema', as
     const decorated = f.proxy.decorateTool({ name: 'read_file', inputSchema: { type: 'object' }, outputSchema: schema });
     assert.equal(decorated.outputSchema.properties._harness_result.type, 'object');
     assert.equal(decorated.outputSchema.properties._harness_result.properties.content.type, 'array');
-    assert.deepEqual(decorated.outputSchema.required, ['value']);
-    assert.equal(decorated.outputSchema.additionalProperties, false);
+    // read_file now accepts either the original strict result or an image manifest.
+    const originalBranch = decorated.outputSchema.anyOf[0];
+    assert.deepEqual(originalBranch.required, ['value']);
+    assert.equal(originalBranch.additionalProperties, false);
+    const validate = new AjvJsonSchemaValidator().getValidator(decorated.outputSchema);
+    assert.equal(validate(result.structuredContent).valid, true);
+    assert.equal(validate({ ...result.structuredContent, unexpected: true }).valid, false);
+    assert.equal(validate({ project_contexts: [], _harness_result: { content: [], isError: false } }).valid, false);
+    assert.equal(validate({ delivery: 'chunked', path: '/fixture.png', size: 1025,
+      next_tool: 'get_file_result', next_arguments: { path: '/fixture.png', preview: true } }).valid, true);
+    assert.equal(validate({ delivery: 'chunked', path: '/fixture.png', size: 1025 }).valid, false);
     assert.deepEqual(Object.keys(schema.properties), ['value']);
   } finally { f.proxy.dispose(); }
 });

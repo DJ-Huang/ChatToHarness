@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('localHarness',Object.freeze({
   executionList:input=>call('execution-list',input),executionDetail:id=>call('execution-detail',id),
   executionExport:ids=>call('execution-export',ids),executionDiagnostics:enabled=>call('execution-diagnostics',enabled),
   getState:()=>call('get-state'),saveSettings:value=>call('save-settings',value),
+  getProxyDefaults:()=>call('proxy-defaults'),
+  testProxy:input=>call('proxy-test',input),
   readLiveLogs:input=>call('live-logs-read',input),
   chooseDirectories:()=>call('choose-directories'),connect:()=>call('connect'),disconnect:()=>call('disconnect'),
   check:()=>call('check'),clearCredentials:()=>call('clear-credentials'),openLogs:()=>call('open-logs'),

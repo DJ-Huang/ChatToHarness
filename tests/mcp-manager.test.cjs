@@ -685,3 +685,20 @@ test('execution history includes policy/approval rejection, validation, success,
   assert.ok(history.rows().some(r=>r.tool.endsWith('__tool_error')&&r.state==='failed'));
 
 });
+
+
+test('image delivery: oversized response reconnects without replay; oversized discovery stays stopped', {timeout:15000}, async t=>{
+  const f=fixture(t);f.manager.running=true;
+  await f.connect('oversized');f.policy('oversized','echo');
+  const result=await f.manager.call('oversized__echo',{oversized_result:true});
+  assert.equal(result.structuredContent.code,'MCP_MESSAGE_TOO_LARGE');
+  assert.equal(result.structuredContent.execution_state,'unknown');
+  await until(()=>readCount(f.starts('oversized'))===2&&f.manager.record('oversized').phase==='ready',6000);
+  assert.equal(readCount(f.calls('oversized')),1,'The failed call is never replayed.');
+  const next=await f.manager.call('oversized__echo',{after:'oversize'});
+  assert.equal(next.structuredContent.arguments.after,'oversize');
+  assert.equal(readCount(f.calls('oversized')),2);
+  f.save('catalog');const record=f.manager.record('catalog');
+  record.phase='failed';record.error='MCP_MESSAGE_TOO_LARGE';f.manager.retry(record);
+  assert.equal(record.retryTimer,undefined,'Oversized discovery must not reconnect indefinitely.');
+});

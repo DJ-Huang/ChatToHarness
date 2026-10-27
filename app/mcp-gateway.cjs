@@ -95,9 +95,10 @@ class McpGateway {
     const definition=(this.manager.visibleTools?.()||this.manager.tools||[]).find(tool=>tool.name===name);
     // Widget components consume the original structured result directly.
     const preserveOriginal=Boolean(definition?._meta?.ui?.resourceUri||definition?._meta?.['ui/resourceUri']||definition?._meta?.['openai/outputTemplate']);
+    const binaryFilePage=name==='get_file_result'&&this.manager.services?.has(name)&&typeof result.structuredContent?.data==='string'&&result.structuredContent.text===undefined&&!result.isError;
     const knownBuiltin=Boolean(this.manager.services?.has(name)||this.manager.records?.get('builtin')?.tools.some(item=>item.alias===name));
     const delivered=await this.results.deliver(result,{tool:name,scope,...(options.executionId?{execution_id:options.executionId,execution_version:this.manager.history?.get(options.executionId)?.poll_count||1}:{}),...(content_server?{content_server}:{})},
-      {knownBuiltin,capture:true,preserveOriginal,explicitFiles:name==='get_file_result'&&args.preview===true,
+      {knownBuiltin,capture:true,preserveOriginal:preserveOriginal||binaryFilePage,explicitFiles:name==='get_file_result'&&args.preview===true,
         onSaved:ref=>{if(options.executionId)this.manager.history?.update(options.executionId,ref);}});
     this.manager.log?.('mcp-result-ready',{tool:name,execution_id:options.executionId,session:options.session,request:options.request,executionMs:Math.round(resultReady-received),deliveryPreparationMs:Math.round(performance.now()-resultReady),bytes:Buffer.byteLength(JSON.stringify(delivered))});
     return delivered;

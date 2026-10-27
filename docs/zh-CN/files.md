@@ -2,7 +2,7 @@
 
 [English](../en/files.md) | [简体中文](../zh-CN/files.md) | [日本語](../ja/files.md)
 
-> 适用于 ChatToHarness 0.6.0。
+> 适用于 ChatToHarness 0.8.1。
 
 ## 使用目标
 
@@ -27,6 +27,8 @@
 ```text
 列出 /Users/demo/ExampleProject 顶层文件及其类型和大小，不要移动、重命名或删除文件。
 ```
+
+本地图片超过 1 MiB 时，读取工具返回分块指引。`get_file_result` 的 `preview:true` 为大图返回不超过 512 KiB 的派生 JPEG 预览。原图使用 `preview:false` 并省略 `length`，原始文件字节不变。原文件上限 64 MiB；读取原图时省略 `length`，每次最多返回 5 MiB，能容纳的原图一次取回。显式小块请求仍兼容；预览默认只附带 32 KiB 字节页，文字页最大 512 KiB。按 `next_offset` 取回原始字节，分别解码 Base64 后拼接并校验 SHA-256。普通图片超限不会再让内置文件服务停止；外部服务因超限断线时只恢复连接，不重放原调用。
 
 ![浏览和整理文件](../images/help/zh-CN/files.svg)
 

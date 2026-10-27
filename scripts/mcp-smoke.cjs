@@ -41,7 +41,7 @@ async function main(){
     if(tools.tools.find(tool=>tool.name===name)?.outputSchema?.properties?._harness_result){
      const visible=result.structuredContent?._harness_result;
      assert.ok(visible,`${name}: structured-first clients must receive the actual result`);
-     assert.equal(visible.isError,false);assert.deepEqual(visible.content,result.content.slice(0,visible.content.length));
+     assert.equal(visible.isError,false);assert.deepEqual(visible.content.map(block=>Number.isInteger(block.content_index)?result.content[block.content_index]:block),result.content.slice(0,visible.content.length));
      assert.ok(visible.content.length,`${name}: the native engine returned public content`);
     }
     return asText(result);
@@ -59,7 +59,10 @@ async function main(){
    fs.writeFileSync(imagePath,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC','base64'));
    const imageReply=await raw('read_file',{path:imagePath});assert.notEqual(imageReply.isError,true,asText(imageReply));
    const imageBlock=imageReply.content.find(item=>item.type==='image');assert.ok(imageBlock?.data&&imageBlock.mimeType.startsWith('image/'));
-   assert.deepEqual(imageReply.structuredContent._harness_result.content.find(item=>item.type==='image'),imageBlock);
+   const imageReference=imageReply.structuredContent._harness_result.content.find(item=>item.type==='image');
+   assert.deepEqual(imageReference,{type:'image',mimeType:imageBlock.mimeType,content_index:imageReply.content.indexOf(imageBlock)});
+   assert.deepEqual(imageReply.content[imageReference.content_index],imageBlock);
+   assert.equal(JSON.stringify(imageReply).split(imageBlock.data).length-1,1,'Native image bytes must not be duplicated in structured mirrors');
    const missingReply=await raw('read_file',{path:path.join(project,'missing-synthetic-file.txt')});
    assert.equal(missingReply.isError,true);assert.equal(missingReply.structuredContent._harness_result.isError,true);
    assert.ok(asText(missingReply.structuredContent._harness_result).length,'the original read failure must remain visible');

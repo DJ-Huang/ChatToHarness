@@ -2,7 +2,7 @@
 
 [English](../en/preferences.md) | [简体中文](../zh-CN/preferences.md) | [日本語](../ja/preferences.md)
 
-> For ChatToHarness 0.6.0.
+> Check the notes for your installed [release](https://github.com/DJ-Huang/ChatToHarness/releases). Features added after v0.8.1 are marked below.
 
 ## Your goal
 
@@ -19,6 +19,8 @@ Open the app. Its interface language can differ from your client’s language.
 3. Closing the window leaves the app running. Click its menu-bar or tray icon to reopen it.
 4. Right-click the background icon for connection, stop, logs, updates and quit actions.
 5. Choose Quit ChatToHarness to end the app. Launching an already running instance normally restores its window.
+
+**Version note:** The proxy settings below were added to `main` by [PR #27](https://github.com/DJ-Huang/ChatToHarness/pull/27) after [v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1) was published. They are not included in that release’s installers. Check your installed release’s notes before looking for these controls.
 
 Open Proxy configuration beside automatic connection to choose direct, system or manual proxy mode. Manual mode supports HTTP, HTTPS and SOCKS5 with separate server and port fields. Bypass addresses accept domains, IPs and CIDR ranges. Defaults include local addresses, common private ranges and the actual subnets of current network adapters. Restore default addresses after changing networks. Save proxy settings, then reconnect; tunnel credentials are not required to save. These settings apply to the secure tunnel and do not modify operating system proxy settings.
 

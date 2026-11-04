@@ -2,7 +2,7 @@
 
 [English](../en/files.md) | [简体中文](../zh-CN/files.md) | [日本語](../ja/files.md)
 
-> For ChatToHarness 0.8.1.
+> Check the notes for your installed [release](https://github.com/DJ-Huang/ChatToHarness/releases). Features added after v0.8.1 are marked below.
 
 ## Your goal
 
@@ -27,6 +27,8 @@ Replace the example with your own authorized absolute project path; on Windows, 
 ```text
 List the top-level files, types and sizes in /Users/demo/ExampleProject. Do not move, rename or delete anything.
 ```
+
+**Version note:** The image-transfer behavior below was added to `main` by [PR #26](https://github.com/DJ-Huang/ChatToHarness/pull/26) after [v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1) was published. It is not included in that release’s installers. Check your installed release’s notes before using these limits.
 
 Local images above 1 MiB return chunk guidance. With `preview:true`, `get_file_result` delivers a derived JPEG preview up to 512 KiB for large images. Use `preview:false` and omit `length` for the unchanged original bytes. Artifacts are limited to 64 MiB. Omit `length` for original bytes: binary pages return up to 5 MiB, fitting files in one call. Explicit smaller ranges remain supported. Previews include a small 32 KiB byte page by default; text pages are limited to 512 KiB. Follow `next_offset`, decode each Base64 chunk separately, concatenate bytes and verify SHA-256. Oversized built-in results fail delivery without stopping file tools; an external service disconnected by an oversized response reconnects without replaying the call.
 

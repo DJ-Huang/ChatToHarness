@@ -2,7 +2,7 @@
 
 [English](../en/files.md) | [简体中文](../zh-CN/files.md) | [日本語](../ja/files.md)
 
-> ChatToHarness 0.8.1 対象。
+> インストールしたバージョンの [リリースノート](https://github.com/DJ-Huang/ChatToHarness/releases)を確認してください。v0.8.1 公開後に追加された機能は下記で明示しています。
 
 ## 目的
 
@@ -27,6 +27,8 @@
 ```text
 /Users/demo/ExampleProject の直下にあるファイルの名前・種類・サイズを一覧にしてください。移動・名前変更・削除はしないでください。
 ```
+
+**バージョンについて：** 以下の画像転送動作は、[v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1) の公開後に [PR #26](https://github.com/DJ-Huang/ChatToHarness/pull/26) で `main` に追加されました。v0.8.1 の公開インストーラーには含まれていません。以下の上限を使う前に、インストールしたバージョンのリリースノートを確認してください。
 
 1 MiB を超えるローカル画像は分割読み取りの案内を返します。`get_file_result` の `preview:true` は大きい画像に 512 KiB 以下の派生 JPEG プレビューを返します。原本取得では `preview:false` とし、`length` を省略します。原本のバイトは変更しません。原本は最大 64 MiB です。原本取得では `length` を省略すると最大 5 MiB を返し、収まる画像は 1 回で取得できます。小さい明示範囲も利用できます。プレビューのバイトページは既定 32 KiB、テキストページは最大 512 KiB です。`next_offset` に従い、各 Base64 を個別にデコードして連結し、SHA-256 を検証してください。内蔵ツールの過大な応答は当該結果の配信だけを失敗させます。外部サービスの切断後も接続のみを復元し、元の呼び出しは再実行しません。
 

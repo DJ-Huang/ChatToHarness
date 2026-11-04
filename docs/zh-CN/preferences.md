@@ -2,7 +2,7 @@
 
 [English](../en/preferences.md) | [简体中文](../zh-CN/preferences.md) | [日本語](../ja/preferences.md)
 
-> 适用于 ChatToHarness 0.6.0。
+> 请核对所安装版本的 [Release 说明](https://github.com/DJ-Huang/ChatToHarness/releases)。v0.8.1 发布后加入的功能会在下文标明。
 
 ## 使用目标
 
@@ -19,6 +19,8 @@
 3. 关闭窗口后应用继续后台运行；点击系统菜单栏或托盘图标恢复窗口。
 4. 右键后台图标可连接、停止、查看日志、检查更新或退出。
 5. 真正结束应用时选择“退出 ChatToHarness”。重新启动已有实例通常只恢复原窗口。
+
+**版本提示：**下述代理设置由 [PR #27](https://github.com/DJ-Huang/ChatToHarness/pull/27) 在 [v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1) 发布后加入 `main`，不包含在该正式版本的安装包中。查找这些控件前，请核对所安装版本的 Release 说明。
 
 连接配置中，点击自动连接右侧的“代理配置”进入代理设置。通过单选项选择直连、系统代理或手动代理；手动代理支持 HTTP、HTTPS、SOCKS5，并分别填写服务器与端口。用户名与密码在同一行按需填写，均不填时不启用认证；HTTP/HTTPS 使用 Basic 认证，SOCKS5 使用用户名密码认证。密码会自动使用系统安全存储加密保存；密码框保持未编辑的空白状态时会保留已有密码，如需删除已保存密码，可编辑密码框后清空并保存。更换服务器或用户名后需重新输入。系统模式不会自动继承系统保存的密码。页面顶部“返回”可回到连接配置。
 

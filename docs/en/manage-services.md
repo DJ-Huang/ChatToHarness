@@ -22,7 +22,7 @@ Inspect in-progress work first; wait for its result or explicitly cancel when ne
 
 ![Edit, enable, disable and remove services](../images/help/en/mcp-tools.png)
 
-1 Tools and individual policies; 2 Optional all-tools permission. Interface demonstration using the current repository UI and isolated sample data; not evidence of a live tunnel or tool call.
+1 Tools and individual policies; 2 Optional all-tools permission. Earlier interface demonstration with isolated sample data. For v0.8.1 menu and panel locations, follow the steps above; this image is not evidence of a live tunnel or tool call.
 
 ## What success looks like
 

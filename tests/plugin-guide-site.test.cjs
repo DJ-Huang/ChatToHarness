@@ -24,6 +24,8 @@ for (const locale of ['en', 'zh-CN', 'ja']) {
     assert.ok(management.includes('https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1'));
     for (const source of [clients, management]) assert.doesNotMatch(source, /MCP Servers/);
     assert.doesNotMatch(management, /0\.6\.0/);
+    const caption = { en: 'Earlier interface demonstration', 'zh-CN': '历史界面演示', ja: '以前の画面例' };
+    assert.ok(management.includes(caption[locale]), 'older screenshots must not be presented as the current navigation');
   });
 }
 

@@ -2,7 +2,7 @@
 
 [English](../en/manage-services.md) | [简体中文](../zh-CN/manage-services.md) | [日本語](../ja/manage-services.md)
 
-> For ChatToHarness 0.6.0.
+> These steps describe the plugin interface in [ChatToHarness v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1).
 
 ## Your goal
 
@@ -14,10 +14,10 @@ Inspect in-progress work first; wait for its result or explicitly cancel when ne
 
 ## Steps
 
-1. Open MCP Servers and review names, status and tool counts.
-2. Use Edit to change configuration. The service ID stays fixed; changed launch targets require renewed trust.
-3. Disable stops only that service. Enable it again when needed and check its state.
-4. To remove one, choose Delete and then Confirm deletion after review. This stops it and removes its configuration.
+1. Open **Plugins**, find the external MCP service and choose **Manage** on its card. The management panel opens on the right.
+2. Review its status and tools under **Overview & permissions**. To change configuration, select **Connection settings** (or Edit in the overview). The service ID stays fixed; changed launch targets require renewed trust.
+3. Under **Overview & permissions**, Disable stops only that service. Enable it again when needed and check its state.
+4. To remove one, choose Delete in the same overview, then Confirm deletion after review. This stops it and removes its configuration.
 5. Refresh the client’s tools after changes and verify with a read-only call.
 
 ![Edit, enable, disable and remove services](../images/help/en/mcp-tools.png)

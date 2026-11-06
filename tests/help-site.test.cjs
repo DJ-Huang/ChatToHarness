@@ -17,6 +17,7 @@ test('all 114 repository articles build with translated navigation, stable secti
       const source=readArticle(locale,slug),html=fs.readFileSync(path.join(output,'docs',locale,slug,'index.html'),'utf8');
       assert.ok(html.includes(`<h1 id="title">${source.title}</h1>`));
       assert.match(html,new RegExp(`<html lang="${locale}">`));
+      assert.doesNotMatch(html, /class="article-meta"/);
       assert.ok(html.includes(`github.com/DJ-Huang/ChatToHarness/blob/main/docs/${locale}/${slug}.md`));
       for(const section of ['goal','before','steps','result','troubleshooting','next'])assert.ok(html.includes(`id="${section}"`));
       for(const lang of navigation.locales)assert.ok(html.includes(`href="/ChatToHarness/docs/${lang}/${slug}/" lang="${lang}"`));
@@ -35,6 +36,25 @@ test('editing repository prose changes website and search output without a secon
   buildHelp(output,{docsRoot:docs});
   assert.match(fs.readFileSync(path.join(output,'docs/en/first-connection/index.html'),'utf8'),/Repository-only proof/);
   assert.match(fs.readFileSync(path.join(output,'docs/en/search.json'),'utf8'),/Repository-only proof/);
+});
+test('article version notices remain the only compatibility claim in every language',t=>{
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'cth-help-version-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true}));
+  const docs=path.join(tmp,'docs'),output=path.join(tmp,'output');fs.cpSync(path.join(root,'docs'),docs,{recursive:true});
+  const notices={en:'For the current source; this feature is not in v0.8.1.','zh-CN':'适用于当前源码；v0.8.1 安装包不包含此功能。',ja:'現在のソース向けです。この機能は v0.8.1 に含まれません。'};
+  for(const [locale,notice]of Object.entries(notices)){
+    const file=path.join(docs,locale,'first-task.md'),markdown=fs.readFileSync(file,'utf8');
+    assert.match(markdown,/^> .*0\.6\.0.*$/m);
+    fs.writeFileSync(file,markdown.replace(/^> .*0\.6\.0.*$/m,'> '+notice));
+  }
+  buildHelp(output,{docsRoot:docs});
+  for(const [locale,notice]of Object.entries(notices)){
+    const html=fs.readFileSync(path.join(output,'docs',locale,'first-task/index.html'),'utf8');
+    assert.doesNotMatch(html,/class="article-meta"/);
+    assert.equal(html.split(notice).length-1,1);
+    assert.doesNotMatch(html,/0\.6\.0/);
+    const search=JSON.parse(fs.readFileSync(path.join(output,'docs',locale,'search.json'),'utf8'));
+    assert.ok(search.articles.find(article=>article.slug==='first-task').text.includes(notice));
+  }
 });
 test('repository links work on GitHub and resolve to website articles or preserved developer references',()=>{
   const source=path.join(root,'docs/zh-CN/first-connection.md');

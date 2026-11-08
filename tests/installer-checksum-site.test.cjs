@@ -55,7 +55,7 @@ test('installation checksum instructions survive help rendering and search index
   }
 });
 
-test('documented platform checksum commands read a spaced-path fixture and expose changed bytes', t => {
+test('documented platform checksum commands detect changed bytes and missing files in a spaced path', t => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cth checksum commands '));
   t.after(() => fs.rmSync(home, {recursive: true, force: true}));
   const downloads = path.join(home, 'Downloads');
@@ -63,17 +63,36 @@ test('documented platform checksum commands read a spaced-path fixture and expos
   const payload = Buffer.from('Inert checksum fixture, not an installer.\n');
   const expected = crypto.createHash('sha256').update(payload).digest('hex');
   for (const name of installers) fs.writeFileSync(path.join(downloads, name), payload);
-  fs.writeFileSync(path.join(downloads, 'SHA256SUMS.txt'), installers.map(name => expected + '  ' + name + '\n').join(''));
+  const checksumText = installers.map(name => expected + '  ' + name + '\n').join('');
+  fs.writeFileSync(path.join(downloads, 'SHA256SUMS.txt'), checksumText);
   const language = process.platform === 'win32' ? 'powershell' : 'sh';
   const source = readInstallation('en');
   const command = source.match(new RegExp('```' + language + '\\n([\\s\\S]*?)\\n```'))?.[1];
   assert.equal(command, examples[language]);
-  const run = () => process.platform === 'win32'
-    ? execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command.replaceAll('$HOME', '$env:CTH_CHECKSUM_TEST_HOME')], {encoding: 'utf8', env: {...process.env, CTH_CHECKSUM_TEST_HOME: home}})
-    : execFileSync('sh', ['-c', command], {encoding: 'utf8', env: {...process.env, HOME: home}});
-  const firstHash = result => result.match(/[0-9a-f]{64}/i)?.[0].toLowerCase();
-  assert.equal(firstHash(run()), expected);
+  const shellEnvironment = {...process.env, HOME: home, CTH_CHECKSUM_TEST_HOME: home};
+  // A PowerShell 7 parent can pass its module paths through Node to Windows
+  // PowerShell 5.1. Let the child discover its own standard modules instead.
+  for (const key of Object.keys(shellEnvironment)) {
+    if (key.toLowerCase() === 'psmodulepath') delete shellEnvironment[key];
+  }
+  const run = line => process.platform === 'win32'
+    ? execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '$ErrorActionPreference = "Stop"; ' + line.replaceAll('$HOME', '$env:CTH_CHECKSUM_TEST_HOME')], {encoding: 'utf8', env: shellEnvironment, stdio: 'pipe'})
+    : execFileSync('sh', ['-c', line], {encoding: 'utf8', env: shellEnvironment, stdio: 'pipe'});
+  const [hashCommand, readCommand] = command.split('\n');
+  // Never look for the computed hash in the combined output: the checksum
+  // file also contains hashes and could hide a failed hash command.
+  const computedHash = () => {
+    const output = run(hashCommand).trim();
+    assert.match(output, process.platform === 'win32' ? /^[0-9a-f]{64}$/i : /^[0-9a-f]{64}  /i);
+    return output.slice(0, 64).toLowerCase();
+  };
+  assert.equal(computedHash(), expected);
+  assert.equal(run(readCommand).replace(/\r\n/g, '\n').trim(), checksumText.trim());
   for (const name of installers) fs.appendFileSync(path.join(downloads, name), 'Changed bytes');
-  assert.notEqual(firstHash(run()), expected);
-  assert.equal(fs.readFileSync(path.join(downloads, 'SHA256SUMS.txt'), 'utf8').split('\n')[0], expected + '  ' + installers[0]);
+  const changed = crypto.createHash('sha256').update(Buffer.concat([payload, Buffer.from('Changed bytes')])).digest('hex');
+  assert.notEqual(changed, expected);
+  assert.equal(computedHash(), changed);
+  assert.equal(fs.readFileSync(path.join(downloads, 'SHA256SUMS.txt'), 'utf8'), checksumText);
+  fs.rmSync(path.join(downloads, process.platform === 'win32' ? installers[1] : installers[0]));
+  assert.throws(computedHash);
 });

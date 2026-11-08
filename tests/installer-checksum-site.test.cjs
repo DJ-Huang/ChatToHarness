@@ -19,10 +19,12 @@ const boundaries = {
   'zh-CN': ['同一 Release', '64 个字符', '不要打开安装包', '不能代替代码签名'],
   ja: ['同じリリース', '64 桁', 'インストーラーを開かず', 'コード署名の代わりには'],
 };
+// Git may check out Markdown with CRLF on Windows; code-block matching uses LF.
+const readInstallation = locale => fs.readFileSync(path.join(root, 'docs', locale, 'installation.md'), 'utf8').replace(/\r\n/g, '\n');
 
 for (const [locale, phrases] of Object.entries(boundaries)) {
   test(locale + ' installation explains read-only checksum verification and its limits', () => {
-    const source = fs.readFileSync(path.join(root, 'docs', locale, 'installation.md'), 'utf8');
+    const source = readInstallation(locale);
     assert.ok(source.includes(release));
     for (const [language, command] of Object.entries(examples)) {
       assert.ok(source.includes('```' + language + '\n' + command + '\n```'));
@@ -63,7 +65,7 @@ test('documented platform checksum commands read a spaced-path fixture and expos
   for (const name of installers) fs.writeFileSync(path.join(downloads, name), payload);
   fs.writeFileSync(path.join(downloads, 'SHA256SUMS.txt'), installers.map(name => expected + '  ' + name + '\n').join(''));
   const language = process.platform === 'win32' ? 'powershell' : 'sh';
-  const source = fs.readFileSync(path.join(root, 'docs/en/installation.md'), 'utf8');
+  const source = readInstallation('en');
   const command = source.match(new RegExp('```' + language + '\\n([\\s\\S]*?)\\n```'))?.[1];
   assert.equal(command, examples[language]);
   const run = () => process.platform === 'win32'

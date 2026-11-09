@@ -2,7 +2,7 @@
 
 [English](../en/local-services.md) | [简体中文](../zh-CN/local-services.md) | [日本語](../ja/local-services.md)
 
-> For ChatToHarness 0.6.0.
+> These steps describe the plugin interface in [ChatToHarness v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1).
 
 ## Your goal
 
@@ -23,7 +23,7 @@ Install the service using its official guide and obtain its launch command, argu
 
 ![Add a local MCP service](../images/help/en/mcp-editor.png)
 
-1 Stable service ID; 2 Vendor launch command; 3 Save configuration. Interface demonstration using the current repository UI and isolated sample data; not evidence of a live tunnel or tool call.
+1 Stable service ID; 2 Vendor launch command; 3 Save configuration. Earlier interface demonstration with isolated sample data. Follow the v0.8.1 navigation steps above rather than the menu and panel positions in this image; it is not evidence of a live tunnel or tool call.
 
 ## What success looks like
 

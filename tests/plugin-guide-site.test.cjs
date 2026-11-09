@@ -54,6 +54,7 @@ for (const locale of ['en', 'zh-CN', 'ja']) {
     const expected = {
       'console-tour': [pathLabel(['插件']), pathLabel(['添加插件']), pathLabel(['管理'])],
       'remote-services': [pathLabel(['插件', '添加插件', '接入 MCP 服务'])],
+      'local-services': [],
       'import-export': [pathLabel(['插件', '添加插件', '导入配置']), pathLabel(['插件', '插件设置', '导出配置'])],
     };
     const search = JSON.parse(fs.readFileSync(path.join(output, 'docs', locale, 'search.json'), 'utf8'));

@@ -2,7 +2,7 @@
 
 [English](../en/local-services.md) | [简体中文](../zh-CN/local-services.md) | [日本語](../ja/local-services.md)
 
-> 适用于 ChatToHarness 0.6.0。
+> 以下步骤对应 [ChatToHarness v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1) 的插件界面。
 
 ## 使用目标
 
@@ -23,7 +23,7 @@
 
 ![添加本地 MCP 服务](../images/help/zh-CN/mcp-editor.png)
 
-1 固定服务 ID；2 官方启动命令；3 保存配置。 界面演示：使用当前仓库界面与隔离示例数据，不代表真实通道或工具调用成功。
+1 固定服务 ID；2 官方启动命令；3 保存配置。 历史界面演示，使用隔离示例数据；v0.8.1 的菜单与面板位置请以上述步骤为准。此图不代表真实通道或工具调用成功。
 
 ## 完成后的表现
 

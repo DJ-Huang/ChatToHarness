@@ -2,7 +2,7 @@
 
 [English](../en/console-tour.md) | [简体中文](../zh-CN/console-tour.md) | [日本語](../ja/console-tour.md)
 
-> For ChatToHarness 0.6.0.
+> These steps describe the plugin interface in [ChatToHarness v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1).
 
 ## Your goal
 
@@ -17,13 +17,13 @@ Open ChatToHarness. You can explore the console before entering a key.
 1. Overview: inspect the connection, local tools and first-call checklist; connect or stop the tunnel.
 2. Connection settings: save the tunnel and runtime key, and set automatic connection on launch.
 3. Work directories: add or remove file-tool folders and set automatic project instructions.
-4. MCP Servers: add external services and manage trust and tool permissions.
+4. **Plugins**: choose **Add plugin** to connect an external service, or **Manage** on a plugin card to inspect its settings, trust and tool permissions.
 5. Live logs: follow connection and tool events; expand this sidebar entry to reach execution history.
 6. Connect and help: find client guidance, help articles and updates. Change language near the bottom of the sidebar.
 
 ![Find your way around the console](../images/help/en/overview.png)
 
-1 Connection state; 2 Feature navigation; 3 First-call checklist. Interface demonstration using the current repository UI and isolated sample data; not evidence of a live tunnel or tool call.
+1 Connection state; 2 Feature navigation; 3 First-call checklist. Earlier interface demonstration with isolated sample data. Follow the v0.8.1 navigation steps above rather than the menu and panel positions in this image; it is not evidence of a live tunnel or tool call.
 
 ## What success looks like
 

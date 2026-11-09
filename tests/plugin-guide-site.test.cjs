@@ -44,3 +44,32 @@ test('released plugin steps reach the generated help and search index in every l
     assert.doesNotMatch(text, /MCP Servers/);
   }
 });
+
+for (const locale of ['en', 'zh-CN', 'ja']) {
+  test(`${locale} console, remote service and transfer guides preserve distinct plugin paths`, t => {
+    const output = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-plugin-entrypoints-'));
+    t.after(() => fs.rmSync(output, {recursive: true, force: true}));
+    buildHelp(output);
+    const pathLabel = keys => keys.map(key => translate(locale, key)).join(' → ');
+    const expected = {
+      'console-tour': [pathLabel(['插件']), pathLabel(['添加插件']), pathLabel(['管理'])],
+      'remote-services': [pathLabel(['插件', '添加插件', '接入 MCP 服务'])],
+      'import-export': [pathLabel(['插件', '添加插件', '导入配置']), pathLabel(['插件', '插件设置', '导出配置'])],
+    };
+    const search = JSON.parse(fs.readFileSync(path.join(output, 'docs', locale, 'search.json'), 'utf8'));
+    for (const [slug, labels] of Object.entries(expected)) {
+      const source = fs.readFileSync(path.join(root, 'docs', locale, slug + '.md'), 'utf8');
+      const html = fs.readFileSync(path.join(output, 'docs', locale, slug, 'index.html'), 'utf8');
+      const indexed = search.articles.find(article => article.slug === slug).text;
+      for (const label of labels) {
+        assert.ok(source.includes(`**${label}**`), `${slug}: missing exact navigation ${label}`);
+        assert.ok(html.includes(label), `${slug}: rendered navigation missing`);
+        assert.ok(indexed.includes(label), `${slug}: indexed navigation missing`);
+      }
+      assert.doesNotMatch(source, /MCP Servers|0\.6\.0/);
+      assert.ok(source.includes('https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1'));
+      const caption = {en: 'Earlier interface demonstration', 'zh-CN': '历史界面演示', ja: '以前の画面例'};
+      assert.ok(source.includes(caption[locale]), `${slug}: retained screenshot must be labelled historical`);
+    }
+  });
+}

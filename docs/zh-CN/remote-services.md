@@ -2,7 +2,7 @@
 
 [English](../en/remote-services.md) | [简体中文](../zh-CN/remote-services.md) | [日本語](../ja/remote-services.md)
 
-> 适用于 ChatToHarness 0.6.0。
+> 以下步骤对应 [ChatToHarness v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1) 的插件界面。
 
 ## 使用目标
 
@@ -14,7 +14,7 @@
 
 ## 操作步骤
 
-1. 打开 MCP Servers 并添加服务，填写服务 ID 与显示名称。
+1. 打开**插件 → 添加插件 → 接入 MCP 服务**，填写服务 ID 与显示名称。
 2. 连接方式选择 Streamable HTTP，填写服务地址。远程地址必须使用 HTTPS；HTTP 仅支持本机回环地址。
 3. 按服务商要求填写请求头，例如认证信息；在本机保存，不要放到 URL 查询或聊天中。
 4. 确认服务要求的是静态密钥认证。本版不支持 OAuth 登录流程或旧式 HTTP+SSE。
@@ -22,7 +22,7 @@
 
 ![添加远程 MCP 服务](../images/help/zh-CN/mcp-http.png)
 
-1 连接方式；2 远程地址；3 认证请求头。 界面演示：使用当前仓库界面与隔离示例数据，不代表真实通道或工具调用成功。
+1 连接方式；2 远程地址；3 认证请求头。 历史界面演示，使用隔离示例数据；v0.8.1 的菜单与面板位置请以上述步骤为准。此图不代表真实通道或工具调用成功。
 
 ## 完成后的表现
 

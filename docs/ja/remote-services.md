@@ -2,7 +2,7 @@
 
 [English](../en/remote-services.md) | [简体中文](../zh-CN/remote-services.md) | [日本語](../ja/remote-services.md)
 
-> ChatToHarness 0.6.0 対象。
+> 以下は [ChatToHarness v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1) のプラグイン画面での手順です。
 
 ## 目的
 
@@ -14,7 +14,7 @@ Streamable HTTP の MCP アドレスと認証条件を公式手順で確認し�
 
 ## 操作手順
 
-1. MCP Servers で ID と表示名を入力して追加します。
+1. **プラグイン → プラグインを追加 → MCP サーバーに接続**を開き、ID と表示名を入力します。
 2. Streamable HTTP を選び、接続先を入力します。遠隔先は HTTPS が必須で、HTTP は本機のループバックだけです。
 3. 提供元が指定する認証などのヘッダーを設定します。キーを URL やチャットに含めません。
 4. 固定キーによる認証に対応するか確認します。この版では OAuth ログインや旧式 HTTP+SSE は使えません。
@@ -22,7 +22,7 @@ Streamable HTTP の MCP アドレスと認証条件を公式手順で確認し�
 
 ![リモート MCP サービスを追加する](../images/help/ja/mcp-http.png)
 
-1 接続方式、2 接続先、3 認証ヘッダー。 現在のリポジトリの画面と隔離サンプルによる操作例です。実際の接続やツール実行の成功を示していません。
+1 接続方式、2 接続先、3 認証ヘッダー。 隔離サンプルによる以前の画面例です。v0.8.1 のメニューとパネルの位置は上記の手順に従ってください。実際の接続やツール実行の成功を示す画像ではありません。
 
 ## 完了時の状態
 

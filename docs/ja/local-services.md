@@ -2,7 +2,7 @@
 
 [English](../en/local-services.md) | [简体中文](../zh-CN/local-services.md) | [日本語](../ja/local-services.md)
 
-> ChatToHarness 0.6.0 対象。
+> 以下は [ChatToHarness v0.8.1](https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1) のプラグイン画面での手順です。
 
 ## 目的
 
@@ -23,7 +23,7 @@
 
 ![ローカル MCP サービスを追加する](../images/help/ja/mcp-editor.png)
 
-1 固定 ID、2 公式の起動コマンド、3 設定保存。 現在のリポジトリの画面と隔離サンプルによる操作例です。実際の接続やツール実行の成功を示していません。
+1 固定 ID、2 公式の起動コマンド、3 設定保存。 隔離サンプルによる以前の画面例です。v0.8.1 のメニューとパネルの位置は上記の手順に従ってください。実際の接続やツール実行の成功を示す画像ではありません。
 
 ## 完了時の状態
 

@@ -7,7 +7,7 @@ const {translate} = require('../app/i18n.js');
 for (const locale of ['en', 'zh-CN', 'ja']) {
   test(`${locale} comprehensive guide preserves its anchor but uses released plugin navigation`, () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'docs', locale, 'GUIDE.md'), 'utf8');
-    assert.ok(source.includes('## MCP Servers\n'), 'preserve existing section links');
+    assert.match(source, /^## MCP Servers\r?$/m, 'preserve existing section links with LF or CRLF');
     assert.doesNotMatch(source, /\*\*MCP Servers\*\*/);
     for (const keys of [['插件'], ['管理'], ['连接配置'], ['概览与权限'], ['插件', '添加插件', '接入 MCP 服务'], ['插件', '添加插件', '导入配置'], ['插件', '插件设置', '导出配置']]) {
       assert.ok(source.includes(`**${keys.map(key => translate(locale, key)).join(' → ')}**`), `missing navigation: ${keys}`);

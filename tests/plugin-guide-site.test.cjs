@@ -29,6 +29,41 @@ for (const locale of ['en', 'zh-CN', 'ja']) {
   });
 }
 
+for (const locale of ['en', 'zh-CN', 'ja']) {
+  test(`${locale} permission troubleshooting names the released panels and labels its historical image`, t => {
+    const output = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-permission-guide-'));
+    t.after(() => fs.rmSync(output, { recursive: true, force: true }));
+    const source = fs.readFileSync(path.join(root, 'docs', locale, 'permission-problems.md'), 'utf8');
+    for (const key of ['插件', '管理', '连接配置', '概览与权限']) {
+      assert.ok(source.includes(`**${translate(locale, key)}**`), `missing current UI label: ${key}`);
+    }
+    assert.ok(source.includes('https://github.com/DJ-Huang/ChatToHarness/releases/tag/v0.8.1'));
+    assert.ok(source.includes('](manage-services.md)'));
+    assert.ok(source.includes(`](../images/help/${locale}/mcp-approval.png)`), 'keep the existing demonstration image');
+    const caption = { en: 'Earlier interface demonstration', 'zh-CN': '历史界面演示', ja: '以前の画面例' };
+    assert.ok(source.includes(caption[locale]), 'old screen must not be described as the current interface');
+    assert.doesNotMatch(source, /MCP Servers|0\.6\.0/);
+    const safeguards = {
+      en: ['check whether execution started', 'independent client confirmation', 'Do not use chat tools to change the folder allowlist'],
+      'zh-CN': ['检查请求是否尚未执行', '独立的客户端权限', '不要让聊天工具直接改目录白名单'],
+      ja: ['実行済みかを調べてから', '独立したクライアント側の許可', 'チャットから許可フォルダーを書き換えたり'],
+    };
+    for (const text of safeguards[locale]) assert.ok(source.includes(text), `preserve safeguard: ${text}`);
+    buildHelp(output);
+    const html = fs.readFileSync(path.join(output, 'docs', locale, 'permission-problems', 'index.html'), 'utf8');
+    const search = JSON.parse(fs.readFileSync(path.join(output, 'docs', locale, 'search.json'), 'utf8'));
+    const indexed = search.articles.find(article => article.slug === 'permission-problems').text;
+    for (const key of ['插件', '管理', '连接配置', '概览与权限']) {
+      assert.ok(html.includes(translate(locale, key).replaceAll('&', '&amp;')), `rendered label missing: ${key}`);
+      assert.ok(indexed.includes(translate(locale, key)), `indexed label missing: ${key}`);
+    }
+    assert.ok(html.includes(`/ChatToHarness/docs/${locale}/manage-services/`));
+    assert.ok(html.includes(caption[locale]));
+    assert.ok(indexed.includes(caption[locale]));
+    assert.doesNotMatch(indexed, /MCP Servers/);
+  });
+}
+
 test('released plugin steps reach the generated help and search index in every language', t => {
   const output = fs.mkdtempSync(path.join(os.tmpdir(), 'cth-plugin-guide-'));
   t.after(() => fs.rmSync(output, { recursive: true, force: true }));

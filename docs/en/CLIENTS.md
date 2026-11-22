@@ -52,8 +52,8 @@ Place this definition in the Responses request's `tools` array. The caller confi
 
 ## AgentKit
 
-The official release notes list AgentKit as supporting Secure MCP Tunnel. Configure it through the tunnel-selection surface actually available for the account and product, and keep the same Tunnel runtime running. This version provides official references rather than inventing product-specific configuration.
+OpenAI lists November 30, 2026 as the shutdown date for Agent Builder, its visual workflow builder. ChatKit remains available; this notice does not retire Secure MCP Tunnel. See the [deprecation notice](https://developers.openai.com/api/docs/deprecations#feature-and-endpoint-deprecations) and the [migration guide](https://developers.openai.com/api/docs/guides/agent-builder/migrate-from-agent-builder) for existing Agent Builder workflows.
 
-[Official release notes](https://developers.openai.com/api/docs/changelog) · [Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+For a new API connection to ChatToHarness, follow [Responses API](#responses-api) above and use `tunnel_id` in the MCP tool definition. This is the documented Tunnel route, not a claim that ChatToHarness has been tested with Agent Builder or ChatKit.
 
 Other vendors' clients are not currently included in this product's compatibility list. Official support, account availability, successful tool discovery, and successful tool calls are separate states. See [verification](VERIFICATION.md) for recorded results.

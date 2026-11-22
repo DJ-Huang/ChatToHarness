@@ -52,8 +52,8 @@ MCP ツール定義には `tunnel_id` を使い、ホストされたトンネル
 
 ## AgentKit
 
-公式リリース情報では AgentKit の安全なトンネルへの対応が記載されています。アカウントと製品が実際に提供するトンネル選択画面から設定し、同じ Tunnel runtime を起動したままにします。本バージョンでは公式資料への案内を提供し、根拠のない専用設定は生成しません。
+OpenAI は、ビジュアルワークフロービルダーである Agent Builder の提供終了日を 2026 年 11 月 30 日としています。ChatKit は引き続き利用できます。今回の終了は Secure MCP Tunnel には適用されません。既存の Agent Builder ワークフローについては、[廃止予定](https://developers.openai.com/api/docs/deprecations#feature-and-endpoint-deprecations)と[移行ガイド](https://developers.openai.com/api/docs/guides/agent-builder/migrate-from-agent-builder)を参照してください。
 
-[公式リリース情報](https://developers.openai.com/api/docs/changelog) · [トンネルガイド](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+ChatToHarness に API から新規接続する場合は、上記の [Responses API](#responses-api) に従い、MCP ツール定義で `tunnel_id` を使用してください。これは公式ドキュメントに記載されたトンネル接続方法であり、ChatToHarness の Agent Builder や ChatKit での動作を検証したという意味ではありません。
 
 他社クライアントは現在、この製品の互換性一覧に含めていません。公式対応、アカウントでの利用可否、ツール検出成功、実際の呼び出し成功は別々の状態です。記録済みの結果は[検証記録](VERIFICATION.md)を参照してください。

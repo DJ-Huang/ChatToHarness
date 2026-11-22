@@ -52,9 +52,9 @@
 
 ## AgentKit
 
-官方发布记录列出 AgentKit 支持安全通道。按账户和产品实际提供的通道选择入口配置，保持同一 Tunnel runtime 运行。本版提供官方指引，不生成缺少官方依据的专属配置。
+OpenAI 公布的 Agent Builder（可视化工作流构建器）停用日期为 2026 年 11 月 30 日。ChatKit 仍可用；这次停用不涉及 Secure MCP Tunnel。已有 Agent Builder 工作流请参考[停用公告](https://developers.openai.com/api/docs/deprecations#feature-and-endpoint-deprecations)和[迁移指南](https://developers.openai.com/api/docs/guides/agent-builder/migrate-from-agent-builder)。
 
-[官方发布记录](https://developers.openai.com/api/docs/changelog) · [通道指南](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+新接入 ChatToHarness 的 API 调用方请按上方 [Responses API](#responses-api) 说明，在 MCP 工具声明中使用 `tunnel_id`。这是官方文档列出的通道接入方式，并不表示 ChatToHarness 已在 Agent Builder 或 ChatKit 上完成实测。
 
 其他厂商的客户端目前没有列入本产品兼容清单。通道官方支持、账号可用性、工具发现成功、真实调用成功是不同状态。
 
